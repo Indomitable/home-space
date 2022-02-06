@@ -3,8 +3,6 @@ package user
 import (
 	"context"
 	"home-space/db"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 type UserService interface {
@@ -13,12 +11,14 @@ type UserService interface {
 }
 
 type UserServiceImpl struct {
-	repository db.Repository
+	repository  db.Repository
+	hashService HashService
 }
 
-func NewUserService(repo db.Repository) UserService {
+func NewUserService(repo db.Repository, hashService HashService) UserService {
 	return &UserServiceImpl{
-		repository: repo,
+		repository:  repo,
+		hashService: hashService,
 	}
 }
 
@@ -30,7 +30,7 @@ func (service *UserServiceImpl) Register(context context.Context, userName strin
 		tx.Rollback(context)
 		return false
 	}
-	hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash := service.hashService.HashPassword(password)
 	var auth_password_id uint64
 	err = tx.QueryRow(context, "insert into authentication_password (hash) values ($1) RETURNING id", hash).Scan(&auth_password_id)
 	if err != nil {
@@ -59,7 +59,7 @@ func (service *UserServiceImpl) CheckLogin(context context.Context, userName str
 		var hash []byte
 		err := row.Scan(&hash)
 		if err == nil {
-			return bcrypt.CompareHashAndPassword(hash, []byte(password)) == nil
+			return service.hashService.CompareHashAndPassword(hash, password)
 		}
 	}
 

@@ -19,7 +19,7 @@ func addRepository(c ContainerImp) db.Repository {
 }
 
 func addUserService(c ContainerImp, repo db.Repository) user.UserService {
-	service := user.NewUserService(repo)
+	service := user.NewUserService(repo, user.BCryptHashService{})
 	c.AddSingleton("userService", service)
 	return service
 }

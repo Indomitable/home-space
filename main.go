@@ -8,10 +8,9 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 
-	ctx "home-space/http_context"
+	"home-space/api"
 	"home-space/ioc"
 	"home-space/middleware"
-	"home-space/security"
 )
 
 func main() {
@@ -23,19 +22,25 @@ func main() {
 	defer container.Close()
 
 	router.Use(middleware.AuthMiddleware())
-
 	router.Use(middleware.UseContainer(container))
 
-	router.Path("/").Handler(security.NewAuthenticationGuard(func(writer http.ResponseWriter, r *http.Request, auth *ctx.AuthenticationContext) {
-		if auth.IsAuthenticated {
-			writer.Write([]byte("Wellcome " + auth.Claims.UserName))
-		} else {
-			writer.Write([]byte("Not authenticated"))
-		}
-		writer.WriteHeader(http.StatusOK)
-	})).Methods("GET")
-	router.Path("/api/login").HandlerFunc(security.Login).Methods("POST")
-	router.Path("/api/register").HandlerFunc(security.Register).Methods("POST")
+	// router.Path("/").Handler(security.NewAuthenticationGuard(func(writer http.ResponseWriter, r *http.Request, auth *ctx.AuthenticationContext) {
+	// 	if auth.IsAuthenticated {
+	// 		writer.Write([]byte("Wellcome " + auth.Claims.UserName))
+	// 	} else {
+	// 		writer.Write([]byte("Not authenticated"))
+	// 	}
+	// 	writer.WriteHeader(http.StatusOK)
+	// })).Methods("GET")
+
+	api.RegisterApis(router.PathPrefix("/api").Subrouter())
+
+	frontendHandler := FrontendHandler{
+		staticPath: "client/dist",
+		indexPath:  "index.html",
+	}
+
+	router.PathPrefix("/").Handler(frontendHandler)
 
 	schema := os.Getenv("SERVER_SCHEMA")
 	port := os.Getenv("SERVER_PORT")

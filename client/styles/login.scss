@@ -1,5 +1,9 @@
 .login-dialog {
     display: flex;
     flex-direction: column;
-    
+    row-gap: 5px;
+}
+
+.login-button {
+    margin-top: 5px;
 }

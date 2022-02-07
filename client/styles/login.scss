@@ -4,6 +4,15 @@
     row-gap: 5px;
 }
 
-.login-button {
+.login-actions {
     margin-top: 5px;
+    display: flex;
+    flex-direction: row;
+    column-gap: 10px;
+    justify-content: space-between;
+
+    > button {
+        flex: 1;
+    }
 }
+

@@ -1,7 +1,9 @@
 use log::{debug};
 use serde::{Deserialize, Serialize};
-use yew::{Component, Context, Html, html};
-use crate::api::api_service::{ApiService};
+use yew::{Component, Context, Html, html, Callback};
+use yew_router::prelude::*;
+
+use crate::{api::api_service::{ApiService}, router::AppRoute};
 
 #[derive(Deserialize, Serialize)]
 struct User {
@@ -11,7 +13,8 @@ struct User {
 pub enum LoginMessage {
     StartLogin,
     LoginResulted(User),
-    LoginFailed
+    LoginFailed,
+    Register
 }
 
 pub struct Login {
@@ -54,6 +57,11 @@ impl Component for Login {
             },
             LoginMessage::LoginFailed => {
                 false
+            },
+            LoginMessage::Register => {
+                let history = ctx.link().history().expect("Should Have history");
+                history.push(AppRoute::Register);
+                false
             }
         }
     }
@@ -63,7 +71,10 @@ impl Component for Login {
             <div class="login-dialog">
                 <input type="text" value={self.user_name.clone()} />
                 <input type="password" value={self.password.clone()} />
-                <button class="login-button" onclick={ctx.link().callback(|_| LoginMessage::StartLogin)}>{"Login"}</button>
+                <div class="login-actions">
+                    <button class="login-button" onclick={ctx.link().callback(|_| LoginMessage::StartLogin)}>{"Login"}</button>
+                    <button class="register-button" onclick={ctx.link().callback(|_| LoginMessage::Register)}>{"Register"}</button>
+                </div>
             </div>
         }
     }

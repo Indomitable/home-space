@@ -1,16 +1,23 @@
 use yew::prelude::*;
-use user::login::Login;
+use yew_router::prelude::*;
+use crate::router::{RouterContent};
+use crate::app_context::{AppContextProvider};
 
 mod api;
 mod user;
+mod router;
+mod app_context;
 
 #[function_component(App)]
 fn app() -> Html {
     html! {
-        <main>
-            {"Wellcome to Home Space"}
-            <Login></Login>
-        </main>
+        <BrowserRouter>
+            <AppContextProvider>
+                <main>
+                    <RouterContent />
+                </main>
+            </AppContextProvider>
+        </BrowserRouter>
     }
 }
 

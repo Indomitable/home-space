@@ -17,7 +17,7 @@ func Login(writer http.ResponseWriter, r *http.Request) {
 	container := ctx.GetContainer(r)
 	userService := container.GetService("userService").(user.UserService)
 	login := struct {
-		UserName string `json:"userName"`
+		UserName string `json:"user_name"`
 		Password string `json:"password"`
 	}{}
 	json.NewDecoder(r.Body).Decode(&login)
@@ -32,7 +32,7 @@ func Register(writer http.ResponseWriter, r *http.Request) {
 	container := ctx.GetContainer(r)
 	userService := container.GetService("userService").(user.UserService)
 	login := struct {
-		UserName string `json:"userName"`
+		UserName string `json:"user_name"`
 		Password string `json:"password"`
 	}{}
 	json.NewDecoder(r.Body).Decode(&login)

@@ -1,20 +1,21 @@
-use log::{debug, error};
-use serde::Deserialize;
+use log::{debug};
+use serde::{Deserialize, Serialize};
 use yew::{Component, Context, Html, html};
 use crate::api::api_service::{ApiService};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct User {
-    userName: String
+    user_name: String
 }
 
 pub enum LoginMessage {
     StartLogin,
-    LoginResulted(User)
+    LoginResulted(User),
+    LoginFailed
 }
 
 pub struct Login {
-    userName: String,
+    user_name: String,
     password: String,
     error: String,
 }
@@ -27,7 +28,7 @@ impl Component for Login {
 
     fn create(ctx: &Context<Self>) -> Self {
         Self {
-            userName: String::from(""),
+            user_name: String::from(""),
             password: String::from(""),
             error: String::from(""),
         }
@@ -37,19 +38,22 @@ impl Component for Login {
         match msg {
             LoginMessage::StartLogin => {
                 ctx.link().send_future(async {
-                    match ApiService::get::<User>("/api/test").await {
-                        Ok(user) => LoginMessage::LoginResulted(user),
-                        Err(e) => {
-                            error!("{:?}", e);
-                            panic!();
-                        },
+                    let input = User { user_name: "Ventsislav".to_string() };
+                    let user_result = ApiService::post::<User, User>("/api/test", &input).await;
+                    return if let Ok(user) = user_result {
+                        LoginMessage::LoginResulted(user)
+                    } else {
+                        LoginMessage::LoginFailed
                     }
                 });
                 false
             },
             LoginMessage::LoginResulted(user) => {
-                debug!("{}", user.userName);
+                debug!("{}", user.user_name);
                 true
+            },
+            LoginMessage::LoginFailed => {
+                false
             }
         }
     }
@@ -57,7 +61,7 @@ impl Component for Login {
     fn view(&self, ctx: &yew::Context<Self>) -> Html {
         html! {
             <div class="login-dialog">
-                <input type="text" value={self.userName.clone()} />
+                <input type="text" value={self.user_name.clone()} />
                 <input type="password" value={self.password.clone()} />
                 <button class="login-button" onclick={ctx.link().callback(|_| LoginMessage::StartLogin)}>{"Login"}</button>
             </div>

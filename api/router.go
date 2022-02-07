@@ -8,17 +8,19 @@ import (
 	"github.com/gorilla/mux"
 )
 
+type User struct {
+	UserName string `json:"userName"`
+}
+
 func RegisterApis(router *mux.Router) {
 	router.HandleFunc("/test", func(writer http.ResponseWriter, r *http.Request) {
-		hello := struct {
-			UserName string `json:"userName"`
-		}{
-			UserName: "Ventsi",
-		}
+s		var user User
+		json.NewDecoder(r.Body).Decode(&user)
 		writer.Header().Add("Content-Type", "application/json; charset=utf-8")
-		json.NewEncoder(writer).Encode(hello)
+		user.UserName += " Mladenov"
+		json.NewEncoder(writer).Encode(user)
 		writer.WriteHeader(http.StatusOK)
-	})
+	}).Methods("GET", "POST")
 
 	registerAuthApis(router.PathPrefix("/auth").Subrouter())
 }

@@ -1,12 +1,12 @@
 use log::{debug};
 use serde::{Deserialize, Serialize};
-use yew::{Component, Context, Html, html, Callback};
+use yew::{Component, Context, Html, html};
 use yew_router::prelude::*;
 
 use crate::{api::api_service::{ApiService}, router::AppRoute};
 
 #[derive(Deserialize, Serialize)]
-struct User {
+pub struct User {
     user_name: String
 }
 
@@ -22,8 +22,6 @@ pub struct Login {
     password: String,
     error: String,
 }
-
-
 
 impl Component for Login {
     type Message = LoginMessage;

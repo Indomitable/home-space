@@ -36,10 +36,13 @@ func Register(writer http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}{}
 	json.NewDecoder(r.Body).Decode(&login)
-	if len(login.UserName) > 0 && userService.Register(r.Context(), login.UserName, login.Password) {
+	error := userService.Register(r.Context(), login.UserName, login.Password)
+	if error == nil {
 		createToken(writer, login.UserName)
+		return
 	} else {
 		writer.WriteHeader(http.StatusBadRequest)
+		writer.Write([]byte(error.Error()))
 	}
 }
 

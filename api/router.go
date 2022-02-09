@@ -14,7 +14,7 @@ type User struct {
 
 func RegisterApis(router *mux.Router) {
 	router.HandleFunc("/test", func(writer http.ResponseWriter, r *http.Request) {
-s		var user User
+		var user User
 		json.NewDecoder(r.Body).Decode(&user)
 		writer.Header().Add("Content-Type", "application/json; charset=utf-8")
 		user.UserName += " Mladenov"

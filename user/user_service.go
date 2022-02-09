@@ -2,11 +2,18 @@ package user
 
 import (
 	"context"
+	"errors"
 	"home-space/db"
 )
 
+var (
+	ErrUserNameEmpty            = errors.New("User name is empty")
+	ErrUserNameTaken            = errors.New("User name is alread taken")
+	ErrUserRegisterUnsuccessful = errors.New("User register unsuccessful")
+)
+
 type UserService interface {
-	Register(context context.Context, userName string, password string) bool
+	Register(context context.Context, userName string, password string) error
 	CheckLogin(context context.Context, userName string, password string) bool
 }
 
@@ -22,32 +29,35 @@ func NewUserService(repo db.Repository, hashService HashService) UserService {
 	}
 }
 
-func (service *UserServiceImpl) Register(context context.Context, userName string, password string) bool {
+func (service *UserServiceImpl) Register(context context.Context, userName string, password string) error {
+	if len(userName) == 0 {
+		return ErrUserNameEmpty
+	}
 	tx, _ := service.repository.BeginTransaction(context)
 	var user_id uint64
 	err := tx.QueryRow(context, "insert into users (name) values ($1) RETURNING id", userName).Scan(&user_id)
 	if err != nil {
 		tx.Rollback(context)
-		return false
+		return ErrUserNameTaken
 	}
 	hash := service.hashService.HashPassword(password)
 	var auth_password_id uint64
 	err = tx.QueryRow(context, "insert into authentication_password (hash) values ($1) RETURNING id", hash).Scan(&auth_password_id)
 	if err != nil {
 		tx.Rollback(context)
-		return false
+		return ErrUserRegisterUnsuccessful
 	}
 	_, err = tx.Exec(context, "insert into authentication (user_id, auth_type_id, auth_password_id) values ($1, 1, $2)", user_id, auth_password_id)
 	if err != nil {
 		tx.Rollback(context)
-		return false
+		return ErrUserRegisterUnsuccessful
 	}
 	err = tx.Commit(context)
 	if err != nil {
 		tx.Rollback(context)
-		return false
+		return ErrUserRegisterUnsuccessful
 	}
-	return true
+	return nil
 }
 
 func (service *UserServiceImpl) CheckLogin(context context.Context, userName string, password string) bool {

@@ -3,7 +3,7 @@ use log::debug;
 use yew::{html, Html, function_component, use_context};
 use yew_router::prelude::*;
 
-use crate::{user::login::Login, user::register::RegisterComponent, app_context::AppContext};
+use crate::{user::login::Login, user::register::RegisterComponent, app_context::{AppContext, AuthContext}};
 
 #[derive(Clone, Routable, PartialEq)]
 pub enum AppRoute {
@@ -27,12 +27,13 @@ pub fn router_content() -> Html {
 }
 
 pub fn app_route_switch(context: &AppContext, routes: &AppRoute) -> Html {   
-    // debug!("{:?}", context);
-    // if AppRoute::Login != *routes &&
-    //     AppRoute::Register != *routes && 
-    //     !context.auth_context.is_authencitated {
-    //     return html!( <Redirect<AppRoute> to={AppRoute::Login} /> );
-    // }
+    debug!("{:?}", context);
+    if AppRoute::Login != *routes &&
+       AppRoute::Register != *routes {
+        if let AuthContext::NotAuthenticated = context.auth_context {
+            return html!( <Redirect<AppRoute> to={AppRoute::Login} /> );
+        }
+    }
 
     match routes {
         AppRoute::Home => todo!(),

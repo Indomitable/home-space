@@ -12,9 +12,15 @@ var (
 	ErrUserRegisterUnsuccessful = errors.New("User register unsuccessful")
 )
 
+type UserDetails struct {
+	UserId   int64
+	UserName string
+}
+
 type UserService interface {
 	Register(context context.Context, userName string, password string) error
 	CheckLogin(context context.Context, userName string, password string) bool
+	GetUserDetails(context context.Context, user_name string) UserDetails
 }
 
 type UserServiceImpl struct {
@@ -74,4 +80,16 @@ func (service *UserServiceImpl) CheckLogin(context context.Context, userName str
 	}
 
 	return false
+}
+
+func (service *UserServiceImpl) GetUserDetails(context context.Context, user_name string) UserDetails {
+	row := service.repository.QueryRow(context, `select u.id users u where u."name" = $1`)
+	var (
+		user_id int64
+	)
+	row.Scan(&user_id)
+	return UserDetails{
+		UserId:   user_id,
+		UserName: user_name,
+	}
 }

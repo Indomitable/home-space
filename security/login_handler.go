@@ -22,7 +22,8 @@ func Login(writer http.ResponseWriter, r *http.Request) {
 	}{}
 	json.NewDecoder(r.Body).Decode(&login)
 	if userService.CheckLogin(r.Context(), login.UserName, login.Password) {
-		createToken(writer, login.UserName)
+		user_details := userService.GetUserDetails(r.Context(), login.UserName)
+		createToken(writer, user_details)
 	} else {
 		writer.WriteHeader(http.StatusForbidden)
 	}
@@ -38,7 +39,8 @@ func Register(writer http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&login)
 	error := userService.Register(r.Context(), login.UserName, login.Password)
 	if error == nil {
-		createToken(writer, login.UserName)
+		user_details := userService.GetUserDetails(r.Context(), login.UserName)
+		createToken(writer, user_details)
 		return
 	} else {
 		writer.WriteHeader(http.StatusBadRequest)
@@ -46,14 +48,15 @@ func Register(writer http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func createToken(writer http.ResponseWriter, userName string) {
+func createToken(writer http.ResponseWriter, user_details user.UserDetails) {
 	os.Getenv("JWT_TOKEN_SEC_KEY")
 	schema := os.Getenv("SERVER_SCHEMA")
 	port := os.Getenv("SERVER_PORT")
 	host := os.Getenv("SERVER_NAME")
 	issuer := fmt.Sprintf("%s://%s:%s", schema, host, port)
 	claims := UserClaims{
-		UserName: userName,
+		UserId:   user_details.UserId,
+		UserName: user_details.UserName,
 		StandardClaims: jwt.StandardClaims{
 			Issuer:    issuer,
 			ExpiresAt: time.Now().Add(time.Hour * 3).Unix(),

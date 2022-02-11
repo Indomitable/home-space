@@ -34,5 +34,6 @@ func registerAuthApis(router *mux.Router) {
 
 func registerFileApis(router *mux.Router) {
 	files_controller := files.NewFileController()
-	router.Handle("/top_files", files_controller.HandleTopFiles()).Methods("GET")
+	router.Handle("/top_files", security.NewAuthenticationGuard(files_controller.HandleTopFiles())).Methods("GET")
+	router.Handle("/directory/{id}", security.NewAuthenticationGuard(files_controller.HandleDirectoryContents())).Methods("GET")
 }

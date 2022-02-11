@@ -43,7 +43,7 @@ func GetAuthContext(r *http.Request, key string) ctx.AuthenticationContext {
 		})
 		if err == nil {
 			if claims, ok := parsed_token.Claims.(*security.UserClaims); ok && parsed_token.Valid {
-				return ctx.NewAuthenticated(claims.UserName)
+				return ctx.NewAuthenticated(claims.UserId, claims.UserName)
 			}
 		}
 	}

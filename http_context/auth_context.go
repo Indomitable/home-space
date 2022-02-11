@@ -3,6 +3,7 @@ package http_context
 const AuthContextKey = "AuthContext"
 
 type ClaimsContext struct {
+	UserId   int64
 	UserName string
 }
 
@@ -17,11 +18,12 @@ func NewUnauthenticated() AuthenticationContext {
 	}
 }
 
-func NewAuthenticated(userName string) AuthenticationContext {
+func NewAuthenticated(user_id int64, user_name string) AuthenticationContext {
 	return AuthenticationContext{
 		IsAuthenticated: true,
 		Claims: ClaimsContext{
-			UserName: userName,
+			UserId:   user_id,
+			UserName: user_name,
 		},
 	}
 }

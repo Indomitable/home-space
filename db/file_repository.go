@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgtype"
+	"github.com/jackc/pgx/v4"
 )
 
 type FileModel struct {
@@ -17,7 +18,8 @@ type FileModel struct {
 }
 
 type FileRepository interface {
-	FetchTopFiles(context context.Context) []FileModel
+	FetchTopFiles(context context.Context, user int64) []FileModel
+	FetchDirectoryContents(context context.Context, directory int64, user int64) []FileModel
 }
 
 type FileRepositoryImp struct {
@@ -30,9 +32,19 @@ func NewFileRepository(repository Repository) FileRepository {
 	}
 }
 
-func (fs *FileRepositoryImp) FetchTopFiles(context context.Context) []FileModel {
-	sql := "select * from file_nodes fn where fn.parent_id is null"
-	rows, err := fs.repository.Query(context, sql)
+func (fs *FileRepositoryImp) FetchTopFiles(context context.Context, user int64) []FileModel {
+	sql := "select * from file_nodes fn where fn.parent_id is null and user_id = $1"
+	rows, err := fs.repository.Query(context, sql, user)
+	return ReadFiles(rows, err)
+}
+
+func (fs *FileRepositoryImp) FetchDirectoryContents(context context.Context, directory int64, user int64) []FileModel {
+	sql := "select * from file_nodes fn where fn.parent_id = $1 and user_id = $2"
+	rows, err := fs.repository.Query(context, sql, directory, user)
+	return ReadFiles(rows, err)
+}
+
+func ReadFiles(rows pgx.Rows, err error) []FileModel {
 	files := make([]FileModel, 0)
 	if err != nil {
 		return files

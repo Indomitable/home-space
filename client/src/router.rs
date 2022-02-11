@@ -27,12 +27,12 @@ pub fn router_content() -> Html {
 }
 
 pub fn app_route_switch(context: &AppContext, routes: &AppRoute) -> Html {   
-    debug!("{:?}", context);
-    if AppRoute::Login != *routes &&
-        AppRoute::Register != *routes && 
-        !context.auth_context.is_authencitated {
-        return html!( <Redirect<AppRoute> to={AppRoute::Login} /> );
-    }
+    // debug!("{:?}", context);
+    // if AppRoute::Login != *routes &&
+    //     AppRoute::Register != *routes && 
+    //     !context.auth_context.is_authencitated {
+    //     return html!( <Redirect<AppRoute> to={AppRoute::Login} /> );
+    // }
 
     match routes {
         AppRoute::Home => todo!(),

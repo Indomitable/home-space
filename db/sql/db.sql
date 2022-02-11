@@ -45,32 +45,27 @@ create table user_roles (
 	constraint fk_users foreign key (user_id) references users(id) on delete cascade
 );
 
-
-create table directories (
-	id bigint,
-	user_id bigint not null,
-	title varchar not null,
-	parent_id bigint,
-	level int not null,
-	filesystem_path varchar not null,
-	constraint pk_directories primary key (id, user_id),
-	constraint fk_users foreign key (user_id) references users(id),
-	constraint fk_directories foreign key (parent_id, user_id) references directories(id, user_id)	
-) partition by hash (user_id);
-
 --comment on directories.level is 'directory hierarchy level. Top level directories has value 0';
 --comment on directories.filesystem_path is 'physical directory location on filesystem';
 
+drop table file_nodes;
+
 create table file_nodes (
-	id bigint not null,
+	id bigserial,
 	user_id bigint not null,
 	title varchar not null,
-	parent_id bigint not null,
+	parent_id bigint,
+	node_type SMALLINT NOT NULL,	
 	filesystem_path varchar not null,
-	version int not null,
+	mime_type varchar,
 	constraint pk_file_nodes primary key (id, user_id),
-	constraint fk_directories foreign key (parent_id, user_id) references directories(id, user_id)
-) partition by hash (user_id);
+	constraint fk_file_nodes foreign key (parent_id, user_id) references file_nodes(id, user_id)
+);
+
+create index idx_file_nodes on file_nodes (user_id);
+
+
+
 
 --create table file_versions (
 --	file_id uuid,

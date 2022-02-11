@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 yew = "0.19"
 yew-router = "0.16"
+yew-agent = "0.1"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 gloo-utils = "0.1"

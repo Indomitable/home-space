@@ -9,12 +9,12 @@ import (
 
 	jwt "github.com/golang-jwt/jwt"
 
-	ctx "home-space/http_context"
+	"home-space/helpers"
 	"home-space/user"
 )
 
 func Login(writer http.ResponseWriter, r *http.Request) {
-	container := ctx.GetContainer(r)
+	container := helpers.GetInjector(r)
 	userService := container.GetService("userService").(user.UserService)
 	login := struct {
 		UserName string `json:"user_name"`
@@ -29,7 +29,7 @@ func Login(writer http.ResponseWriter, r *http.Request) {
 }
 
 func Register(writer http.ResponseWriter, r *http.Request) {
-	container := ctx.GetContainer(r)
+	container := helpers.GetInjector(r)
 	userService := container.GetService("userService").(user.UserService)
 	login := struct {
 		UserName string `json:"user_name"`

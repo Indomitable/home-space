@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"home-space/files"
 	"home-space/security"
 	"net/http"
 
@@ -23,9 +24,15 @@ func RegisterApis(router *mux.Router) {
 	}).Methods("GET", "POST")
 
 	registerAuthApis(router.PathPrefix("/auth").Subrouter())
+	registerFileApis(router.PathPrefix("/files").Subrouter())
 }
 
 func registerAuthApis(router *mux.Router) {
 	router.HandleFunc("/login", security.Login).Methods("POST")
 	router.HandleFunc("/register", security.Register).Methods("POST")
+}
+
+func registerFileApis(router *mux.Router) {
+	files_controller := files.NewFileController()
+	router.Handle("/top_files", files_controller.HandleTopFiles()).Methods("GET")
 }

@@ -83,7 +83,7 @@ func (service *UserServiceImpl) CheckLogin(context context.Context, userName str
 }
 
 func (service *UserServiceImpl) GetUserDetails(context context.Context, user_name string) UserDetails {
-	row := service.repository.QueryRow(context, `select u.id users u where u."name" = $1`)
+	row := service.repository.QueryRow(context, `select u.id from users u where u."name" = $1`, user_name)
 	var (
 		user_id int64
 	)

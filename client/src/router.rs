@@ -1,6 +1,7 @@
 
-use log::debug;
 use yew::{html, Html, function_component, use_context};
+use crate::home::{Home};
+use crate::user::secure_component::Secure;
 use yew_router::prelude::*;
 
 use crate::{user::login::Login, user::register::RegisterComponent, app_context::{AppContext, AuthContext}};
@@ -9,8 +10,6 @@ use crate::{user::login::Login, user::register::RegisterComponent, app_context::
 pub enum AppRoute {
     #[at("/")]
     Home,
-    #[at("/secure")]
-    Secure,
     #[at("/login")]
     Login,
     #[at("/register")]
@@ -27,17 +26,14 @@ pub fn router_content() -> Html {
 }
 
 pub fn app_route_switch(context: &AppContext, routes: &AppRoute) -> Html {   
-    debug!("{:?}", context);
-    if AppRoute::Login != *routes &&
-       AppRoute::Register != *routes {
-        if let AuthContext::NotAuthenticated = context.auth_context {
-            return html!( <Redirect<AppRoute> to={AppRoute::Login} /> );
-        }
-    }
 
+    let user_context = if let AuthContext::Authenticated(user) = &context.auth_context {
+        user
+    } else {
+        unreachable!()
+    };
     match routes {
-        AppRoute::Home => todo!(),
-        AppRoute::Secure => todo!(),
+        AppRoute::Home => html!(<Secure><Home user_context={user_context.clone()}></Home></Secure> ),
         AppRoute::Login => html!( <Login></Login> ),
         AppRoute::Register => html!( <RegisterComponent></RegisterComponent> )
     }

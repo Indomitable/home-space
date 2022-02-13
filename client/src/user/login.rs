@@ -3,7 +3,7 @@ use web_sys::HtmlInputElement;
 use yew::{Component, Context, Html, html, NodeRef, Callback};
 use yew_router::prelude::*;
 
-use crate::{api::api_service::{ApiService}, router::AppRoute, app_context::{AppContext, AppContextAction, UserContext}};
+use crate::{api::api_service::{ApiService}, router::AppRoute, app_context::{AppContext, AppContextAction}};
 
 #[derive(Serialize)]
 pub struct LoginRequest {
@@ -68,10 +68,8 @@ impl Component for Login {
             },
             LoginMessage::LoginResulted(user) => {
                 let (app_context, _)  = ctx.link().context::<AppContext>(Callback::noop()).expect("Should have App context");
-                app_context.dispatch(AppContextAction::Authenticate(UserContext {
-                    access_token: user.access_token
-                }));
-                let history = ctx.link().history().expect("Should Have history");
+                app_context.dispatch(AppContextAction::Authenticate(user.access_token));
+                let history = ctx.link().navigator().expect("Should Have history");
                 history.push(AppRoute::Home);
                 true
             },
@@ -79,7 +77,7 @@ impl Component for Login {
                 false
             },
             LoginMessage::Register => {
-                let history = ctx.link().history().expect("Should Have history");
+                let history = ctx.link().navigator().expect("Should Have history");
                 history.push(AppRoute::Register);
                 false
             }

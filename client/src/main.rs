@@ -4,7 +4,6 @@ use crate::router::{RouterContent};
 use crate::app_context::{AppContextProvider};
 
 mod api;
-#[macro_use]
 mod user;
 mod router;
 mod app_context;

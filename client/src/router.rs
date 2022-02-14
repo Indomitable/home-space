@@ -4,7 +4,7 @@ use crate::home::{Home};
 use crate::user::secure_component::Secure;
 use yew_router::prelude::*;
 
-use crate::{user::login::Login, user::register::RegisterComponent, app_context::{AppContext, AuthContext}};
+use crate::{user::login::Login, user::register::RegisterComponent, app_context::AppContext};
 
 #[derive(Clone, Routable, PartialEq)]
 pub enum AppRoute {
@@ -25,15 +25,9 @@ pub fn router_content() -> Html {
     }
 }
 
-pub fn app_route_switch(context: &AppContext, routes: &AppRoute) -> Html {   
-
-    let user_context = if let AuthContext::Authenticated(user) = &context.auth_context {
-        user
-    } else {
-        unreachable!()
-    };
+pub fn app_route_switch(_context: &AppContext, routes: &AppRoute) -> Html {   
     match routes {
-        AppRoute::Home => html!(<Secure><Home user_context={user_context.clone()}></Home></Secure> ),
+        AppRoute::Home => html!(<Secure><Home></Home></Secure> ),
         AppRoute::Login => html!( <Login></Login> ),
         AppRoute::Register => html!( <RegisterComponent></RegisterComponent> )
     }

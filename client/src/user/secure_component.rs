@@ -1,5 +1,5 @@
 use crate::{
-    app_context::{AppContext, AuthContext},
+    app_context::{AppContext, AuthContext, UserContext},
     router::AppRoute,
 };
 use yew::prelude::*;
@@ -27,3 +27,15 @@ pub fn secure_component(props: &SecureComponentProps) -> Html {
         }
     }
 }
+
+#[hook]
+pub fn use_user_context() -> UserContext {
+    let context = use_context::<AppContext>().expect("Required context");
+    let user = if let AuthContext::Authenticated(user) = &context.auth_context {
+        user
+    } else {
+        panic!("User should be authenticated when accessing this view")
+    };
+    user.clone()
+}
+

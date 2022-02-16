@@ -27,6 +27,12 @@ func (fs *FileController) HandleTopFiles() security.AuthenticatedHandler {
 	return fn
 }
 
+func HandleTopFiles2(writer http.ResponseWriter, request *http.Request) {
+	file_repository := GetFileRepository(request)
+	top_files := file_repository.FetchTopFiles(request.Context(), 1)
+	helpers.WriteResponse(writer, top_files)
+}
+
 func (fs *FileController) HandleDirectoryContents() security.AuthenticatedHandler {
 	var fn security.AuthenticatedHandler = func(writer http.ResponseWriter, request *http.Request, auth *http_context.AuthenticationContext) {
 		file_repository := GetFileRepository(request)

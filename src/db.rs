@@ -14,7 +14,7 @@ pub fn new_pool() -> Pool {
     return pool;
 }
 
-pub async fn query(pool: web::Data<Pool>, query: &str, params: &[&(dyn ToSql + Sync)]) -> std::result::Result<Vec<deadpool_postgres::tokio_postgres::Row>, Box<dyn std::error::Error>> {
+pub async fn query(pool: web::Data<Pool>, query: &str, params: &[&(dyn ToSql + Sync)]) -> std::result::Result<Vec<deadpool_postgres::tokio_postgres::Row>, deadpool_postgres::PoolError> {
     let connection = pool.get().await?;
     let statement = connection.prepare_cached(query).await?;
     let rows = connection.query(&statement, params).await?;

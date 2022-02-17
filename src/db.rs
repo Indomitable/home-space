@@ -1,7 +1,11 @@
+#![allow(dead_code)]
+
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use deadpool_postgres::tokio_postgres::NoTls;
 use deadpool_postgres::tokio_postgres::types::ToSql;
 use actix_web::web;
+
+pub type DbResult<T> = std::result::Result<T, deadpool_postgres::PoolError>;
 
 pub fn new_pool() -> Pool {
     let connection = format!("postgresql://{}:{}@{}/{}?connect_timeout=10&application_name=home-space", "files", "files", "localhost", "files_db");
@@ -14,9 +18,23 @@ pub fn new_pool() -> Pool {
     return pool;
 }
 
-pub async fn query(pool: web::Data<Pool>, query: &str, params: &[&(dyn ToSql + Sync)]) -> std::result::Result<Vec<deadpool_postgres::tokio_postgres::Row>, deadpool_postgres::PoolError> {
+pub async fn query(pool: &web::Data<Pool>, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<Vec<deadpool_postgres::tokio_postgres::Row>> {
     let connection = pool.get().await?;
     let statement = connection.prepare_cached(query).await?;
     let rows = connection.query(&statement, params).await?;
     return Ok(rows);
+}
+
+pub async fn query_one(pool: &web::Data<Pool>, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<deadpool_postgres::tokio_postgres::Row> {
+    let connection = pool.get().await?;
+    let statement = connection.prepare_cached(query).await?;
+    let row = connection.query_one(&statement, params).await?;
+    return Ok(row);
+}
+
+pub async fn execute(pool: &web::Data<Pool>, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<u64> {
+    let connection = pool.get().await?;
+    let statement = connection.prepare_cached(query).await?;
+    let affected = connection.execute(&statement, params).await?;
+    return Ok(affected);
 }

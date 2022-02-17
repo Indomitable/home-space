@@ -5,6 +5,7 @@ use actix_web::{web, App, HttpServer};
 use db::new_pool;
 
 mod db;
+mod response;
 mod files;
 
 #[actix_web::main]

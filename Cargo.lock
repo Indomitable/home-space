@@ -672,6 +672,7 @@ dependencies = [
  "actix-files",
  "actix-web",
  "deadpool-postgres",
+ "futures-util",
  "serde",
  "serde_json",
 ]

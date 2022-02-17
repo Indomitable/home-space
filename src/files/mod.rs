@@ -8,5 +8,6 @@ pub fn init_routes(config: &mut web::ServiceConfig) {
         web::scope("/files")
             .service(files_controller::get_top_nodes)
             .service(files_controller::get_nodes)
+            .service(files_controller::upload_file)
     );
 }

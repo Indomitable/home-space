@@ -51,10 +51,10 @@ create table user_roles (
 drop table file_nodes;
 
 create table file_nodes (
-	id bigserial,
+	id bigint not null,
 	user_id bigint not null,
 	title varchar not null,
-	parent_id bigint,
+	parent_id bigint null,
 	node_type SMALLINT NOT NULL,	
 	filesystem_path varchar not null,
 	mime_type varchar,
@@ -64,7 +64,10 @@ create table file_nodes (
 
 create index idx_file_nodes on file_nodes (user_id);
 
+create sequence file_nodes_user_1 as bigint increment by 1 minvalue 1 NO MAXVALUE no cycle owned by file_nodes.id;
 
+insert into file_nodes (id, user_id, title, parent_id, node_type, filesystem_path)
+values (0, 1, 'ROOT', null, 0, '/mnt/storage/files/1');
 
 
 --create table file_versions (

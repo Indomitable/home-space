@@ -2,10 +2,10 @@ use std::{path::{Path, PathBuf}, io::Write, borrow::Cow};
 use actix_web::{web, Responder, Result, HttpRequest, delete, post, get, put};
 use deadpool_postgres::Pool;
 use futures_util::TryStreamExt;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::response::*;
-use super::files_repository::{self as repo, NODE_TYPE_FILE};
+use super::files_repository::{self as repo, NODE_TYPE_FILE, FileNodeDto};
 
 #[derive(Deserialize)]
 pub struct User {
@@ -22,9 +22,10 @@ pub struct User {
 pub async fn get_nodes(pool: web::Data<Pool>, path: web::Path<i64>, user: web::Query<User>) -> Result<impl Responder> {
     let parent_id = path.into_inner();
     if let Ok(nodes) = repo::fetch_nodes(&pool, parent_id, user.user_id).await {
+        let nodes = nodes_mapper(nodes.iter());
         return Ok(web::Json(nodes));
     }
-    error_server_unavailable()
+    error_internal_server_error()
 }
 
 ///
@@ -38,9 +39,8 @@ pub async fn get_file(pool: web::Data<Pool>, path: web::Path<i64>, user: web::Qu
             let file = actix_files::NamedFile::open_async(node.filesystem_path).await?;
             return Ok(file);
         }
-        return error_bad_request();
     }
-    error_server_unavailable()
+    error_not_found() // file not found
 }
 
 #[derive(Deserialize)]
@@ -57,22 +57,28 @@ pub async fn create_folder(pool: web::Data<Pool>, path: web::Path<i64>, user: we
     let parent_id = path.into_inner();
     let folder_name = Cow::from(&body.name);
     let path = get_save_path(&pool, parent_id, user.user_id, &folder_name).await;
-    let file_node = repo::FileNode {
+    let file_node = repo::FileNodeDto {
         id: 0,
         user_id: user.user_id,
         title: folder_name.into_owned(),
-        parent_id: parent_id,
+        parent_id: Some(parent_id),
         node_type: repo::NODE_TYPE_FOLDER,
         filesystem_path: path.to_str().unwrap().to_owned(),
         mime_type: None
     };
-    if let Ok(a) = repo::add_node(&pool, file_node).await {
-        if a == 1 {
-            web::block(move || std::fs::create_dir(path) ).await??;
-            return created();
+    match repo::add_node(&pool, file_node).await {
+        Ok(affected) => {
+            if affected == 1 {
+                if let Ok(Ok(_)) = actix_rt::task::spawn_blocking(move || std::fs::create_dir(path)).await {
+                    return created();
+                }
+            }
+        },
+        Err(e) => {
+            log::error!("Error creating folder: [Message: {}]", e);
         }
     }
-    error_server_unavailable()
+    error_internal_server_error()
 }
 
 ///
@@ -84,16 +90,15 @@ pub async fn delete_node(pool: web::Data<Pool>, path: web::Path<i64>, user: web:
     let id = path.into_inner();
     if let Ok(node) = repo::fetch_node(&pool, id, user.user_id).await {
         if node.node_type == NODE_TYPE_FILE {
-            if let Ok(affected) = repo::delete_node(&pool, id, node.node_type, user.user_id).await {
-                if affected == 1 {
-                    // delete file from the file system only if it was deleted.
-                    web::block(move || std::fs::remove_file(node.filesystem_path) ).await??;
+            if let Ok(1) = repo::delete_node(&pool, id, node.node_type, user.user_id).await {
+                // delete file from the file system only if it was deleted.
+                if let Ok(Ok(_)) = actix_rt::task::spawn_blocking(move || std::fs::remove_file(node.filesystem_path) ).await {
                     return no_content()
                 }
             }
         }
     }
-    not_found()
+    error_not_found()
 }
 
 
@@ -129,11 +134,11 @@ pub async fn upload_file(request: HttpRequest, pool: web::Data<Pool>, path: web:
             //bytes.extend(item);
             f = web::block(move || f.write_all(&item).map(|_| f)).await??;
         }
-        let file_node = repo::FileNode {
+        let file_node = repo::FileNodeDto {
             id: 0,
             user_id: user.user_id,
             title: file_name,
-            parent_id: parent_id,
+            parent_id: Some(parent_id),
             node_type: repo::NODE_TYPE_FILE,
             filesystem_path,
             mime_type: None
@@ -164,4 +169,28 @@ async fn get_save_path(pool: &web::Data<Pool>, parent_id: i64, user_id: i64, nam
         node.map_or(default_path.into(), |n| n.filesystem_path.into())
     } else { default_path.into() };
     Path::new(parent.as_ref()).join(name).to_path_buf()
+}
+
+#[derive(Serialize)]
+pub struct FileNode {
+    pub id: i64,
+    pub title: String,
+    pub parent_id: Option<i64>,
+    pub node_type: i16,
+    pub mime_type: Option<String>
+}
+
+fn node_mapper(dto: &FileNodeDto) -> FileNode {
+    FileNode {
+        id: dto.id,
+        title: dto.title.clone(),
+        parent_id: dto.parent_id,
+        node_type: dto.node_type,
+        mime_type: dto.mime_type.clone()
+    }
+}
+
+fn nodes_mapper<'a, TInputIter>(dto_nodes: TInputIter) -> Vec<FileNode>
+    where TInputIter: Iterator<Item = &'a FileNodeDto>  {
+    dto_nodes.map(|dto| node_mapper(dto)).collect::<Vec<FileNode>>()
 }

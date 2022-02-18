@@ -1,5 +1,5 @@
 use std::{path::{Path, PathBuf}, io::Write, borrow::Cow};
-use actix_web::{web, Responder, Result, HttpRequest, delete, post, get, put};
+use actix_web::{web, Responder, Result, HttpRequest, delete, get, put};
 use deadpool_postgres::Pool;
 use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
@@ -102,19 +102,19 @@ pub async fn delete_node(pool: web::Data<Pool>, path: web::Path<i64>, user: web:
 }
 
 
-#[post("/move_node/{id}/{parent_id}")]
-pub async fn move_node(request: HttpRequest, pool: web::Data<Pool>, path: web::Path<i64>, user: web::Query<User>) -> Result<impl Responder> {
-    todo!("Implement move node");
-    // let id = path.into_inner();
-    no_content()
-}
+// #[post("/move_node/{id}/{parent_id}")]
+// pub async fn move_node(request: HttpRequest, pool: web::Data<Pool>, path: web::Path<i64>, user: web::Query<User>) -> Result<impl Responder> {
+//     todo!("Implement move node");
+//     // let id = path.into_inner();
+//     no_content()
+// }
 
-#[post("/copy_node/{id}/{parent_id}")]
-pub async fn copy_node(request: HttpRequest, pool: web::Data<Pool>, path: web::Path<i64>, user: web::Query<User>) -> Result<impl Responder> {
-    todo!("Implement copy node");
-    // let id = path.into_inner();
-    created()
-}
+// #[post("/copy_node/{id}/{parent_id}")]
+// pub async fn copy_node(request: HttpRequest, pool: web::Data<Pool>, path: web::Path<i64>, user: web::Query<User>) -> Result<impl Responder> {
+//     todo!("Implement copy node");
+//     // let id = path.into_inner();
+//     created()
+// }
 
 ///
 /// Method: PUT 

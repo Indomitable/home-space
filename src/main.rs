@@ -6,6 +6,7 @@ use db::new_pool;
 
 mod db;
 mod response;
+mod user;
 mod files;
 
 #[actix_web::main]
@@ -22,6 +23,7 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/api")
                     .configure(files::init_routes)
             )
+            .configure(user::init_routes)
             .configure(files::init_routes)
             .service(Files::new("/", "client/dist").index_file("index.html"))
             .default_service(web::get().to(get_index))

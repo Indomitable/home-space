@@ -1,7 +1,7 @@
-pub mod files_controller;
-pub mod files_repository;
+mod files_controller;
+mod files_repository;
 
-use actix_web::{web, guard, http};
+use actix_web::web;
 
 pub fn init_routes(config: &mut web::ServiceConfig) {
     config.service(
@@ -11,7 +11,7 @@ pub fn init_routes(config: &mut web::ServiceConfig) {
             .service(files_controller::create_folder)
             .service(files_controller::upload_file)
             .service(files_controller::delete_node)
-            .service(files_controller::move_node)
-            .service(files_controller::copy_node)
+            // .service(files_controller::move_node)
+            // .service(files_controller::copy_node)
     );
 }

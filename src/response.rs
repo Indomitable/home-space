@@ -10,6 +10,14 @@ pub fn created() -> Result<HttpResponse, actix_web::Error> {
     return Ok(HttpResponse::Created().into());
 }
 
+pub fn no_content() -> Result<HttpResponse, actix_web::Error> {
+    return Ok(HttpResponse::NoContent().into());
+}
+
+pub fn not_found() -> Result<HttpResponse, actix_web::Error> {
+    return Ok(HttpResponse::NotFound().into());
+}
+
 pub fn error_server_unavailable<T>() -> Result<T, actix_web::Error> {
     return Err(actix_web::error::ErrorServiceUnavailable("Service down"));
 }

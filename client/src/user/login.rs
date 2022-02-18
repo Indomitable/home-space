@@ -3,6 +3,8 @@ use web_sys::HtmlInputElement;
 use yew::{Component, Context, Html, html, NodeRef, Callback};
 use yew_router::prelude::*;
 
+use home_space_contracts::user::LoginResponse;
+
 use crate::{api::api_service::{ApiService}, router::AppRoute, app_context::{AppContext, AppContextAction}};
 
 #[derive(Serialize)]
@@ -10,14 +12,6 @@ pub struct LoginRequest {
     user_name: String,
     password: String
 }
-
-#[derive(Deserialize)]
-pub struct LoginResponse {
-    // user_id: i64,
-    // user_name: String,
-    access_token: String,
-}
-
 
 pub enum LoginMessage {
     StartLogin(String, String),

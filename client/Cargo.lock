@@ -255,6 +255,7 @@ dependencies = [
  "base64",
  "console_log",
  "gloo-utils",
+ "home_space_contracts",
  "log",
  "serde",
  "serde_json",
@@ -264,6 +265,13 @@ dependencies = [
  "yew",
  "yew-agent",
  "yew-router",
+]
+
+[[package]]
+name = "home_space_contracts"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+home_space_contracts = { path = "../contracts" }
 yew = { git = "https://github.com/yewstack/yew", features = ["tokio"] }
 yew-router = { git = "https://github.com/yewstack/yew" }
 yew-agent = { git = "https://github.com/yewstack/yew" }

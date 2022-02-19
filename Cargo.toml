@@ -2,9 +2,10 @@
 
 members = [
     "server",
-    "contracts"
+    "contracts",
+    "client"
 ]
 
 exclude = [
-    "client"
+    
 ]

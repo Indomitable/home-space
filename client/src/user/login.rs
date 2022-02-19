@@ -1,17 +1,12 @@
-use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+
 use web_sys::HtmlInputElement;
 use yew::{Component, Context, Html, html, NodeRef, Callback};
 use yew_router::prelude::*;
 
-use home_space_contracts::user::LoginResponse;
+use home_space_contracts::user::{ LoginRequest, LoginResponse };
 
-use crate::{api::api_service::{ApiService}, router::AppRoute, app_context::{AppContext, AppContextAction}};
-
-#[derive(Serialize)]
-pub struct LoginRequest {
-    user_name: String,
-    password: String
-}
+use crate::{api::api_service::ApiService, router::AppRoute, app_context::{AppContext, AppContextAction}};
 
 pub enum LoginMessage {
     StartLogin(String, String),
@@ -23,7 +18,7 @@ pub enum LoginMessage {
 pub struct Login {
     user_name: String,
     password: String,
-    error: String,
+    error: Cow<'static, str>,
 
     user_name_ref: NodeRef,
     password_ref: NodeRef,
@@ -37,7 +32,7 @@ impl Component for Login {
         Self {
             user_name: String::from(""),
             password: String::from(""),
-            error: String::from(""),
+            error: "".into(),
             user_name_ref: NodeRef::default(),
             password_ref: NodeRef::default(),
         }
@@ -51,7 +46,7 @@ impl Component for Login {
                         user_name,
                         password
                     };
-                    let user_result = ApiService::post::<LoginResponse, LoginRequest>("/api/auth/login", &request).await;
+                    let user_result = ApiService::post::<LoginResponse, LoginRequest>("/api/user/login", &request).await;
                     return if let Ok(user) = user_result {
                         LoginMessage::LoginResulted(user)
                     } else {
@@ -68,7 +63,8 @@ impl Component for Login {
                 true
             },
             LoginMessage::LoginFailed => {
-                false
+                self.error = "Unable to login! Please check you user name or password.".into();
+                true
             },
             LoginMessage::Register => {
                 let history = ctx.link().navigator().expect("Should Have history");
@@ -94,6 +90,9 @@ impl Component for Login {
             <div class="login-dialog">
                 <input type="text" value={self.user_name.clone()} ref={self.user_name_ref.clone()} />
                 <input type="password" value={self.password.clone()} ref={self.password_ref.clone()} />
+                if self.error.len() > 0 {
+                    <span>{self.error.to_owned()}</span>
+                }
                 <div class="login-actions">
                     <button class="login-button" {onclick}>{"Login"}</button>
                     <button class="register-button" onclick={ctx.link().callback(|_| LoginMessage::Register)}>{"Register"}</button>

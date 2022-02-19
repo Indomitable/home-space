@@ -1,36 +1,35 @@
 use actix_web::{web, Responder, Result, post};
 use deadpool_postgres::Pool;
-use serde::{Deserialize};
 
-use home_space_contracts::user::LoginResponse;
+use home_space_contracts::user::{ LoginRequest, LoginResponse, RegisterRequest };
+use crate::response::error_internal_server_error;
 use crate::response::{error_unauthorized, json};
 
 use super::user_repository as repo;
-
-#[derive(Deserialize)]
-pub struct LoginRequest {
-    user_name: String,
-    password: String,
-}
+use super::token;
 
 #[post("/login")]
 pub async fn login(pool: web::Data<Pool>, login: web::Json<LoginRequest>) -> Result<impl Responder> {
-    if let Ok(_) = repo::verify_password(&pool, &login.user_name, &login.password).await {
-        if let Ok(user) = repo::fetch_user(&pool, &login.user_name).await {
-            return json(LoginResponse {
-                user_id: user.id,
-                user_name: user.name.to_string(),
-                access_token: "".to_owned()
-            });
+    match repo::verify_password(&pool, &login.user_name, &login.password).await {
+        Ok(_) => {
+            match repo::fetch_user(&pool, &login.user_name).await {
+                Ok(user) => {
+                    return json(LoginResponse {
+                        user_id: user.id,
+                        user_name: user.name.to_string(),
+                        access_token: token::create_access_token(user.id, user.name)?
+                    });
+                }
+                _ => return Err(actix_web::error::ErrorUnauthorized("User not found!")),
+            }
+        },
+        Err(repo::ErrorVerifyPassword::UserNotFound) => {
+            return Err(actix_web::error::ErrorUnauthorized("User not found!"))
+        },
+        Err(repo::ErrorVerifyPassword::PasswordHasError(_)) => {
+            return error_internal_server_error();
         }
     }
-    error_unauthorized()
-}
-
-#[derive(Deserialize)]
-pub struct RegisterRequest {
-    user_name: String,
-    password: String,
 }
 
 #[post("/register")]
@@ -39,7 +38,7 @@ pub async fn register(pool: web::Data<Pool>, register: web::Json<RegisterRequest
         return json(LoginResponse {
             user_id: user.id,
             user_name: user.name.to_string(),
-            access_token: "".to_owned()
+            access_token: token::create_access_token(user.id, user.name)?
         });
     }
     error_unauthorized()

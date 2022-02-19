@@ -4,73 +4,6 @@ use yew::prelude::*;
 
 use crate::api::api_service::ApiService;
 
-// enum RegisterAction {
-//     StartRegister,
-//     RegisterSuccessful,
-//     RegisterFailed(String)
-// }
-
-// struct RegisterState {
-//     user_name: String,
-//     password: String,
-//     error: String
-// }
-
-// #[derive(Serialize)]
-// struct RegisterRequest {
-//     user_name: String,
-//     password: String,
-// }
-
-// impl Default for RegisterState {
-//     fn default() -> Self {
-//         Self { user_name: Default::default(), password: Default::default(), error: Default::default() }
-//     }
-// }
-
-// impl Reducible for RegisterState {
-//     type Action = RegisterAction;
-
-//     fn reduce(self: std::rc::Rc<Self>, action: Self::Action) -> std::rc::Rc<Self> {
-//         match action {
-//             RegisterAction::StartRegister => {
-//                 let input = RegisterRequest {
-//                     user_name: self.user_name.clone(), 
-//                     password: self.password.clone()
-//                 };
-//                 async {
-//                     let user_result = ApiService::post_no_result::<RegisterRequest>("/api/auth/register", &input).await;
-                    
-//                 };
-//             },
-//             RegisterAction::RegisterSuccessful => todo!(),
-//             RegisterAction::RegisterFailed(_) => todo!(),
-//         }
-//         self
-//     }
-// }
-
-
-// #[function_component(Register)]
-// fn register() -> Html {
-//     let state = use_reducer(RegisterState::default);
-//     let register = {
-//         let state = state.clone();
-//         Callback::from(move |_| state.dispatch(RegisterAction::StartRegister))
-//     };
-
-//     html! {
-//         <div class="register-dialog">
-//             <input type="text" value={state.user_name.clone()} />
-//             <input type="password" value={state.password.clone()} />
-//             <div class="register-actions">
-//                 <button class="register-button" onclick={register}>{"Register"}</button>
-//             </div>
-//         </div>
-//     }
-// }
-
-
 pub(crate) enum RegisterMessage {
     StartRegister(String, String),
     RegisterSuccessful,
@@ -114,7 +47,7 @@ impl Component for RegisterComponent {
                     password: password
                 };
                 let callback = ctx.link().callback_future(|request: RegisterRequest| async move {
-                    let user_result = ApiService::post_no_result::<RegisterRequest>("/api/auth/register", &request).await;
+                    let user_result = ApiService::post_no_result::<RegisterRequest>("/api/user/register", &request).await;
                     return if let Err(error) = user_result {
                         RegisterMessage::RegisterFailed(error.error)
                     } else {

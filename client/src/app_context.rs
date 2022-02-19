@@ -53,8 +53,8 @@ impl Reducible for AppContextInner {
                 let payload = values.get(1).expect("Expect jwt to have payload");
                 debug!("{:?}", payload);
                 let user_context = UserContext {
-                    user_id: payload["userId"].as_i64().expect("User Id is a number"),
-                    user_name: payload["userName"].as_str().expect("User Name should be a string").to_owned(),
+                    user_id: payload["user_id"].as_i64().expect("User Id is a number"),
+                    user_name: payload["user_name"].as_str().expect("User Name should be a string").to_owned(),
                     access_token: JwtToken {
                         alg: header["alg"].as_str().expect("Alg should be a string").to_owned(),
                         issuer: payload["iss"].as_str().expect("Issuer should be a string").to_owned(),

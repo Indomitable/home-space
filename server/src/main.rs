@@ -21,10 +21,9 @@ async fn main() -> std::io::Result<()> {
             .app_data(db_manager.clone())
             .service(
                 web::scope("/api")
+                    .configure(user::init_routes)
                     .configure(files::init_routes)
             )
-            .configure(user::init_routes)
-            .configure(files::init_routes)
             .service(Files::new("/", "client/dist").index_file("index.html"))
             .default_service(web::get().to(get_index))
     })

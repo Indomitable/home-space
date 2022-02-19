@@ -1,7 +1,10 @@
+#cargo-features = ["per-package-target"]
+
 [package]
 name = "home_space_client"
 version = "0.1.0"
 edition = "2021"
+#default-target = "wasm32-unknown-unknown"
 
 [dependencies]
 home_space_contracts = { path = "../contracts" }

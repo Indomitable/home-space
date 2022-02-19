@@ -8,12 +8,6 @@ create table authentication_type (
 
 insert into authentication_type values ( 1, 'password' );
 
-create table authentication_password (
-	id bigserial,
-	hash bytea not null,
-	constraint pk_auth_passworkd primary key (id)
-);
-
 create table users (
    id bigserial,
    name varchar not null,
@@ -21,6 +15,12 @@ create table users (
 );
 
 CREATE UNIQUE INDEX user_name_idx ON users (name);
+
+create table authentication_password (
+	id bigserial,
+	hash varchar not null,
+	constraint pk_auth_passworkd primary key (id)
+);
 
 create table authentication (
 	user_id bigint not null,
@@ -69,6 +69,14 @@ create sequence file_nodes_user_1 as bigint increment by 1 minvalue 1 NO MAXVALU
 insert into file_nodes (id, user_id, title, parent_id, node_type, filesystem_path)
 values (0, 1, 'ROOT', null, 0, '/mnt/storage/files/1');
 
+select ap.hash from authentication_password ap
+	inner join authentication a on a.auth_password_id  = ap.id 
+	inner join users u on u.id  = a.user_id 
+	where u."name" = $1
+
+	
+drop table authentication;
+drop table authentication_password;
 
 --create table file_versions (
 --	file_id uuid,

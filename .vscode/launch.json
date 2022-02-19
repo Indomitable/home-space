@@ -11,17 +11,13 @@
             "cargo": {
                 "args": [
                     "build"
-                ]
+                ],
+                "filter": {
+                    "name": "home_space_server"
+                }
             },
             "program": "${cargo:program}",
             "args": []
-        },
-        {
-            "name": "Launch Package",
-            "type": "go",
-            "request": "launch",
-            "mode": "auto",
-            "program": "${workspaceFolder}"
         }
     ]
 }

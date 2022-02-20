@@ -2,6 +2,7 @@ use actix_web::{web, Responder, Result, post};
 use deadpool_postgres::Pool;
 
 use home_space_contracts::user::{ LoginRequest, LoginResponse, RegisterRequest };
+use log::debug;
 use crate::response::error_internal_server_error;
 use crate::response::{error_unauthorized, json};
 
@@ -10,10 +11,13 @@ use super::token;
 
 #[post("/login")]
 pub async fn login(pool: web::Data<Pool>, login: web::Json<LoginRequest>) -> Result<impl Responder> {
+    debug!("Start login");
     match repo::verify_password(&pool, &login.user_name, &login.password).await {
         Ok(_) => {
+            debug!("Password verified");
             match repo::fetch_user(&pool, &login.user_name).await {
                 Ok(user) => {
+                    debug!("User fetched");
                     return json(LoginResponse {
                         user_id: user.id,
                         user_name: user.name.to_string(),

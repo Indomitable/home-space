@@ -1,5 +1,5 @@
 use hmac::{Hmac, Mac};
-use jwt::{AlgorithmType, Header, Claims, SignWithKey, Token, RegisteredClaims};
+use jwt::{AlgorithmType, Header, Claims, SignWithKey, Token, RegisteredClaims, VerifyWithKey};
 use sha2::Sha384;
 use std::{time::{SystemTime, Duration, UNIX_EPOCH}, ops::Add};
 
@@ -22,4 +22,31 @@ pub fn create_access_token(user_id: i64, user_name: &str) -> Result<String, Box<
 
     let token = Token::new(header, claims).sign_with_key(&key)?;
     Ok(token.into())
+}
+
+pub enum VerifyAccessTokenError {
+    NotVerified
+}
+
+pub fn verify_access_token(token: &str) -> Result<i64, VerifyAccessTokenError> {
+    let key: Hmac<Sha384> = Hmac::new_from_slice(b"some-secret").unwrap();
+    let token: Token<Header, Claims, _> = token.verify_with_key(&key).unwrap();
+    //let header = token.header();
+    let claims = token.claims();
+    let from_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(); 
+    match claims.registered.expiration {
+        Some(exp) if exp - from_epoch > 0 => {
+            if let Some(issuer) = &claims.registered.issuer {
+                if issuer.eq("http://localhost:7070") {
+                    if let Some(user_id) = claims.private.get("user_id") {
+                        return Ok(user_id.as_i64().unwrap())
+                    }
+                }
+            } else {
+                return Err(VerifyAccessTokenError::NotVerified)
+            }
+        },
+        _ => { return Err(VerifyAccessTokenError::NotVerified) }
+    }
+    Err(VerifyAccessTokenError::NotVerified)
 }

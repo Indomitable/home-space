@@ -5,6 +5,7 @@ use crate::app_context::{AppContextProvider};
 
 mod api;
 mod user;
+mod files;
 mod router;
 mod app_context;
 mod home;

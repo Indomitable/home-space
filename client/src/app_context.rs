@@ -5,10 +5,10 @@ use yew::prelude::*;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct JwtToken {
-    token: String,
-    alg: String,
-    issuer: String,
-    valid_until: SystemTime,    
+    pub token: String,
+    pub alg: String,
+    pub issuer: String,
+    pub valid_until: SystemTime,    
 }
 
 #[derive(Debug, PartialEq, Clone)]

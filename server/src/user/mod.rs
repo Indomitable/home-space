@@ -1,6 +1,6 @@
 mod user_controller;
 mod user_repository;
-mod token;
+pub mod token;
 
 use actix_web::web;
 

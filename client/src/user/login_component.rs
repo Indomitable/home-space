@@ -6,7 +6,7 @@ use yew_router::prelude::*;
 
 use home_space_contracts::user::{ LoginRequest, LoginResponse };
 
-use crate::{api::api_service::ApiService, router::AppRoute, app_context::{AppContext, AppContextAction}};
+use crate::{api::api_service::post, router::AppRoute, app_context::{AppContext, AppContextAction}};
 
 pub enum LoginMessage {
     StartLogin(String, String),
@@ -28,7 +28,7 @@ impl Component for Login {
     type Message = LoginMessage;
     type Properties = ();
 
-    fn create(_: &Context<Self>) -> Self {
+    fn create(c: &Context<Self>) -> Self {
         Self {
             user_name: String::from(""),
             password: String::from(""),
@@ -46,7 +46,7 @@ impl Component for Login {
                         user_name,
                         password
                     };
-                    let user_result = ApiService::post::<LoginResponse, LoginRequest>("/api/user/login", &request).await;
+                    let user_result = post::<LoginResponse, LoginRequest>("/api/user/login", &request).await;
                     return if let Ok(user) = user_result {
                         LoginMessage::LoginResulted(user)
                     } else {

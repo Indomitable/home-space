@@ -4,7 +4,7 @@ use crate::home::{Home};
 use crate::user::secure_component::Secure;
 use yew_router::prelude::*;
 
-use crate::{user::login::Login, user::register::RegisterComponent, app_context::AppContext};
+use crate::{user::login_component::Login, user::register_component::RegisterComponent, app_context::AppContext};
 
 #[derive(Clone, Routable, PartialEq)]
 pub enum AppRoute {

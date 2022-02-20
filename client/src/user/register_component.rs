@@ -2,7 +2,7 @@ use serde::Serialize;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
-use crate::api::api_service::ApiService;
+use crate::api::api_service::{post_no_result, ApiError};
 
 pub(crate) enum RegisterMessage {
     StartRegister(String, String),
@@ -47,9 +47,9 @@ impl Component for RegisterComponent {
                     password: password
                 };
                 let callback = ctx.link().callback_future(|request: RegisterRequest| async move {
-                    let user_result = ApiService::post_no_result::<RegisterRequest>("/api/user/register", &request).await;
-                    return if let Err(error) = user_result {
-                        RegisterMessage::RegisterFailed(error.error)
+                    let user_result = post_no_result::<RegisterRequest>("/api/user/register", &request).await;
+                    return if let Err(ApiError::FetchError(error)) = user_result {
+                        RegisterMessage::RegisterFailed(error.1)
                     } else {
                         RegisterMessage::RegisterSuccessful
                     }

@@ -4,8 +4,11 @@ use actix_web::{web, App, HttpServer};
 
 use db::new_pool;
 
+use crate::auth::request_validator;
+
 mod db;
 mod response;
+mod auth;
 mod user;
 mod files;
 
@@ -17,12 +20,15 @@ async fn main() -> std::io::Result<()> {
     let db_manager = web::Data::new(pool);
     log::info!("Listen on: http://127.0.0.1:7070");
     HttpServer::new(move || {
+
+        let auth_middleware = actix_web_httpauth::middleware::HttpAuthentication::bearer(request_validator);
+
         App::new()
             .app_data(db_manager.clone())
             .service(
                 web::scope("/api")
                     .configure(user::init_routes)
-                    .configure(files::init_routes)
+                    .configure(files::init_routes(auth_middleware))
             )
             .service(Files::new("/", "client/dist").index_file("index.html"))
             .default_service(web::get().to(get_index))

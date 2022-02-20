@@ -2,9 +2,11 @@ use std::{path::{Path, PathBuf}, io::Write, borrow::Cow};
 use actix_web::{web, Responder, Result, HttpRequest, delete, get, put};
 use deadpool_postgres::Pool;
 use futures_util::TryStreamExt;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize};
 
+use home_space_contracts::files::FileNode;
 use crate::response::*;
+use crate::auth::AuthContext;
 use super::files_repository::{self as repo, NODE_TYPE_FILE, FileNodeDto};
 
 #[derive(Deserialize)]
@@ -19,7 +21,7 @@ pub struct User {
 /// parent_id > 0 -> sub nodes
 /// 
 #[get("/get_nodes/{parent_id}")]
-pub async fn get_nodes(pool: web::Data<Pool>, path: web::Path<i64>, user: web::Query<User>) -> Result<impl Responder> {
+pub async fn get_nodes(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
     let parent_id = path.into_inner();
     if let Ok(nodes) = repo::fetch_nodes(&pool, parent_id, user.user_id).await {
         let nodes = nodes_mapper(nodes.iter());
@@ -169,15 +171,6 @@ async fn get_save_path(pool: &web::Data<Pool>, parent_id: i64, user_id: i64, nam
         node.map_or(default_path.into(), |n| n.filesystem_path.into())
     } else { default_path.into() };
     Path::new(parent.as_ref()).join(name).to_path_buf()
-}
-
-#[derive(Serialize)]
-pub struct FileNode {
-    pub id: i64,
-    pub title: String,
-    pub parent_id: Option<i64>,
-    pub node_type: i16,
-    pub mime_type: Option<String>
 }
 
 fn node_mapper(dto: &FileNodeDto) -> FileNode {

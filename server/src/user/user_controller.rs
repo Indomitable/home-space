@@ -21,7 +21,7 @@ pub async fn login(pool: web::Data<Pool>, login: web::Json<LoginRequest>) -> Res
                     return json(LoginResponse {
                         user_id: user.id,
                         user_name: user.name.to_string(),
-                        access_token: token::create_access_token(user.id, user.name)?
+                        access_token: token::create_access_token(user.id, &user.name)?
                     });
                 }
                 _ => return Err(actix_web::error::ErrorUnauthorized("User not found!")),
@@ -42,7 +42,7 @@ pub async fn register(pool: web::Data<Pool>, register: web::Json<RegisterRequest
         return json(LoginResponse {
             user_id: user.id,
             user_name: user.name.to_string(),
-            access_token: token::create_access_token(user.id, user.name)?
+            access_token: token::create_access_token(user.id, &user.name)?
         });
     }
     error_unauthorized()

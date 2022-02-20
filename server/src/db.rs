@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use std::env;
+
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use deadpool_postgres::tokio_postgres::NoTls;
 use deadpool_postgres::tokio_postgres::types::ToSql;
@@ -8,7 +10,11 @@ use actix_web::web;
 pub type DbResult<T> = std::result::Result<T, deadpool_postgres::PoolError>;
 
 pub fn new_pool() -> Pool {
-    let connection = format!("postgresql://{}:{}@{}/{}?connect_timeout=10&application_name=home-space", "files", "files", "localhost", "files_db");
+    let server = env::var("DB_SERVER_NAME").unwrap();
+    let database = env::var("DB_SERVER_DATABASE").unwrap();
+    let user_name = env::var("DB_SERVER_USER_NAME").unwrap();
+    let password = env::var("DB_SERVER_PASSWORD").unwrap();
+    let connection = format!("postgresql://{}:{}@{}/{}?connect_timeout=10&application_name=home-space", user_name, password, server, database);
     let config: deadpool_postgres::tokio_postgres::Config = connection.as_str().parse().unwrap();
     let manager_config = ManagerConfig {
         recycling_method: RecyclingMethod::Fast

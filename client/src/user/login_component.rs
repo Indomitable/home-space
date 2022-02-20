@@ -22,38 +22,46 @@ pub struct Login {
 
     user_name_ref: NodeRef,
     password_ref: NodeRef,
+
+    is_logging: bool
 }
 
 impl Component for Login {
     type Message = LoginMessage;
     type Properties = ();
 
-    fn create(c: &Context<Self>) -> Self {
+    fn create(_c: &Context<Self>) -> Self {
         Self {
             user_name: String::from(""),
             password: String::from(""),
             error: "".into(),
             user_name_ref: NodeRef::default(),
             password_ref: NodeRef::default(),
+            is_logging: false
         }
     }
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
-            LoginMessage::StartLogin(user_name, password) => {
-                ctx.link().send_future(async {
-                    let request = LoginRequest {
-                        user_name,
-                        password
-                    };
-                    let user_result = post::<LoginResponse, LoginRequest>("/api/user/login", &request).await;
-                    return if let Ok(user) = user_result {
-                        LoginMessage::LoginResulted(user)
-                    } else {
-                        LoginMessage::LoginFailed
-                    }
-                });
-                false
+            LoginMessage::StartLogin(user_name, password) => {                
+                if !self.is_logging {
+                    self.is_logging = true;
+                    self.user_name = user_name.clone();
+                    self.password = password.clone();
+                    ctx.link().send_future(async {
+                        let request = LoginRequest {
+                            user_name,
+                            password
+                        };
+                        let user_result = post::<LoginResponse, LoginRequest>("/api/user/login", &request).await;
+                        return if let Ok(user) = user_result {
+                            LoginMessage::LoginResulted(user)
+                        } else {
+                            LoginMessage::LoginFailed
+                        }
+                    });
+                }
+                true
             },
             LoginMessage::LoginResulted(user) => {
                 let (app_context, _)  = ctx.link().context::<AppContext>(Callback::noop()).expect("Should have App context");
@@ -64,6 +72,8 @@ impl Component for Login {
             },
             LoginMessage::LoginFailed => {
                 self.error = "Unable to login! Please check you user name or password.".into();
+                self.is_logging = false;
+                self.password = String::default();
                 true
             },
             LoginMessage::Register => {
@@ -94,7 +104,7 @@ impl Component for Login {
                     <span>{self.error.to_owned()}</span>
                 }
                 <div class="login-actions">
-                    <button class="login-button" {onclick}>{"Login"}</button>
+                    <button class="login-button" {onclick} disabled={self.is_logging}>{"Login"}</button>
                     <button class="register-button" onclick={ctx.link().callback(|_| LoginMessage::Register)}>{"Register"}</button>
                 </div>
             </div>

@@ -1,5 +1,5 @@
 use actix_files::Files;
-use std::{path::Path};
+use std::{path::Path, env::{self, VarError}};
 use actix_web::{web, App, HttpServer};
 
 use db::new_pool;
@@ -14,11 +14,16 @@ mod files;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    init_config();
     init_logger();
     let pool = new_pool();
     // Wrap the pool to web::Data which uses Arc and can be shared between the threads
     let db_manager = web::Data::new(pool);
-    log::info!("Listen on: http://127.0.0.1:7070");
+
+    let address = format!("{}:{}", env::var("SERVER_NAME").unwrap(), env::var("SERVER_PORT").unwrap());
+    let http_address = format!("{}://{}", env::var("SERVER_SCHEMA").unwrap(), address);
+
+    log::info!("Listen on: {}", http_address);
     HttpServer::new(move || {
 
         let auth_middleware = actix_web_httpauth::middleware::HttpAuthentication::bearer(request_validator);
@@ -33,7 +38,7 @@ async fn main() -> std::io::Result<()> {
             .service(Files::new("/", "client/dist").index_file("index.html"))
             .default_service(web::get().to(get_index))
     })
-    .bind("127.0.0.1:7070")?
+    .bind(address)?
     .run()
     .await
 }
@@ -50,4 +55,10 @@ fn init_logger() {
         .build(log4rs::config::Root::builder().appender("stdout").build(log::LevelFilter::Debug))
         .unwrap();
     log4rs::init_config(config).unwrap();
+}
+
+fn init_config() {
+    let env = env::var("APP_ENVIRONMENT").or::<VarError>(Ok("dev".into())).unwrap();
+    let config_path = format!(".env.{}", env);
+    dotenv::from_filename(&config_path).unwrap();
 }

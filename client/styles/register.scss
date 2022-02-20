@@ -1,6 +1,7 @@
 .register-dialog {
-    display: flex;
-    flex-direction: column;
+    height: 100%;
+    display: grid;
+    place-content: center;
     row-gap: 5px;
 }
 

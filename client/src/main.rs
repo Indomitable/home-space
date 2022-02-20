@@ -9,6 +9,9 @@ mod files;
 mod router;
 mod app_context;
 mod home;
+mod header;
+mod left_nav;
+
 
 #[function_component(App)]
 fn app() -> Html {

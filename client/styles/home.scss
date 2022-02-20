@@ -1,0 +1,10 @@
+.home {
+    height: 100%;
+    display: grid;
+    grid-template-rows: 50px auto;
+}
+
+.home-content {
+    display: grid;
+    grid-template-columns: 200px auto;
+}

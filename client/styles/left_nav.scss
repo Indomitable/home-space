@@ -1,0 +1,12 @@
+.left-nav {
+    height: 100%;
+    padding: 0 10px;
+}
+
+.left-nav-link {
+    display: flex;
+    height: 100%;
+    flex-flow: row;
+    align-items: center;
+    column-gap: 5px;
+}

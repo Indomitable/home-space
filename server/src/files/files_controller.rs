@@ -66,7 +66,7 @@ pub async fn create_folder(pool: web::Data<Pool>, path: web::Path<i64>, user: we
         parent_id: Some(parent_id),
         node_type: repo::NODE_TYPE_FOLDER,
         filesystem_path: path.to_str().unwrap().to_owned(),
-        mime_type: None
+        mime_type: Some("inode/directory".to_owned())
     };
     match repo::add_node(&pool, file_node).await {
         Ok(affected) => {

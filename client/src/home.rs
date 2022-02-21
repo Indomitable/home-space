@@ -2,12 +2,15 @@ use yew::prelude::*;
 
 use crate::header::header_component::Header;
 use crate::left_nav::navigation_component::LeftNavigation;
-use crate::files::files_view_component::FilesView;
 
-#[function_component(Home)]
-pub fn home() -> Html {
-    
+#[derive(Properties, PartialEq)]
+pub struct LayoutProps {
+    #[prop_or_default]
+    pub children: Children,
+}
 
+#[function_component(Layout)]
+pub fn layout(props: &LayoutProps) -> Html {
     html! {
         <div class="home">
             <Header />
@@ -16,7 +19,7 @@ pub fn home() -> Html {
                     <LeftNavigation />
                 </aside>
                 <section>
-                    <FilesView />
+                    {props.children.clone()}
                 </section>
             </div>
         </div>

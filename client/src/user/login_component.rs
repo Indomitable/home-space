@@ -67,7 +67,7 @@ impl Component for Login {
                 let (app_context, _)  = ctx.link().context::<AppContext>(Callback::noop()).expect("Should have App context");
                 app_context.dispatch(AppContextAction::Authenticate(user.access_token));
                 let history = ctx.link().navigator().expect("Should Have history");
-                history.push(AppRoute::Home);
+                history.push(AppRoute::FileList{parent_id: 0});
                 true
             },
             LoginMessage::LoginFailed => {

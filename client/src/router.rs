@@ -1,15 +1,19 @@
 
 use yew::{html, Html, function_component, use_context};
-use crate::home::{Home};
-use crate::user::secure_component::Secure;
+
 use yew_router::prelude::*;
 
 use crate::{user::login_component::Login, user::register_component::RegisterComponent, app_context::AppContext};
+use crate::home::Layout;
+use crate::user::secure_component::Secure;
+use crate::files::files_view_component::FilesView;
 
 #[derive(Clone, Routable, PartialEq)]
 pub enum AppRoute {
     #[at("/")]
     Home,
+    #[at("/files/:parent_id")]
+    FileList { parent_id: i64 },
     #[at("/login")]
     Login,
     #[at("/register")]
@@ -27,7 +31,14 @@ pub fn router_content() -> Html {
 
 pub fn app_route_switch(_context: &AppContext, routes: &AppRoute) -> Html {   
     match routes {
-        AppRoute::Home => html!(<Secure><Home></Home></Secure> ),
+        AppRoute::Home => html!( <Redirect<AppRoute> to={AppRoute::FileList{parent_id: 0}} /> ),
+        AppRoute::FileList { parent_id} => html!{
+            <Secure>
+                <Layout>
+                    <FilesView parent_id={parent_id} />
+                </Layout>
+            </Secure>
+        },
         AppRoute::Login => html!( <Login></Login> ),
         AppRoute::Register => html!( <RegisterComponent></RegisterComponent> )
     }

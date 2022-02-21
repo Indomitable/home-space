@@ -59,6 +59,7 @@ impl Reducible for AppContextInner {
                 }.into()
             },
             AppContextAction::LogOut => {
+                let _ = delete_user_context_from_storage();
                 AppContextInner {
                     auth_context: AuthContext::NotAuthenticated
                 }.into()
@@ -124,6 +125,10 @@ fn save_user_context_from_storage(user_context: &UserContext) -> Result<(), JsVa
     save_session_storage_value(USER_CONTEXT_KEY, &value)
 }
 
+fn delete_user_context_from_storage() -> Result<(), JsValue> {
+    delete_session_storage_key(USER_CONTEXT_KEY)
+}
+
 fn read_session_storage_value(key: &str) -> Result<String, JsValue> {
     if let Some(storage) = gloo_utils::window().session_storage()? {
         if let Some(value) = storage.get(key)? {
@@ -136,6 +141,13 @@ fn read_session_storage_value(key: &str) -> Result<String, JsValue> {
 fn save_session_storage_value(key: &str, value: &str) -> Result<(), JsValue> {
     if let Some(storage) = gloo_utils::window().session_storage()? {
         return storage.set(key, value);
+    }
+    Err("No Value".into())
+}
+
+fn delete_session_storage_key(key: &str) -> Result<(), JsValue> {
+    if let Some(storage) = gloo_utils::window().session_storage()? {
+        return storage.delete(key);
     }
     Err("No Value".into())
 }

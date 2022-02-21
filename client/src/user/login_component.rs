@@ -66,8 +66,8 @@ impl Component for Login {
             LoginMessage::LoginResulted(user) => {
                 let (app_context, _)  = ctx.link().context::<AppContext>(Callback::noop()).expect("Should have App context");
                 app_context.dispatch(AppContextAction::Authenticate(user.access_token));
-                let history = ctx.link().navigator().expect("Should Have history");
-                history.push(AppRoute::FileList{parent_id: 0});
+                let navigator = ctx.link().navigator().expect("Should Have Navigator");
+                navigator.push(AppRoute::FileList{parent_id: 0});
                 true
             },
             LoginMessage::LoginFailed => {
@@ -77,8 +77,8 @@ impl Component for Login {
                 true
             },
             LoginMessage::Register => {
-                let history = ctx.link().navigator().expect("Should Have history");
-                history.push(AppRoute::Register);
+                let navigator = ctx.link().navigator().expect("Should Have Navigator");
+                navigator.push(AppRoute::Register);
                 false
             }
         }

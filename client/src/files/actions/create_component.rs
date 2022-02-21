@@ -1,11 +1,11 @@
 use std::ops::Deref;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use wasm_bindgen::UnwrapThrowExt;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
-use crate::{api::api_service::{ResponseReader, RequestInitBuilder, METHOD_GET, METHOD_PUT}, user::secure_component::use_user_context};
+use crate::{api::api_service::{RequestInitBuilder, METHOD_PUT}, user::secure_component::use_user_context};
 
 #[derive(Properties, PartialEq)]
 pub struct CreateActionProps {

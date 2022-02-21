@@ -19,7 +19,7 @@ pub fn layout(props: &LayoutProps) -> Html {
                     <LeftNavigation />
                 </aside>
                 <section>
-                    {props.children.clone()}
+                    { for props.children.iter() }
                 </section>
             </div>
         </div>

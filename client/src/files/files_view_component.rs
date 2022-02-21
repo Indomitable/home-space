@@ -1,8 +1,6 @@
 use yew::prelude::*;
-use yew_router::prelude::*;
 
-use crate::router::AppRoute;
-
+use crate::user::secure_component::use_user_context;
 use super::file_list_component::FileList;
 use super::actions::file_actions_component::FileActions;
 use super::breadcrumbs::breadcrumbs_component::BreadcumbsFileNav;
@@ -16,17 +14,15 @@ pub struct FilesViewProps {
 #[function_component(FilesView)]
 pub fn file_view(props: &FilesViewProps) -> Html {
     let fallback = html! {<>{"Loading..."}</> };
-    let navigator = use_navigator().expect("Should have navigator");
-    let on_folder_click: Callback<i64> = Callback::from(move |id: i64| {
-        navigator.push(AppRoute::FileList{parent_id: id});
-    });
 
+    let user = use_user_context();
+    let token = user.access_token.token;
     html!{
         <>
             <FileActions parent_id={props.parent_id} />
-            <BreadcumbsFileNav />
+            <BreadcumbsFileNav parent_id={props.parent_id} access_token={token.clone()} />
             <Suspense fallback={fallback}>
-                <FileList parent_id={props.parent_id} open_folder={on_folder_click} />
+                <FileList parent_id={props.parent_id} access_token={token.clone()} />
             </Suspense>
         </>
     }

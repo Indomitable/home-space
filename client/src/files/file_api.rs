@@ -69,15 +69,27 @@ pub fn use_nodes2(parent_id: i64, access_token: &str) -> yew::suspense::Suspensi
     result
 }
 
+struct FileNodesState {
+    parent_id: i64,
+    nodes: Vec<FileNode>
+}
+
 #[hook]
 pub fn use_nodes(
     parent_id: i64,
     access_token: &str,
 ) -> yew::suspense::SuspensionResult<Vec<FileNode>> {
-    let state = use_state(|| None as Option<Vec<FileNode>>);
+    let state = use_state(|| None as Option<FileNodesState>);
+
+    if let Some(FileNodesState{ parent_id: p, nodes: _ }) = *state {
+        // if we state has already loaded some nodes, but current parent is different load new
+        if p != parent_id {
+            state.set(None);
+        }
+    }
     
-    match &*state {
-        Some(nodes) => Ok(nodes.clone()),
+    match *state {
+        Some(ref nodes) => Ok(nodes.nodes.clone()),
         None => {
             let (s, handler) = Suspension::new();
             let token = access_token.to_owned();
@@ -92,7 +104,10 @@ pub fn use_nodes(
                         .await
                         .into();
                     if let Ok(nodes) = reader.as_obj::<Vec<FileNode>>().await {
-                        state.set(Some(nodes))
+                        state.set(Some(FileNodesState { 
+                            nodes,
+                            parent_id
+                        }))
                     }
                     handler.resume();
                 });

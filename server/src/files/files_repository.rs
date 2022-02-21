@@ -1,6 +1,8 @@
 use actix_web::web;
 use deadpool_postgres::{Pool, tokio_postgres::Row};
 
+use home_space_contracts::files::ParentNode;
+
 use crate::db::{query, query_one, execute, DbResult};
 
 pub const NODE_TYPE_FOLDER: i16 = 0;
@@ -62,6 +64,23 @@ pub async fn delete_node(pool: &web::Data<Pool>, id: i64, node_type: i16, user_i
         todo!("Add folder delete");
     }
     Ok(affected)
+}
+
+pub async fn get_parent_nodes(pool: &web::Data<Pool>, parent_id: i64, user_id: i64) -> DbResult<Vec<ParentNode>> {
+    let sql = r#"
+    WITH RECURSIVE breadcrumbs_query AS ( 
+        select id, title, parent_id, 0 as lev from file_nodes 
+        where user_id = $1 and id = $2
+        UNION ALL 
+        select n.id, n.title, n.parent_id, lev-1 as lev from file_nodes n
+        INNER JOIN breadcrumbs_query p ON p.parent_id = n.id
+    )
+    select id, title from breadcrumbs_query
+    order by lev
+    "#;
+    let rows = query(pool,  sql, &[&user_id, &parent_id]).await?;
+    let nodes = rows.iter().map(|r| ParentNode { id: r.get(0), title: r.get(1) }).collect();
+    return Ok(nodes);
 }
 
 

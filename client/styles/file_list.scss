@@ -3,8 +3,23 @@
     grid-template-columns: 100px auto auto auto;
 }
 
+.file-list-header {
+    display: contents;
+
+    > div {
+        height: 40px;
+        line-height: 40px;
+        border-bottom: 1px solid var(--border-color);
+    }
+}
+
 .file-list-row {
     display: contents;
+
+    > div {
+        height: 40px;
+        line-height: 40px;
+    }
 }
 
 

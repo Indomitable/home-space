@@ -1,5 +1,8 @@
+@use "material";
+
 .breadcrumbs-nav {
-    padding: 20px 17px;
+    padding: 20px 17px 30px 17px;
+    display: flex;
 }
 
 .breadcrumb-item {
@@ -7,8 +10,23 @@
     align-items: center;
     font-size: 1.4rem;
     column-gap: 4px;
+    
+
+    &:not(.breadcrumb-item-current) {
+        color: var(--breadcrumb-notselected-color);
+        cursor: pointer;
+    }
 
     .icon {
         font-size: 30px;
+    }
+
+
+}
+
+.breadcrumb-item:not(:last-child) {
+    &::after {
+        content: 'navigate_next';
+        @extend .icon-filled;
     }
 }

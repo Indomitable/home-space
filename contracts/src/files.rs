@@ -10,3 +10,10 @@ pub struct FileNode {
     pub modified_at: String,
     pub node_size: i64
 }
+
+
+#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
+pub struct ParentNode {
+    pub id: i64,
+    pub title: String,
+}

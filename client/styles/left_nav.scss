@@ -1,7 +1,6 @@
 .left-nav {
     height: 100%;
-    padding: 0 10px;
-    border-right: 1px solid var(--border-color);
+    padding: 10px 0 0 0;
 }
 
 .left-nav-item {
@@ -14,5 +13,10 @@
     flex-flow: row;
     align-items: center;
     column-gap: 5px;
+    padding: 0 20px;
     cursor: pointer;
+
+    &:hover {
+        background: var(--menu-item-hover-color);
+    }
 }

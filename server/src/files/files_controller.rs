@@ -2,7 +2,7 @@ use std::{path::{Path, PathBuf}, io::Write, borrow::Cow};
 use actix_web::{web, Responder, Result, HttpRequest, delete, get, put};
 use deadpool_postgres::Pool;
 use futures_util::TryStreamExt;
-use serde::{Deserialize};
+use serde::Deserialize;
 
 use home_space_contracts::files::FileNode;
 use crate::{response::*, config::get_top_save_folder};
@@ -151,6 +151,23 @@ pub async fn upload_file(request: HttpRequest, pool: web::Data<Pool>, path: web:
         }
     }
     error_bad_request()
+}
+
+#[get("/parents/{parent_id}")]
+pub async fn get_parents(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext )-> Result<impl Responder>  {
+    let parent_id = path.into_inner();
+    if parent_id == 0 {
+        return json(Vec::new());
+    } else {
+        match repo::get_parent_nodes(&pool, parent_id, user.user_id).await {
+            Ok(nodes) => json(nodes),
+            Err(e) => {
+                log::error!("Error getting parents: {:?}", e);
+                error_internal_server_error()
+            }
+        }
+        
+    }
 }
 
 fn get_file_name(request: &HttpRequest) -> Option<String> {

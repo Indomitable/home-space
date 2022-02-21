@@ -1,3 +1,15 @@
 .file-list {
+    display: grid;
+    grid-template-columns: 100px auto auto auto;
+}
 
+.file-list-row {
+    display: contents;
+}
+
+
+.file-list-title {
+    display: flex;
+    align-items: center;
+    column-gap: 5px;
 }

@@ -9,11 +9,6 @@ use crate::{response::*, config::get_top_save_folder};
 use crate::auth::AuthContext;
 use super::files_repository::{self as repo, NODE_TYPE_FILE, FileNodeDto};
 
-#[derive(Deserialize)]
-pub struct User {
-    user_id: i64
-}
-
 ///
 /// Method: GET 
 /// `/api/files/get_nodes/{parent_id}`
@@ -34,7 +29,7 @@ pub async fn get_nodes(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthCo
 /// Downloads file with id.
 /// 
 #[get("/get_file/{id}")]
-pub async fn get_file(pool: web::Data<Pool>, path: web::Path<i64>, user: web::Query<User>) -> Result<impl Responder> {
+pub async fn get_file(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
     let id = path.into_inner();
     if let Ok(node) = repo::fetch_node(&pool, id, user.user_id).await {
         if node.node_type == repo::NODE_TYPE_FILE {
@@ -55,7 +50,7 @@ pub struct CreateFolderRequestBody {
 /// `/api/files/create_folder/0` for top level folder
 /// `/api/files/create_folder/{parent_id}` for sub folder
 #[put("/create_folder/{parent_id}")]
-pub async fn create_folder(pool: web::Data<Pool>, path: web::Path<i64>, user: web::Query<User>, body: web::Json<CreateFolderRequestBody>) -> Result<impl Responder> {
+pub async fn create_folder(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext, body: web::Json<CreateFolderRequestBody>) -> Result<impl Responder> {
     let parent_id = path.into_inner();
     let folder_name = Cow::from(&body.name);
     let path = get_save_path(&pool, parent_id, user.user_id, &folder_name).await;
@@ -88,7 +83,7 @@ pub async fn create_folder(pool: web::Data<Pool>, path: web::Path<i64>, user: we
 /// `/api/files/delete_node/{id}` delete node - if folder delete all contents
 /// 
 #[delete("/delete_node/{id}")]
-pub async fn delete_node(pool: web::Data<Pool>, path: web::Path<i64>, user: web::Query<User>) -> Result<impl Responder> {
+pub async fn delete_node(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
     let id = path.into_inner();
     if let Ok(node) = repo::fetch_node(&pool, id, user.user_id).await {
         if node.node_type == NODE_TYPE_FILE {
@@ -125,7 +120,7 @@ pub async fn delete_node(pool: web::Data<Pool>, path: web::Path<i64>, user: web:
 /// Creates a new file or if file exits it creates a new version of it.
 ///
 #[put("/upload_file/{parent_id}")]
-pub async fn upload_file(request: HttpRequest, pool: web::Data<Pool>, path: web::Path<i64>, user: web::Query<User>, mut body: web::Payload) -> Result<impl Responder> {
+pub async fn upload_file(request: HttpRequest, pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext, mut body: web::Payload) -> Result<impl Responder> {
     let parent_id = path.into_inner();
     if let Some(file_name) = get_file_name(&request) {
         let user_id = user.user_id;       

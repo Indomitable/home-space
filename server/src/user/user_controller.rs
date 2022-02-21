@@ -4,7 +4,7 @@ use deadpool_postgres::Pool;
 use home_space_contracts::user::{ LoginRequest, LoginResponse, RegisterRequest };
 use log::debug;
 use crate::response::error_internal_server_error;
-use crate::response::{error_unauthorized, json};
+use crate::response::json;
 
 use super::user_repository as repo;
 use super::token;

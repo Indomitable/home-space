@@ -1,11 +1,19 @@
 use std::ops::Deref;
 
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::UnwrapThrowExt;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
+use crate::{api::api_service::{ResponseReader, RequestInitBuilder, METHOD_GET, METHOD_PUT}, user::secure_component::use_user_context};
+
+#[derive(Properties, PartialEq)]
+pub struct CreateActionProps {
+    pub parent_id: i64
+}
+
 #[function_component(CreateAction)]
-pub fn create_action() -> Html {
+pub fn create_action(props: &CreateActionProps) -> Html {
     let action_list_visibility = use_state(|| false);
     let list_visibility = action_list_visibility.deref().clone();
     let onclick = Callback::from(move |_| {
@@ -19,18 +27,23 @@ pub fn create_action() -> Html {
                 <span class="icon-filled">{"arrow_drop_down"}</span>
             </button>
             if list_visibility {
-                <CreateActionList />
+                <CreateActionList parent_id={props.parent_id} />
             }
         </>
     }
 }
 
+#[derive(Properties, PartialEq)]
+pub struct CreateActionListProps {
+    pub parent_id: i64
+}
+
 #[function_component(CreateActionList)]
-pub fn create_action_list() -> Html {
+pub fn create_action_list(props: &CreateActionListProps) -> Html {
     html! {
         <ul class="file-action-create-list">
             <li class="file-action-create-list-item file-action-create-list-item--end-group">
-                <NewFolderAction />
+                <NewFolderAction parent_id={props.parent_id} />
             </li>
             <li class="file-action-create-list-item file-action-create-list-item--start-group">
                 <a>
@@ -54,8 +67,19 @@ pub fn create_action_list() -> Html {
     }
 }
 
+
+#[derive(Properties, PartialEq)]
+pub struct NewFolderActionProps {
+    pub parent_id: i64
+}
+
+#[derive(Serialize, Clone)]
+struct CreateFolderPayload {
+    name: String
+}
+
 #[function_component(NewFolderAction)]
-pub fn new_folder_action() -> Html {
+pub fn new_folder_action(props: &NewFolderActionProps) -> Html {
     let action_readonly_state = use_state(|| true);
     let input_ref = use_node_ref();
     let action_readonly = action_readonly_state.deref().clone();
@@ -64,6 +88,32 @@ pub fn new_folder_action() -> Html {
         Callback::from(move |_| {
             if action_readonly {
                 action_readonly_state.set(false);                
+            }
+        })
+    };
+
+    let auth = use_user_context();
+
+    let onkeypress = {
+        let token = auth.access_token.token.clone();
+        let input_ref = input_ref.clone();
+        let parent_id = props.parent_id;
+        Callback::from(move |key: KeyboardEvent| {
+            let input = input_ref.cast::<HtmlInputElement>().expect("Input exists");
+            if key.code() == "Enter" {
+                log::debug!("Folder name is {}", input.value());
+                let token = token.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let url = format!("/api/files/create_folder/{}", parent_id);
+                    let payload = CreateFolderPayload { name: input.value() };
+                    RequestInitBuilder::<CreateFolderPayload>::new()
+                        .set_method(METHOD_PUT)
+                        .set_url(&url)
+                        .set_access_token(&token)
+                        .set_data(&payload)
+                        .fetch()
+                        .await;
+                });
             }
         })
     };
@@ -86,7 +136,7 @@ pub fn new_folder_action() -> Html {
             if action_readonly {
                 <span>{"New Folder"}</span>
             } else {
-                <input type="text" placeholder="Folder name" class="new-folder-action-input" ref={input_ref} />
+                <input type="text" placeholder="Folder name" class="new-folder-action-input" ref={input_ref} {onkeypress} />
             }
         </a>
     }

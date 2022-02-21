@@ -1,0 +1,14 @@
+.breadcrumbs-nav {
+    padding: 20px 17px;
+}
+
+.breadcrumb-item {
+    display: flex;
+    align-items: center;
+    font-size: 1.4rem;
+    column-gap: 4px;
+
+    .icon {
+        font-size: 30px;
+    }
+}

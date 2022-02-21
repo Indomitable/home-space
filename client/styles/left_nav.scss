@@ -1,6 +1,11 @@
 .left-nav {
     height: 100%;
     padding: 0 10px;
+    border-right: 1px solid var(--border-color);
+}
+
+.left-nav-item {
+    height: 40px;
 }
 
 .left-nav-link {
@@ -9,4 +14,5 @@
     flex-flow: row;
     align-items: center;
     column-gap: 5px;
+    cursor: pointer;
 }

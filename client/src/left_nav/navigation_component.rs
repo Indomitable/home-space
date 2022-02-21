@@ -5,33 +5,33 @@ pub fn left_navigation() -> Html {
     html!{
         <nav class="left-nav">
             <ul>
-                <li>
+                <li class="left-nav-item">
                     <a class="left-nav-link">
-                        <span class="icon">{"home"}</span>
+                        <span class="icon-filled">{"home"}</span>
                         <span>{"My Files"}</span>
                     </a>
                 </li>
-                <li>
+                <li class="left-nav-item">
                     <a class="left-nav-link">
-                        <span class="icon">{"favorite"}</span>
+                        <span class="icon-filled">{"favorite"}</span>
                         <span>{"Favorites"}</span>
                     </a>
                 </li>
-                <li>
+                <li class="left-nav-item">
                     <a class="left-nav-link">
-                        <span class="icon">{"history"}</span>
+                        <span class="icon-filled">{"history"}</span>
                         <span>{"Recent"}</span>
                     </a>
                 </li>
-                <li>
+                <li class="left-nav-item">
                     <a class="left-nav-link">
-                        <span class="icon">{"share"}</span>
+                        <span class="icon-filled">{"share"}</span>
                         <span>{"Shared"}</span>
                     </a>
                 </li>
-                <li>
+                <li class="left-nav-item">
                     <a class="left-nav-link">
-                        <span class="icon">{"restore_from_trash"}</span>
+                        <span class="icon-filled">{"restore_from_trash"}</span>
                         <span>{"Trash"}</span>
                     </a>
                 </li>

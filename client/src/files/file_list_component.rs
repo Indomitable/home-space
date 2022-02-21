@@ -15,12 +15,18 @@ pub fn file_nodes_component(props: &FileListProps) -> HtmlResult {
     let user = use_user_context();
     let nodes = use_nodes(props.parent_id, &user.access_token.token)?;
     Ok(html! {
-        <div class="file-list">
+        <>
         {
             nodes.iter().map(|node: &FileNode| {
-                html!(<div key={node.id}>{node.title.clone()}</div>)
+                html!{
+                    <div key={node.id}>
+                        <div>{node.title.clone()}</div>
+                        <div>{node.node_size.clone()}</div>
+                        <div>{node.modified_at.clone()}</div>
+                    </div>
+                }
             }).collect::<Html>()
         }
-        </div>
+        </>
     })
 }

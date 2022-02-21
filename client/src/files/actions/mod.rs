@@ -1,1 +1,2 @@
-pub mod create_component;
+mod create_component;
+pub mod file_actions_component;

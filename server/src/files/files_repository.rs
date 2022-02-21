@@ -13,11 +13,13 @@ pub struct FileNodeDto {
     pub parent_id: Option<i64>,
     pub node_type: i16,
     pub filesystem_path: String,
-    pub mime_type: Option<String>
+    pub mime_type: String,
+    pub modified_at: chrono::DateTime<chrono::Utc>,
+    pub node_size: i64
 }
 
 pub async fn fetch_nodes(pool: &web::Data<Pool>, parent_id: i64, user_id: i64) -> DbResult<Vec<FileNodeDto>> {
-    let sql = r#"select id, user_id, title, parent_id, node_type, filesystem_path, mime_type from file_nodes
+    let sql = r#"select id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size from file_nodes
                       where parent_id = $2 and user_id = $1"#;    
     let rows = query(pool,  sql, &[&user_id, &parent_id]).await?;
     let nodes = read_file_nodes(rows);
@@ -25,7 +27,7 @@ pub async fn fetch_nodes(pool: &web::Data<Pool>, parent_id: i64, user_id: i64) -
 }
 
 pub async fn fetch_node(pool: &web::Data<Pool>, id: i64, user_id: i64) -> DbResult<FileNodeDto> {
-    let sql = r#"select id, user_id, title, parent_id, node_type, filesystem_path, mime_type 
+    let sql = r#"select id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size
                     from file_nodes
                     where id = $2 and user_id = $1"#;
     let row= query_one(pool, sql, &[&user_id, &id]).await?;
@@ -41,11 +43,13 @@ pub async fn add_node(pool: &web::Data<Pool>, file_node: FileNodeDto) -> DbResul
         node_type,
         filesystem_path,
         mime_type,
+        modified_at,
+        node_size,
         ..
     } = file_node;
-    let sql = format!(r#"insert into file_nodes (id, user_id, title, parent_id, node_type, filesystem_path, mime_type)
-    values (nextval('{}'), $1, $2, $3, $4, $5, $6)"#, get_file_node_id_sequence(user_id));
-    let affected = execute(pool, &sql, &[&user_id, &title, &parent_id, &node_type, &filesystem_path, &mime_type]).await?;
+    let sql = format!(r#"insert into file_nodes (id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size)
+    values (nextval('{}'), $1, $2, $3, $4, $5, $6, $7, $8)"#, get_file_node_id_sequence(user_id));
+    let affected = execute(pool, &sql, &[&user_id, &title, &parent_id, &node_type, &filesystem_path, &mime_type, &modified_at, &node_size]).await?;
     Ok(affected)
 }
 
@@ -73,7 +77,9 @@ fn read_file_node(row: &Row) -> FileNodeDto {
         parent_id: row.get(3),
         node_type: row.get(4),
         filesystem_path: row.get(5),
-        mime_type: row.get(6)
+        mime_type: row.get(6),
+        modified_at: row.get(7),
+        node_size: row.get(8)
     }
 }
 

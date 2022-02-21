@@ -1,11 +1,12 @@
 use actix_files::Files;
-use std::{path::Path, env::{self, VarError}};
+use std::path::Path;
 use actix_web::{web, App, HttpServer};
 
 use db::new_pool;
 
-use crate::auth::request_validator;
+use crate::{auth::request_validator, config::{init_config, get_host_url, get_listen_address}};
 
+mod config;
 mod db;
 mod response;
 mod auth;
@@ -20,10 +21,7 @@ async fn main() -> std::io::Result<()> {
     // Wrap the pool to web::Data which uses Arc and can be shared between the threads
     let db_manager = web::Data::new(pool);
 
-    let address = format!("{}:{}", env::var("SERVER_NAME").unwrap(), env::var("SERVER_PORT").unwrap());
-    let http_address = format!("{}://{}", env::var("SERVER_SCHEMA").unwrap(), address);
-
-    log::info!("Listen on: {}", http_address);
+    log::info!("Listen on: {}", get_host_url());
     HttpServer::new(move || {
 
         let auth_middleware = actix_web_httpauth::middleware::HttpAuthentication::bearer(request_validator);
@@ -38,7 +36,7 @@ async fn main() -> std::io::Result<()> {
             .service(Files::new("/", "client/dist").index_file("index.html"))
             .default_service(web::get().to(get_index))
     })
-    .bind(address)?
+    .bind(get_listen_address())?
     .run()
     .await
 }
@@ -57,8 +55,3 @@ fn init_logger() {
     log4rs::init_config(config).unwrap();
 }
 
-fn init_config() {
-    let env = env::var("APP_ENVIRONMENT").or::<VarError>(Ok("dev".into())).unwrap();
-    let config_path = format!(".env.{}", env);
-    dotenv::from_filename(&config_path).unwrap();
-}

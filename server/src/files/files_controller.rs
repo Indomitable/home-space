@@ -5,7 +5,7 @@ use futures_util::TryStreamExt;
 use serde::{Deserialize};
 
 use home_space_contracts::files::FileNode;
-use crate::response::*;
+use crate::{response::*, config::get_top_save_folder};
 use crate::auth::AuthContext;
 use super::files_repository::{self as repo, NODE_TYPE_FILE, FileNodeDto};
 
@@ -66,18 +66,18 @@ pub async fn create_folder(pool: web::Data<Pool>, path: web::Path<i64>, user: we
         parent_id: Some(parent_id),
         node_type: repo::NODE_TYPE_FOLDER,
         filesystem_path: path.to_str().unwrap().to_owned(),
-        mime_type: Some("inode/directory".to_owned())
+        mime_type: "inode/directory".to_owned(),
+        modified_at: chrono::Utc::now(),
+        node_size: 0
     };
     match repo::add_node(&pool, file_node).await {
-        Ok(affected) => {
-            if affected == 1 {
-                if let Ok(Ok(_)) = actix_rt::task::spawn_blocking(move || std::fs::create_dir(path)).await {
-                    return created();
-                }
+        Ok(1_u64) => {
+            if let Ok(Ok(_)) = actix_rt::task::spawn_blocking(move || std::fs::create_dir(path)).await {
+                return created();
             }
         },
-        Err(e) => {
-            log::error!("Error creating folder: [Message: {}]", e);
+        _ => {
+            log::error!("Error creating folder");
         }
     }
     error_internal_server_error()
@@ -132,8 +132,10 @@ pub async fn upload_file(request: HttpRequest, pool: web::Data<Pool>, path: web:
         let output = get_save_path(&pool, parent_id, user_id, &file_name).await;
         let filesystem_path = output.clone().to_str().unwrap().to_string(); // Clone to filesystem_path because output will be moved on file create
         let mut f = web::block(|| std::fs::File::create(output)).await??;
+        let mut size = 0_i64;
         while let Some(item) = body.try_next().await? {
             //bytes.extend(item);
+            size = size + item.len() as i64;
             f = web::block(move || f.write_all(&item).map(|_| f)).await??;
         }
         let file_node = repo::FileNodeDto {
@@ -143,7 +145,9 @@ pub async fn upload_file(request: HttpRequest, pool: web::Data<Pool>, path: web:
             parent_id: Some(parent_id),
             node_type: repo::NODE_TYPE_FILE,
             filesystem_path,
-            mime_type: None
+            mime_type: "text/plain".to_owned(),
+            modified_at: chrono::Utc::now(),
+            node_size: size
         };
         if let Ok(a) = repo::add_node(&pool, file_node).await {
             if a == 1 {
@@ -165,12 +169,9 @@ fn get_file_name(request: &HttpRequest) -> Option<String> {
 }
 
 async fn get_save_path(pool: &web::Data<Pool>, parent_id: i64, user_id: i64, name: &str) -> PathBuf {
-    let default_path = "/mnt/storage/files/1";
-    let parent: Cow<'static, str> = if parent_id > 0 {
-        let node = repo::fetch_node(&pool, parent_id, user_id).await;
-        node.map_or(default_path.into(), |n| n.filesystem_path.into())
-    } else { default_path.into() };
-    Path::new(parent.as_ref()).join(name).to_path_buf()
+    let node = repo::fetch_node(&pool, parent_id, user_id).await;
+    let path = node.map_or(get_top_save_folder(user_id), |n| n.filesystem_path);
+    Path::new(&path).join(name).to_path_buf()
 }
 
 fn node_mapper(dto: &FileNodeDto) -> FileNode {
@@ -179,7 +180,9 @@ fn node_mapper(dto: &FileNodeDto) -> FileNode {
         title: dto.title.clone(),
         parent_id: dto.parent_id,
         node_type: dto.node_type,
-        mime_type: dto.mime_type.clone()
+        mime_type: dto.mime_type.clone(),
+        modified_at: dto.modified_at.to_rfc3339(),
+        node_size: dto.node_size
     }
 }
 

@@ -45,5 +45,5 @@ pub async fn register(pool: web::Data<Pool>, register: web::Json<RegisterRequest
             access_token: token::create_access_token(user.id, &user.name)?
         });
     }
-    error_unauthorized()
+    Err(actix_web::error::ErrorInternalServerError("Registration Failed"))
 }

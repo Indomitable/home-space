@@ -15,10 +15,21 @@ pub struct CreateActionProps {
 #[function_component(CreateAction)]
 pub fn create_action(props: &CreateActionProps) -> Html {
     let action_list_visibility = use_state(|| false);
-    let list_visibility = action_list_visibility.deref().clone();
-    let onclick = Callback::from(move |_| {
-        action_list_visibility.set(!list_visibility);    
-    });
+    let list_visibility = *action_list_visibility;
+    let onclick = {
+        let action_list_visibility = action_list_visibility.clone();
+        Callback::from(move |_| {
+            action_list_visibility.set(!list_visibility);    
+        })
+    };
+
+    let on_action_finish = {
+        let action_list_visibility = action_list_visibility.clone();
+        Callback::from(move |_| {
+            action_list_visibility.set(false)
+        })
+    };
+
     html! {
         <>
             <button class="file-action-create" {onclick}>
@@ -27,7 +38,7 @@ pub fn create_action(props: &CreateActionProps) -> Html {
                 <span class="icon-filled">{"arrow_drop_down"}</span>
             </button>
             if list_visibility {
-                <CreateActionList parent_id={props.parent_id} />
+                <CreateActionList parent_id={props.parent_id} {on_action_finish} />
             }
         </>
     }
@@ -35,7 +46,8 @@ pub fn create_action(props: &CreateActionProps) -> Html {
 
 #[derive(Properties, PartialEq)]
 pub struct CreateActionListProps {
-    pub parent_id: i64
+    pub parent_id: i64,
+    pub on_action_finish: Callback<()>
 }
 
 #[function_component(CreateActionList)]
@@ -43,7 +55,7 @@ pub fn create_action_list(props: &CreateActionListProps) -> Html {
     html! {
         <ul class="file-action-create-list">
             <li class="file-action-create-list-item file-action-create-list-item--end-group">
-                <NewFolderAction parent_id={props.parent_id} />
+                <NewFolderAction parent_id={props.parent_id} on_finish={props.on_action_finish.clone()} />
             </li>
             <li class="file-action-create-list-item file-action-create-list-item--start-group">
                 <a>
@@ -70,7 +82,8 @@ pub fn create_action_list(props: &CreateActionListProps) -> Html {
 
 #[derive(Properties, PartialEq)]
 pub struct NewFolderActionProps {
-    pub parent_id: i64
+    pub parent_id: i64,
+    pub on_finish: Callback<()>
 }
 
 #[derive(Serialize, Clone)]
@@ -98,11 +111,13 @@ pub fn new_folder_action(props: &NewFolderActionProps) -> Html {
         let token = auth.access_token.token.clone();
         let input_ref = input_ref.clone();
         let parent_id = props.parent_id;
+        let on_finish = props.on_finish.clone();
         Callback::from(move |key: KeyboardEvent| {
             let input = input_ref.cast::<HtmlInputElement>().expect("Input exists");
             if key.code() == "Enter" {
                 log::debug!("Folder name is {}", input.value());
                 let token = token.clone();
+                let on_finish = on_finish.clone();
                 wasm_bindgen_futures::spawn_local(async move {
                     let url = format!("/api/files/create_folder/{}", parent_id);
                     let payload = CreateFolderPayload { name: input.value() };
@@ -113,6 +128,7 @@ pub fn new_folder_action(props: &NewFolderActionProps) -> Html {
                         .set_data(&payload)
                         .fetch()
                         .await;
+                    on_finish.emit(());
                 });
             }
         })

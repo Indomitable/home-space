@@ -78,8 +78,8 @@ impl Component for BreadcumbsFileNav {
                 cb.emit((ctx.props().parent_id, ctx.props().access_token.clone()));
             }
 
-            match &self.nodes {
-                Some(nodes) => {
+            match self.nodes {
+                Some(ref nodes) => {
                     html! {
                         <nav class="breadcrumbs-nav">
                         {

@@ -4,33 +4,28 @@ use yew_router::prelude::*;
 
 use home_space_contracts::files::FileNode;
 
-use super::file_api::use_nodes;
 use super::file_list_header_component::FileListHeader;
 
 
 #[derive(Properties, PartialEq)]
 pub struct FileListProps {
-    pub parent_id: i64,
-    pub access_token: String,
+    pub nodes: Vec<FileNode>
 }
 
 #[function_component(FileList)]
-pub fn file_nodes_component(props: &FileListProps) -> HtmlResult {
-    
-    let nodes = use_nodes(props.parent_id, &props.access_token)?;
-
-    Ok(html! {
+pub fn file_nodes_component(props: &FileListProps) -> Html {
+    html! {
         <div class="file-list">
             <FileListHeader />
             {
-                nodes.iter().map(|node: &FileNode| {
+                props.nodes.iter().map(|node: &FileNode| {
                     html!{
                         <NodeRow node={node.clone()} />
                     }
                 }).collect::<Html>()
             }
         </div>
-    })
+    }
 }
 
 

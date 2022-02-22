@@ -3,7 +3,7 @@ use wasm_bindgen::UnwrapThrowExt;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
-use crate::{api::api_service::{ResponseReader, RequestInitBuilder, METHOD_GET}, router::AppRoute};
+use crate::{router::AppRoute, files::file_repository::load_breadcrumbs};
 
 #[derive(Properties, PartialEq)]
 pub struct BreadcumbsFileNavProps {
@@ -12,6 +12,7 @@ pub struct BreadcumbsFileNavProps {
 }
 
 pub struct BreadcumbsFileNav {
+    current_parent_id: i64,
     nodes: Option<Vec<ParentNode>>
 }
 
@@ -22,30 +23,36 @@ pub enum BreadcumbsMessage {
     FetchError,
 }
 
+impl BreadcumbsFileNav {
+    fn load_breadcrumbs(&self, ctx: &Context<Self>) {
+        let cb = ctx.link().callback(|x: (i64, String)| BreadcumbsMessage::FetchParents(x.0, x.1));
+        cb.emit((ctx.props().parent_id, ctx.props().access_token.clone()));
+    }
+}
+
 impl Component for BreadcumbsFileNav {
     type Message = BreadcumbsMessage;
     type Properties = BreadcumbsFileNavProps;
 
-    fn create(_ctx: &Context<Self>) -> Self {
-        log::debug!("Create breadcrumbs");
-        Self {
+    fn create(ctx: &Context<Self>) -> Self {
+        let parent_id = ctx.props().parent_id;
+        let component = Self {
+            current_parent_id: parent_id,
             nodes: None
+        };
+        if parent_id > 0 {
+            // Top parent is hardcoded in the code, no need to fetch
+            component.load_breadcrumbs(ctx);
         }
+        component
     }
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
         match msg {
             BreadcumbsMessage::FetchParents ( id, token ) => {
                 let callback = ctx.link().callback_future(|props: (i64, String)| async move {
-                    let url = format!("/api/files/parents/{}", props.0);
-                    let reader: ResponseReader = RequestInitBuilder::<()>::new()
-                        .set_method(METHOD_GET)
-                        .set_url(&url)
-                        .set_access_token(&props.1)
-                        .fetch()
-                        .await
-                        .into();
-                    return match reader.as_obj::<Vec<ParentNode>>().await {
+                    let breadcrumbs = load_breadcrumbs(props.0, &props.1).await;
+                    return match breadcrumbs {
                         Ok(nodes) => BreadcumbsMessage::ParentsFetched { parents: nodes },
                         Err(_) => BreadcumbsMessage::FetchError
                     }
@@ -58,26 +65,25 @@ impl Component for BreadcumbsFileNav {
                 true
             },
             BreadcumbsMessage::FetchError => {
-                self.nodes = Some(Vec::new());
+                // Todo show error ?!?
                 false
             }
         }
     }
 
 
-    fn changed(&mut self, _ctx: &Context<Self>) -> bool {
-        // When new parent id is received clear current nodes
-        self.nodes = None;
-        true
+    fn changed(&mut self, ctx: &Context<Self>) -> bool {
+        let parent_id = ctx.props().parent_id;
+        if self.current_parent_id != parent_id {
+            // Parent id is changed
+            self.load_breadcrumbs(ctx);
+            self.current_parent_id = parent_id
+        }
+        false // Do not render, it will happen in the update
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         if ctx.props().parent_id > 0 {
-            if self.nodes.is_none() {
-                let cb = ctx.link().callback(|x: (i64, String)| BreadcumbsMessage::FetchParents(x.0, x.1));
-                cb.emit((ctx.props().parent_id, ctx.props().access_token.clone()));
-            }
-
             match self.nodes {
                 Some(ref nodes) => {
                     html! {
@@ -93,7 +99,7 @@ impl Component for BreadcumbsFileNav {
                     }
                 },
                 None => {
-                    html!{ <></> }
+                    html!{ <nav class="breadcrumbs-nav"></nav>}
                 }
             }
         } else {
@@ -105,8 +111,7 @@ impl Component for BreadcumbsFileNav {
                     </div>
                 </nav>
             }
-        }
-        
+        }        
     }
 }
 

@@ -20,7 +20,7 @@ pub fn file_nodes_component(props: &FileListProps) -> Html {
             {
                 props.nodes.iter().map(|node: &FileNode| {
                     html!{
-                        <NodeRow node={node.clone()} />
+                        <NodeRow key={node.id} node={node.clone()} />
                     }
                 }).collect::<Html>()
             }
@@ -47,9 +47,9 @@ fn node_row(props: &NodeRowProps) -> Html {
     };
 
     html!{
-        <div key={*id} class="file-list-row">
+        <div class="file-list-row" {onclick}>
             <div></div>
-            <div class="file-list-title"  onclick={onclick}>
+            <div class="file-list-title">
                 <span class="icon-filled">{get_node_icon(*node_type, &mime_type)}</span>
                 <span>{title.clone()}</span>
             </div>

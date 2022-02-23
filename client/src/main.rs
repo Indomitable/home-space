@@ -11,6 +11,10 @@ mod app_context;
 mod home;
 mod header;
 mod left_nav;
+mod favorites;
+mod recent;
+mod shared;
+mod trash;
 
 
 #[function_component(App)]

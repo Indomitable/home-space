@@ -83,7 +83,6 @@ impl Component for FilesView {
     }
 
     fn changed(&mut self, ctx: &Context<Self>) -> bool {
-        log::debug!("Props changed. ParentId: {}", ctx.props().parent_id);
         if self.current_parent_id != ctx.props().parent_id {
             // Parent id is changed
             self.load_nodes(ctx);

@@ -15,10 +15,19 @@
 
 .file-list-row {
     display: contents;
+    cursor: pointer;
 
     > div {
         height: 40px;
         line-height: 40px;
+
+
+    }
+
+    &:hover {
+        > div {
+            background: var(--files-grid-row-hover-color);
+        }
     }
 }
 

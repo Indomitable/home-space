@@ -35,3 +35,19 @@ pub fn get_top_save_folder(user_id: i64) -> String {
     let root = std::path::Path::new(&files_location);
     return root.join(user_id.to_string()).to_string_lossy().into_owned();
 }
+
+pub fn is_ssl_enabled() -> bool {
+    return env::var("SSL_ENABLE").unwrap_or("0".to_owned()) == "1";
+}
+
+pub fn ssl_listen_address() -> String {
+    format!("{}:{}", env::var("SERVER_NAME").unwrap(), env::var("SSL_PORT").unwrap())
+}
+
+pub fn ssl_private_key() -> String {
+    return env::var("SSL_PRIVATE_KEY").unwrap();
+}
+
+pub fn ssl_chain_key() -> String {
+    return env::var("SSL_CHAIN_KEY").unwrap();
+}

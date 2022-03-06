@@ -6,7 +6,7 @@ default-run = "home_space_server"
 
 [dependencies]
 home_space_contracts = { path = "../contracts" }
-actix-web = { version = "4.0.0-rc.3" }
+actix-web = { version = "4.0.0-rc.3", features = ["openssl"] }
 actix-files = { version = "0.6.0-beta.16" }
 actix-web-httpauth = { version = "0.6.0-beta.8" }
 actix-rt = { version = "2.6" }
@@ -19,8 +19,7 @@ futures-util = { version = "0.3" }
 log = "0.4"
 log4rs = "1"
 scrypt = "0.9.0"
-jwt = "0.16.0"
-hmac = "0.12.1"
-sha2 = "0.10.2"
+jsonwebtoken = "8"
 dotenv = "0.15.0"
 chrono = "0.4.19"
+openssl = "0.10.38"

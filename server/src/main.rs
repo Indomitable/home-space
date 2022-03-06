@@ -1,10 +1,12 @@
 use actix_files::Files;
+use openssl::ssl::{SslAcceptor, SslMethod, SslFiletype};
 use std::path::Path;
 use actix_web::{web, App, HttpServer};
 
 use db::new_pool;
 
-use crate::{auth::request_validator, config::{init_config, get_host_url, get_listen_address}};
+use crate::auth::request_validator;
+use crate::config::{init_config, get_host_url, get_listen_address, ssl_private_key, ssl_chain_key, ssl_listen_address};
 
 mod config;
 mod db;
@@ -22,7 +24,11 @@ async fn main() -> std::io::Result<()> {
     let db_manager = web::Data::new(pool);
 
     log::info!("Listen on: {}", get_host_url());
-    HttpServer::new(move || {
+    if config::is_ssl_enabled() {
+        log::info!("Listen on: https://{}", ssl_listen_address());
+    }
+
+    let builder = HttpServer::new(move || {
 
         let auth_middleware = actix_web_httpauth::middleware::HttpAuthentication::bearer(request_validator);
 
@@ -36,9 +42,20 @@ async fn main() -> std::io::Result<()> {
             .service(Files::new("/", "client/dist").index_file("index.html"))
             .default_service(web::get().to(get_index))
     })
-    .bind(get_listen_address())?
-    .run()
-    .await
+    .bind(get_listen_address())?;
+
+    if config::is_ssl_enabled() {
+        let mut ssl_builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+        ssl_builder
+            .set_private_key_file(ssl_private_key(), SslFiletype::PEM)
+            .unwrap();
+        ssl_builder.set_certificate_chain_file(ssl_chain_key()).unwrap();
+        builder
+        .bind_openssl(ssl_listen_address(), ssl_builder)?
+        .run().await
+    } else {
+        builder.run().await
+    }
 }
 
 async fn get_index() -> actix_files::NamedFile {

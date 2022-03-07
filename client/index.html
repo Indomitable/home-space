@@ -4,6 +4,12 @@
     <meta charset="utf-8" />
     <title>Home Space</title>
     <link data-trunk rel="copy-dir" href="assets/"/>
+    <link data-trunk rel="copy-dir" href="js/"/>
     <link data-trunk rel="sass" href="styles/index.scss" />
   </head>
+  <body>
+    <link data-trunk rel="rust" href="Cargo.toml" data-wasm-opt="z" data-bin="home_space_client" />
+
+    <script src="/js/file-upload.js" type="application/javascript"></script>
+  </body>
 </html>

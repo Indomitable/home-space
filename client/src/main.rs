@@ -4,6 +4,7 @@ use crate::router::{RouterContent};
 use crate::app_context::{AppContextProvider};
 
 mod api;
+mod modal;
 mod user;
 mod files;
 mod router;

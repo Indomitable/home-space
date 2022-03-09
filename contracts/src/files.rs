@@ -1,5 +1,8 @@
 use serde::{Serialize, Deserialize};
 
+pub const NODE_TYPE_FOLDER: i16 = 0;
+pub const NODE_TYPE_FILE: i16 = 1;
+
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub struct FileNode {
     pub id: i64,
@@ -16,4 +19,9 @@ pub struct FileNode {
 pub struct ParentNode {
     pub id: i64,
     pub title: String,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
+pub struct CreateNode {
+    pub id: i64
 }

@@ -1,5 +1,6 @@
 use actix_web::web;
 
+mod file_system;
 mod files_controller;
 mod files_repository;
 

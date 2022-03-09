@@ -1,13 +1,14 @@
-use std::{path::{Path, PathBuf}, io::Write, borrow::Cow};
+use std::{path::{Path, PathBuf}, borrow::Cow};
 use actix_web::{web, Responder, Result, HttpRequest, delete, get, put};
 use deadpool_postgres::Pool;
 use futures_util::TryStreamExt;
 use serde::Deserialize;
 
-use home_space_contracts::files::FileNode;
+use home_space_contracts::files::{FileNode, CreateNode, NODE_TYPE_FILE, NODE_TYPE_FOLDER};
 use crate::{response::*, config::get_top_save_folder};
 use crate::auth::AuthContext;
-use super::files_repository::{self as repo, NODE_TYPE_FILE, FileNodeDto};
+use super::file_system::*;
+use super::files_repository::{self as repo, FileNodeDto};
 
 ///
 /// Method: GET 
@@ -32,7 +33,7 @@ pub async fn get_nodes(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthCo
 pub async fn get_file(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
     let id = path.into_inner();
     if let Ok(node) = repo::fetch_node(&pool, id, user.user_id).await {
-        if node.node_type == repo::NODE_TYPE_FILE {
+        if node.node_type == NODE_TYPE_FILE {
             let file = actix_files::NamedFile::open_async(node.filesystem_path).await?;
             return Ok(file);
         }
@@ -59,16 +60,20 @@ pub async fn create_folder(pool: web::Data<Pool>, path: web::Path<i64>, user: Au
         user_id: user.user_id,
         title: folder_name.into_owned(),
         parent_id: Some(parent_id),
-        node_type: repo::NODE_TYPE_FOLDER,
+        node_type: NODE_TYPE_FOLDER,
         filesystem_path: path.to_str().unwrap().to_owned(),
         mime_type: "inode/directory".to_owned(),
         modified_at: chrono::Utc::now(),
         node_size: 0
     };
     match repo::add_node(&pool, file_node).await {
-        Ok(1_u64) => {
-            if let Ok(Ok(_)) = actix_rt::task::spawn_blocking(move || std::fs::create_dir(path)).await {
-                return created();
+        Ok(node_id) => {
+            match create_dir(path).await {
+                Ok(_) => return created(CreateNode { id: node_id }),
+                _ => {
+                    // When there is a problem creating folder delete created node.                    
+                    let _ = repo::permanent_delete(&pool, node_id, user.user_id).await;
+                }
             }
         },
         _ => {
@@ -87,9 +92,9 @@ pub async fn delete_node(pool: web::Data<Pool>, path: web::Path<i64>, user: Auth
     let id = path.into_inner();
     if let Ok(node) = repo::fetch_node(&pool, id, user.user_id).await {
         if node.node_type == NODE_TYPE_FILE {
-            if let Ok(1) = repo::delete_node(&pool, id, node.node_type, user.user_id).await {
+            if let Ok(1) = repo::move_to_trash(&pool, id, node.node_type, user.user_id).await {
                 // delete file from the file system only if it was deleted.
-                if let Ok(Ok(_)) = actix_rt::task::spawn_blocking(move || std::fs::remove_file(node.filesystem_path) ).await {
+                if delete_file(node.filesystem_path.into()).await.is_ok() {
                     return no_content()
                 }
             }
@@ -126,28 +131,27 @@ pub async fn upload_file(request: HttpRequest, pool: web::Data<Pool>, path: web:
         let user_id = user.user_id;       
         let output = get_save_path(&pool, parent_id, user_id, &file_name).await;
         let filesystem_path = output.clone().to_str().unwrap().to_string(); // Clone to filesystem_path because output will be moved on file create
-        let mut f = web::block(|| std::fs::File::create(output)).await??;
+        let mut f = create_file(output).await?;
         let mut size = 0_i64;
-        while let Some(item) = body.try_next().await? {
+        while let Some(bytes) = body.try_next().await? {
             //bytes.extend(item);
-            size = size + item.len() as i64;
-            f = web::block(move || f.write_all(&item).map(|_| f)).await??;
+            size = size + bytes.len() as i64;
+            f = append_file(f, bytes).await?;
+            //web::block(move || f.write_all(&item).map(|_| f)).await??;
         }
         let file_node = repo::FileNodeDto {
             id: 0,
             user_id: user.user_id,
             title: file_name,
             parent_id: Some(parent_id),
-            node_type: repo::NODE_TYPE_FILE,
+            node_type: NODE_TYPE_FILE,
             filesystem_path,
             mime_type: "text/plain".to_owned(),
             modified_at: chrono::Utc::now(),
             node_size: size
         };
-        if let Ok(a) = repo::add_node(&pool, file_node).await {
-            if a == 1 {
-                return created();
-            }
+        if let Ok(node_id) = repo::add_node(&pool, file_node).await {
+            return created(CreateNode { id: node_id });
         }
     }
     error_bad_request()

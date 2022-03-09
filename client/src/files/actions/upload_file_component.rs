@@ -1,12 +1,12 @@
-use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
+use gloo_events::EventListener;
 
 use crate::{modal::modal_dialog::{ModalDialog, ModalDialogHeader}};
-use super::file_api::defineFileUpload;
 
 #[derive(Properties, PartialEq)]
 pub struct UploadFileProps {
-    pub onclick: Callback<()>
+    pub parent_id: i64,
+    pub supports_open_dialog: bool
 }
 
 #[function_component(UploadFileAction)]
@@ -35,7 +35,16 @@ pub fn upload_file_action(props: &UploadFileProps) -> Html {
         })
     };
 
-    let modal_dilog_header = ModalDialogHeader::Text("Header".to_owned());
+    use_effect_with_deps(
+        move |_| {
+            let listener = gloo::events::EventListener::new(&span_ref.cast::<web_sys::HtmlElement>().unwrap(), "click", move |event| {
+                web_sys::console::log_1(&"I got clicked".into());
+            });
+            move || drop(listener)
+        },
+        (),
+    );
+
 
     html!{
         <>
@@ -45,10 +54,22 @@ pub fn upload_file_action(props: &UploadFileProps) -> Html {
             </a>
 
             if *upload_file_modal_open {
-                <ModalDialog header={modal_dilog_header} use_backdrop={Some(true)} on_backdrop_click={Some(on_backdrop_click)}>
-                    <file-upload></file-upload>
-                </ModalDialog>
+                { build_modal_dialog(props, on_backdrop_click) }
             }
         </>
+    }
+}
+
+pub fn build_modal_dialog(props: &UploadFileProps, on_backdrop_click: Callback<MouseEvent>) -> Html {
+    let modal_body = gloo_utils::document().create_element("file-upload").unwrap();
+    modal_body.set_attribute("parent-id", &props.parent_id.to_string()).unwrap();
+    if props.supports_open_dialog {
+        modal_body.set_attribute("supports-open-dialog", "").unwrap();
+    }
+    let modal_dilog_header = ModalDialogHeader::Text("Select file(s) to upload.".to_owned());
+    html!{
+        <ModalDialog header={modal_dilog_header} use_backdrop={Some(true)} on_backdrop_click={Some(on_backdrop_click)}>
+            {Html::VRef(modal_body.into())}
+        </ModalDialog>
     }
 }

@@ -2,7 +2,7 @@ use wasm_bindgen::UnwrapThrowExt;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
-use home_space_contracts::files::FileNode;
+use home_space_contracts::files::{FileNode, NODE_TYPE_FOLDER};
 
 use super::file_list_header_component::FileListHeader;
 
@@ -41,8 +41,11 @@ fn node_row(props: &NodeRowProps) -> Html {
     let navigator = use_navigator().unwrap_throw();
     let onclick = {
         let id = *id;
+        let node_type = props.node.node_type;
         Callback::from(move |_| {
-            navigator.push(crate::router::AppRoute::FileList{ parent_id: id });
+            if node_type == NODE_TYPE_FOLDER {
+                navigator.push(crate::router::AppRoute::FileList{ parent_id: id });
+            }
         })
     };
 

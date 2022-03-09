@@ -1,12 +1,15 @@
 use gloo_utils::window;
-use log::{debug, error};
 use wasm_bindgen::prelude::*;
 use js_sys::{Reflect, AsyncIterator, IteratorNext};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 
-fn is_file_api_supported() -> Result<bool, JsValue> {
-    Reflect::has(&window(), &JsValue::from_str("showDirectoryPicker"))
+pub fn is_file_api_supported() -> bool {
+    if let Ok(true) = Reflect::has(&window(), &JsValue::from_str("showDirectoryPicker")) {
+        true
+    } else {
+        false
+    }
 }
 
 #[wasm_bindgen]

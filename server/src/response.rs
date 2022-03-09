@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use actix_web::{HttpResponse, web, Responder};
+use actix_web::{HttpResponse, web, Responder, body::MessageBody};
 use serde::Serialize;
 
 // Successful codes 2XX
@@ -16,8 +16,10 @@ pub fn json<T>(payload: T) -> actix_web::Result<impl Responder>
 }
 
 /// 201 CREATED
-pub fn created() -> Result<HttpResponse, actix_web::Error> {
-    Ok(HttpResponse::Created().into())
+pub fn created<T>(content: T) -> Result<HttpResponse, actix_web::Error> 
+    where T: Serialize {
+    let body = serde_json::to_string(&content).expect("Serialize error");
+    Ok(HttpResponse::Created().body(body).into())
 }
 
 /// 202 ACCEPTED

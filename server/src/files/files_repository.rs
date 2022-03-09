@@ -1,12 +1,9 @@
 use actix_web::web;
 use deadpool_postgres::{Pool, tokio_postgres::Row};
 
-use home_space_contracts::files::ParentNode;
+use home_space_contracts::files::{ParentNode, NODE_TYPE_FILE};
 
 use crate::db::{query, query_one, execute, DbResult};
-
-pub const NODE_TYPE_FOLDER: i16 = 0;
-pub const NODE_TYPE_FILE: i16 = 1;
 
 pub struct FileNodeDto {
     pub id: i64,
@@ -22,7 +19,8 @@ pub struct FileNodeDto {
 
 pub async fn fetch_nodes(pool: &web::Data<Pool>, parent_id: i64, user_id: i64) -> DbResult<Vec<FileNodeDto>> {
     let sql = r#"select id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size from file_nodes
-                      where parent_id = $2 and user_id = $1"#;    
+                      where parent_id = $2 and user_id = $1
+                      order by node_type, title"#;
     let rows = query(pool,  sql, &[&user_id, &parent_id]).await?;
     let nodes = read_file_nodes(rows);
     return Ok(nodes);
@@ -37,7 +35,7 @@ pub async fn fetch_node(pool: &web::Data<Pool>, id: i64, user_id: i64) -> DbResu
     return Ok(node);
 }
 
-pub async fn add_node(pool: &web::Data<Pool>, file_node: FileNodeDto) -> DbResult<u64>  {
+pub async fn add_node(pool: &web::Data<Pool>, file_node: FileNodeDto) -> DbResult<i64>  {
     let FileNodeDto {
         user_id,
         title,
@@ -50,19 +48,40 @@ pub async fn add_node(pool: &web::Data<Pool>, file_node: FileNodeDto) -> DbResul
         ..
     } = file_node;
     let sql = format!(r#"insert into file_nodes (id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size)
-    values (nextval('{}'), $1, $2, $3, $4, $5, $6, $7, $8)"#, get_file_node_id_sequence(user_id));
-    let affected = execute(pool, &sql, &[&user_id, &title, &parent_id, &node_type, &filesystem_path, &mime_type, &modified_at, &node_size]).await?;
-    Ok(affected)
+    values (nextval('{}'), $1, $2, $3, $4, $5, $6, $7, $8) RETURNING id"#, get_file_node_id_sequence(user_id));
+    let row = query_one(pool, &sql, &[&user_id, &title, &parent_id, &node_type, &filesystem_path, &mime_type, &modified_at, &node_size]).await?;
+    let node_id: i64 = row.get(0);
+    Ok(node_id)
 }
 
-pub async fn delete_node(pool: &web::Data<Pool>, id: i64, node_type: i16, user_id: i64) -> DbResult<u64> {
-    let delete_sql = r#"delete from file_nodes where id = $2 and user_id = $1"#;
-    let affected: u64;
+pub async fn move_to_trash(pool: &web::Data<Pool>, id: i64, node_type: i16, user_id: i64) -> DbResult<u64> {
+    let trash_insert_sql = r#"insert into trash_box t (id, user_id, title, parent_id, node_type, filesystem_path, mime_type, deleted_at, node_size)
+    select fn.id, fn.user_id, fn.parent_id, fn.node_type, fn.filesystem_path, fn.mime_type, now() at time zone 'utc', fn.node_size from file_nodes fn"#;
+    let delete_top_sql = "delete from file_nodes fn";
+    let where_sql: &str;
     if node_type == NODE_TYPE_FILE {
-        affected = execute(pool, delete_sql, &[&user_id, &id]).await?;
+        where_sql = "where fn.id = $2 and fn.user_id = $1";
     } else {
-        todo!("Add folder delete");
+        where_sql = r#"where fn.id in (
+        WITH RECURSIVE breadcrumbs_query AS ( 
+            select id, title, parent_id, 0 as lev from file_nodes 
+            where id = $2 and user_id = $1
+            UNION ALL 
+            select n.id, n.title, n.parent_id, lev+1 as lev from file_nodes n
+            INNER JOIN breadcrumbs_query p ON p.id = n.parent_id
+        )
+        select id from breadcrumbs_query);
+        "#;
     }
+    let _ = execute(pool, &format!("{} {}", trash_insert_sql, where_sql), &[&user_id, &id]).await?;
+    let deleted = execute(pool, &format!("{} {}", delete_top_sql, where_sql), &[&user_id, &id]).await?;
+    Ok(deleted)
+}
+
+/// Delete file node or empty folder.
+pub async fn permanent_delete(pool: &web::Data<Pool>, id: i64, user_id: i64) -> DbResult<u64> {    
+    let delete_sql = r#"delete from file_nodes where id = $2 and user_id = $1"#;
+    let affected = execute(pool, delete_sql, &[&user_id, &id]).await?;
     Ok(affected)
 }
 

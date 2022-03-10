@@ -26,6 +26,7 @@ pub fn modal_dialog(props: &ModalDialogProps) -> Html {
             html.clone()
         }
     };
+
     html! {
         <>
             <div class="modal-dialog">

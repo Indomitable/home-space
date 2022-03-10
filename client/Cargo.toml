@@ -31,5 +31,10 @@ features = [
   "RequestMode",
   "Response",
   "Window",
-  "Storage"
+  "Storage",
+  "DragEvent",
+  "DataTransfer",
+  "DataTransferItem",
+  "DataTransferItemList",
+  "FileSystemEntry"
 ]

@@ -1,7 +1,11 @@
-use js_sys::Array;
-use wasm_bindgen::{JsValue, JsCast, UnwrapThrowExt};
+use std::process::Output;
+
+use js_sys::{Array, Promise};
+use log::debug;
+use wasm_bindgen::{JsValue, JsCast, UnwrapThrowExt, prelude::Closure};
+use wasm_bindgen_futures::{JsFuture, spawn_local};
 use yew::prelude::*;
-use web_sys::{DragEvent, DataTransferItemList, DataTransferItem};
+use web_sys::{DragEvent, DataTransferItemList, DataTransferItem, FileSystemEntry, FileSystemDirectoryEntry};
 use gloo_events::EventListener;
 
 use crate::{modal::modal_dialog::{ModalDialog, ModalDialogHeader}};
@@ -62,21 +66,11 @@ impl Component for UploadFileAction {
 
             let UploadFileProps { parent_id, supports_open_dialog } = ctx.props();
             
-            let modal_body = gloo_utils::document().create_element("file-upload").unwrap();
-            modal_body.set_attribute("parent-id", &parent_id.to_string()).unwrap();
-            if *supports_open_dialog {
-                modal_body.set_attribute("supports-open-dialog", "").unwrap();
-            }
-
-            let vref = Html::VRef(modal_body.into());
-
-
-
             return html!{
                 <>
                     {action}
                     <ModalDialog header={modal_dilog_header} use_backdrop={Some(true)} on_backdrop_click={Some(on_backdrop_click)}>
-                        {vref}
+                        <FileUpload parent_id={parent_id} supports_open_dialog={*supports_open_dialog} />
                     </ModalDialog>
                 </>
             };
@@ -84,68 +78,6 @@ impl Component for UploadFileAction {
         action
     }
 }
-
-
-// #[function_component(UploadFileAction)]
-// pub fn upload_file_action(props: &UploadFileProps) -> Html {
-//     let upload_file_modal_open = use_state(|| false);
-
-//     let onclick = {
-//         let upload_file_modal_open = upload_file_modal_open.clone();
-//         // let on_click = props.onclick.clone();
-//         // Switch to input on click
-//         Callback::from(move |_| {
-//             // spawn_local(async {
-//             //     get_directory().await
-//             // });
-
-//             //defineFileUpload();
-//             upload_file_modal_open.set(true);
-//         })
-//     };
-
-//     let on_backdrop_click = {
-//         let upload_file_modal_open = upload_file_modal_open.clone();
-//         // Switch to input on click
-//         Callback::from(move |_| {
-//             upload_file_modal_open.set(false);                
-//         })
-//     };
-//     let modal_dilog_header = ModalDialogHeader::Text("Select file(s) to upload.".to_owned());
-
-//     html!{
-//         <>
-//             <a {onclick}>
-//                 <span class="icon-outlined">{"upload_file"}</span>
-//                 <span>{"Upload file"}</span>
-//             </a>
-
-//             if *upload_file_modal_open {
-                
-
-//                 // { build_modal_dialog(props, &file_upload_ref, on_backdrop_click) }
-//                 <ModalDialog header={modal_dilog_header} use_backdrop={Some(true)} on_backdrop_click={Some(on_backdrop_click)}>
-//                     {Html::VRef(modal_body.into())}
-//                 </ModalDialog>
-//             }
-//         </>
-//     }
-// }
-
-pub fn build_modal_dialog(props: &UploadFileProps, node_ref: &NodeRef, on_backdrop_click: Callback<MouseEvent>) -> Html {
-    let modal_body = gloo_utils::document().create_element("file-upload").unwrap();
-    modal_body.set_attribute("parent-id", &props.parent_id.to_string()).unwrap();
-    if props.supports_open_dialog {
-        modal_body.set_attribute("supports-open-dialog", "").unwrap();
-    }
-    let modal_dilog_header = ModalDialogHeader::Text("Select file(s) to upload.".to_owned());
-    html!{
-        <ModalDialog header={modal_dilog_header} use_backdrop={Some(true)} on_backdrop_click={Some(on_backdrop_click)}>
-            {Html::VRef(modal_body.into())}
-        </ModalDialog>
-    }
-}
-
 
 struct FileUpload {
     state: FileUploadState
@@ -166,14 +98,52 @@ enum FileUploadMessages {
 
 impl FileUpload {
     fn get_class_container(&self) -> String {
-        let static_class = "drop-container";
+        let static_class = "file-upload__drop-container";
         let state_class = match self.state {
-            FileUploadState::None => "drop-container",
-            FileUploadState::DragOver => "drop-container file-upload__drag-over",
-            FileUploadState::HasFiles => "drop-container file-upload__uploading",
+            FileUploadState::None => "",
+            FileUploadState::DragOver => "file-upload__drag-over",
+            FileUploadState::HasFiles => "file-upload__uploading",
         };
         format!("{} {}", static_class, state_class)
     }
+}
+
+async fn upload_files(parent_id: i64, files: Vec<DataTransferItem>) {
+    for file in files {
+        let entry = file.webkit_get_as_entry().unwrap_throw().unwrap_throw();
+        upload_entry(parent_id, entry).await;
+    }
+}
+
+async fn upload_entry(parent_id: i64, entry: FileSystemEntry) {
+    if entry.is_file() {
+
+    }
+
+    if entry.is_directory() {
+        let entries = read_directory_promise(entry.unchecked_into::<FileSystemDirectoryEntry>()).await;
+        debug!("{:?}", entries);
+    }
+}
+
+async fn read_directory_promise(entry: FileSystemDirectoryEntry) -> Vec<FileSystemEntry> {
+    let reader = entry.create_reader();
+    let promise = Promise::new(&mut |resolve, reject| {
+        let success_callback: Closure<dyn FnMut(js_sys::Array)> = Closure::wrap(Box::new(move |entries: js_sys::Array| {
+            debug!("{:?}", entries);
+            resolve.apply(&JsValue::NULL, &entries).unwrap_throw();
+        }) as Box<dyn FnMut(js_sys::Array)>);
+        // let error_callback = |error: js_sys::Error| {
+
+        // };
+        reader.read_entries_with_file_system_entries_callback(success_callback.as_ref().unchecked_ref()).unwrap_throw();
+    });
+    let entries = JsFuture::from(promise).await.unwrap_throw();
+    entries.dyn_into::<js_sys::Array>().unwrap_throw().to_vec().into_iter().map(|item| {
+        debug!("{:?}", item);
+        item.dyn_into::<FileSystemEntry>().unwrap_throw()
+    }).collect()
+    //reader.read_entries_with_callback(success_callback)
 }
 
 impl Component for FileUpload {
@@ -186,8 +156,6 @@ impl Component for FileUpload {
             state: FileUploadState::None
         }
     }
-
-    
 
     fn view(&self, ctx: &Context<Self>) -> Html {
         let UploadFileProps { parent_id, supports_open_dialog } = ctx.props();
@@ -203,7 +171,7 @@ impl Component for FileUpload {
                 let items: Array = Array::from(&data_transfer.items());
                 if items.length() > 0 {                    
                     drag_event.prevent_default();
-                    let vec = items.iter().map(|item| item.unchecked_into::<DataTransferItem>()).collect();
+                    let vec = items.iter().map(|item| item.dyn_into::<DataTransferItem>().unwrap_throw()).collect();
                     return FileUploadMessages::DragDrop(vec);
                 }
             }
@@ -212,7 +180,7 @@ impl Component for FileUpload {
         let ondragover = ctx.link().callback(|drag_event: DragEvent| {
             if let Some(data_transfer) = drag_event.data_transfer() {
                 let items: Array = Array::from(&data_transfer.items());
-                if items.length() > 0 && items.every(&mut |item, _, _| { item.unchecked_into::<DataTransferItem>().kind() == "file" }) {
+                if items.length() > 0 && items.every(&mut |item, _, _| { item.dyn_into::<DataTransferItem>().unwrap_throw().kind() == "file" }) {
                     drag_event.prevent_default();
                     return FileUploadMessages::DragOver
                 }
@@ -240,6 +208,11 @@ impl Component for FileUpload {
                 true
             },
             FileUploadMessages::DragDrop(items) => {
+                debug!("{:?}", items);
+                let parent_id = ctx.props().parent_id;
+                spawn_local(async move {
+                    upload_files(parent_id, items).await;
+                });
                 self.state = FileUploadState::HasFiles;
                 true
             },

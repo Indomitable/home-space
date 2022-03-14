@@ -1,8 +1,8 @@
 use gloo_utils::window;
 use wasm_bindgen::prelude::*;
-use js_sys::{Reflect, AsyncIterator, IteratorNext};
+use js_sys::{Reflect, AsyncIterator};
 use wasm_bindgen::JsCast;
-use wasm_bindgen_futures::JsFuture;
+
 
 pub fn is_file_api_supported() -> bool {
     if let Ok(true) = Reflect::has(&window(), &JsValue::from_str("showDirectoryPicker")) {
@@ -46,18 +46,8 @@ extern "C" {
 
 #[wasm_bindgen(module = "/js/file-upload.js")]
 extern "C" {
-    #[wasm_bindgen(js_name=FileUpload, skip_typescript)]
-    #[derive(Debug, Clone, PartialEq)]
-    pub type FileUpload;
-
     #[wasm_bindgen()]
     pub fn defineFileUpload();
-
-    // #[wasm_bindgen(constructor)]
-    // fn new() -> Tester;
-
-    // #[wasm_bindgen (method, js_class = "Tester" , js_name=test)]
-    // pub fn test(this: &Tester);
 }
 
 

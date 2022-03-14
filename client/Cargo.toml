@@ -36,5 +36,9 @@ features = [
   "DataTransfer",
   "DataTransferItem",
   "DataTransferItemList",
-  "FileSystemEntry"
+  "FileSystemEntry",
+  "FileSystemDirectoryEntry",
+  "FileSystemDirectoryReader",
+  "FileSystemEntriesCallback",
+  "FileSystemFileEntry"
 ]

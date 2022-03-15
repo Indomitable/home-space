@@ -1,8 +1,8 @@
 use yew::prelude::*;
 
 use super::file_api::is_file_api_supported;
-use super::new_folder_component::NewFolderAction;
-use super::upload_file_component::UploadFileAction;
+use super::new_folder_action::NewFolderAction;
+use super::upload_file_action::UploadFileAction;
 
 #[derive(Properties, PartialEq)]
 pub struct CreateActionProps {
@@ -54,7 +54,7 @@ pub fn create_action_list(props: &CreateActionListProps) -> Html {
             <li class="file-action-create-list-item file-action-create-list-item--end-group">
                 <NewFolderAction parent_id={props.parent_id} on_finish={props.close_action_list.clone()} />
             </li>
-            {upload_actions(props.parent_id)}
+            {upload_actions(props.parent_id, props.close_action_list.clone())}
             <li class="file-action-create-list-item file-action-create-list-item--start-group">
                 <a>
                     <span class="icon-outlined">{"description"}</span>
@@ -65,13 +65,13 @@ pub fn create_action_list(props: &CreateActionListProps) -> Html {
     }
 }
 
-fn upload_actions(parent_id: i64) -> Html {
+fn upload_actions(parent_id: i64, close_action_list: Callback<()>) -> Html {
     if is_file_api_supported() {
         // Chrome based that supports open file and open folder dialogs.
         html! {
             <>
                 <li class="file-action-create-list-item file-action-create-list-item--start-group">
-                    <UploadFileAction supports_open_dialog=true parent_id={parent_id} />
+                    <UploadFileAction supports_open_dialog=true parent_id={parent_id} {close_action_list} />
                 </li>
                 <li class="file-action-create-list-item file-action-create-list-item--end-group">
                     <a>
@@ -85,7 +85,7 @@ fn upload_actions(parent_id: i64) -> Html {
         // Firefox.
         html! {
             <li class="file-action-create-list-item file-action-create-list-item--start-group file-action-create-list-item--end-group">
-                <UploadFileAction supports_open_dialog=false parent_id={parent_id} />
+                <UploadFileAction supports_open_dialog=false parent_id={parent_id} {close_action_list} />
             </li>
         }
     }

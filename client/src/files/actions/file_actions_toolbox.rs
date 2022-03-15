@@ -1,6 +1,6 @@
 use yew::prelude::*;
 
-use super::create_component::CreateAction;
+use super::create_action_list::CreateAction;
 
 #[derive(Properties, PartialEq)]
 pub struct FileActionsProps {

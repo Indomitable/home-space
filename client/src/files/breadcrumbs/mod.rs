@@ -1,1 +1,1 @@
-pub mod breadcrumbs_component;
+pub mod breadcrumbs_file_navigation;

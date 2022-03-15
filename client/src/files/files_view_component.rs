@@ -5,8 +5,8 @@ use yew::prelude::*;
 
 use crate::app_context::{AppContext, AuthContext};
 use super::file_list_component::FileList;
-use super::actions::file_actions_component::FileActions;
-use super::breadcrumbs::breadcrumbs_component::BreadcumbsFileNav;
+use super::actions::file_actions_toolbox::FileActions;
+use super::breadcrumbs::breadcrumbs_file_navigation::BreadcumbsFileNav;
 use super::file_repository::load_file_nodes;
 
 #[derive(Properties, PartialEq)]

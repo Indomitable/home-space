@@ -35,10 +35,5 @@ features = [
   "DragEvent",
   "DataTransfer",
   "DataTransferItem",
-  "DataTransferItemList",
-  "FileSystemEntry",
-  "FileSystemDirectoryEntry",
-  "FileSystemDirectoryReader",
-  "FileSystemEntriesCallback",
-  "FileSystemFileEntry"
+  "DataTransferItemList"
 ]

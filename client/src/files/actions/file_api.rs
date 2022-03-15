@@ -1,7 +1,6 @@
 use gloo_utils::window;
 use wasm_bindgen::prelude::*;
-use js_sys::{Reflect, AsyncIterator};
-use wasm_bindgen::JsCast;
+use js_sys::{Reflect, AsyncIterator, Array};
 
 
 pub fn is_file_api_supported() -> bool {
@@ -38,46 +37,46 @@ extern "C" {
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(catch)]
-    async fn showDirectoryPicker() -> Result<JsValue, JsValue>;
+    pub async fn showDirectoryPicker() -> Result<JsValue, JsValue>;
 
-    #[wasm_bindgen()]
-    pub fn showOpenFilePicker();
+    #[wasm_bindgen(catch)]
+    pub async fn showOpenFilePicker() -> Result<JsValue, JsValue>;
 }
 
 #[wasm_bindgen(module = "/js/file-upload.js")]
 extern "C" {
-    #[wasm_bindgen()]
-    pub fn defineFileUpload();
+    #[wasm_bindgen(catch)]
+    pub async fn uploadDataTransferItems(parent_id: i64, items: Array) -> Result<JsValue, JsValue>;
 }
 
 
-pub async fn get_directory() {
-    // let tester = Tester::new();
-    // tester.test();
+// pub async fn get_directory() {
+//     // let tester = Tester::new();
+//     // tester.test();
 
-    // if let Ok(true) = is_file_api_supported() {
-    //     if let Ok(directory_handler) = showDirectoryPicker().await {
-    //         let handle: FileSystemDirectoryHandle = directory_handler.dyn_into().expect("Cast");
-    //         debug!("{}", handle.kind());
+//     // if let Ok(true) = is_file_api_supported() {
+//     //     if let Ok(directory_handler) = showDirectoryPicker().await {
+//     //         let handle: FileSystemDirectoryHandle = directory_handler.dyn_into().expect("Cast");
+//     //         debug!("{}", handle.kind());
 
-    //         let async_iterator = handle.values();
-    //         while let Ok(promise) = async_iterator.next() {
-    //             match JsFuture::from(promise).await {
-    //                 Ok(val) => {
-    //                     let dir: IteratorNext =  val.unchecked_into::<IteratorNext>(); // Use unchecked_into because it is plain js object and instanceof will not return true.
-    //                     if dir.done() {
-    //                         return;
-    //                     } else {
-    //                         let handle: FileSystemHandle = dir.value().dyn_into().expect("Should be file system handle");
-    //                         debug!("{}", handle.name());
-    //                     }
-    //                 },
-    //                 Err(e) => {
-    //                     error!("{:?}", e);
-    //                     break;
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
-}
+//     //         let async_iterator = handle.values();
+//     //         while let Ok(promise) = async_iterator.next() {
+//     //             match JsFuture::from(promise).await {
+//     //                 Ok(val) => {
+//     //                     let dir: IteratorNext =  val.unchecked_into::<IteratorNext>(); // Use unchecked_into because it is plain js object and instanceof will not return true.
+//     //                     if dir.done() {
+//     //                         return;
+//     //                     } else {
+//     //                         let handle: FileSystemHandle = dir.value().dyn_into().expect("Should be file system handle");
+//     //                         debug!("{}", handle.name());
+//     //                     }
+//     //                 },
+//     //                 Err(e) => {
+//     //                     error!("{:?}", e);
+//     //                     break;
+//     //                 }
+//     //             }
+//     //         }
+//     //     }
+//     // }
+// }

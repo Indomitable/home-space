@@ -28,6 +28,10 @@
         > div {
             background: var(--files-grid-row-hover-color);
         }
+
+        .file-item-action {
+            visibility: visible;
+        }
     }
 }
 
@@ -36,4 +40,26 @@
     display: flex;
     align-items: center;
     column-gap: 5px;
+}
+
+.file-item-actions {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    column-gap: 10px;
+}
+
+.file-item-action {
+    visibility: hidden;
+    user-select: none;
+}
+
+.file-item-action--visible {
+    visibility: visible;
+}
+
+.file-item-menu {
+    margin-left: auto;
+    margin-right: 15px;
 }

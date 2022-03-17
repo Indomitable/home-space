@@ -4,7 +4,10 @@ use yew_router::prelude::*;
 
 use home_space_contracts::files::{FileNode, NODE_TYPE_FOLDER};
 
+use crate::app_context::AppContext;
+
 use super::file_list_header_component::FileListHeader;
+use super::actions::favorite_action::FavoriteAction;
 
 
 #[derive(Properties, PartialEq)]
@@ -49,12 +52,24 @@ fn node_row(props: &NodeRowProps) -> Html {
         })
     };
 
+    let on_favorite = {
+        Callback::from(|is_favorite: bool| {
+
+        })
+    };
+
+    let context = use_context::<AppContext>().unwrap_throw();
+
     html!{
         <div class="file-list-row" {onclick}>
-            <div></div>
+            <div class="file-item-actions">
+                <span class="icon-outlined file-item-action">{"check_box_outline_blank"}</span>
+                <FavoriteAction is_favorite={false} {on_favorite} />
+            </div>
             <div class="file-list-title">
                 <span class="icon-filled">{get_node_icon(*node_type, &mime_type)}</span>
                 <span>{title.clone()}</span>
+                <span class="icon-filled file-item-menu file-item-action">{"more_vert"}</span>
             </div>
             <div>{node_size.clone()}</div>
             <div>{modified_at.clone()}</div>

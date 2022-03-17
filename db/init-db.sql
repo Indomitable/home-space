@@ -89,4 +89,10 @@ create table trash_box (
 
 create index idx_trash_box on file_nodes (user_id);
 
+CREATE TABLE public.favorite_nodes (
+	id int8 NOT NULL,
+	user_id int8 NOT NULL,
+	CONSTRAINT pk_favorite_nodes PRIMARY KEY (id, user_id),
+	CONSTRAINT fk_favorite_nodes_file_nodes FOREIGN KEY (id,user_id) REFERENCES public.file_nodes(id,user_id)
+);
 

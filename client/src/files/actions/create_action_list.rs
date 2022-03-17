@@ -1,5 +1,7 @@
 use yew::prelude::*;
 
+use crate::utils::dispatcher_helpers::use_dispatcher;
+
 use super::file_api::is_file_api_supported;
 use super::new_folder_action::NewFolderAction;
 use super::upload_file_action::UploadFileAction;
@@ -22,8 +24,11 @@ pub fn create_action(props: &CreateActionProps) -> Html {
 
     let close_action_list = {
         let action_list_visibility = action_list_visibility.clone();
+
+        let dispatcher = use_dispatcher();
         Callback::from(move |_| {
-            action_list_visibility.set(false)
+            action_list_visibility.set(false);
+            dispatcher.borrow().publish("refresh".into(), "".into());
         })
     };
 

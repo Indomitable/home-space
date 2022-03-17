@@ -4,11 +4,12 @@ use deadpool_postgres::Pool;
 use futures_util::TryStreamExt;
 use serde::Deserialize;
 
-use home_space_contracts::files::{FileNode, CreateNode, NODE_TYPE_FILE, NODE_TYPE_FOLDER};
-use crate::{response::*, config::get_top_save_folder};
+use home_space_contracts::files::{CreateNode, NODE_TYPE_FILE, NODE_TYPE_FOLDER};
+use crate::response::*;
+use crate::config::get_top_save_folder;
 use crate::auth::AuthContext;
 use super::file_system::*;
-use super::files_repository::{self as repo, FileNodeDto};
+use super::files_repository as repo;
 
 ///
 /// Method: GET 
@@ -19,8 +20,7 @@ use super::files_repository::{self as repo, FileNodeDto};
 #[get("/get_nodes/{parent_id}")]
 pub async fn get_nodes(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
     let parent_id = path.into_inner();
-    if let Ok(nodes) = repo::fetch_nodes(&pool, parent_id, user.user_id).await {
-        let nodes = nodes_mapper(nodes.iter());
+    if let Ok(nodes) = repo::get_file_list(&pool, parent_id, user.user_id).await {
         return Ok(web::Json(nodes));
     }
     error_internal_server_error()
@@ -188,21 +188,4 @@ async fn get_save_path(pool: &web::Data<Pool>, parent_id: i64, user_id: i64, nam
     let node = repo::fetch_node(&pool, parent_id, user_id).await;
     let path = node.map_or(get_top_save_folder(user_id), |n| n.filesystem_path);
     Path::new(&path).join(name).to_path_buf()
-}
-
-fn node_mapper(dto: &FileNodeDto) -> FileNode {
-    FileNode {
-        id: dto.id,
-        title: dto.title.clone(),
-        parent_id: dto.parent_id,
-        node_type: dto.node_type,
-        mime_type: dto.mime_type.clone(),
-        modified_at: dto.modified_at.to_rfc3339(),
-        node_size: dto.node_size
-    }
-}
-
-fn nodes_mapper<'a, TInputIter>(dto_nodes: TInputIter) -> Vec<FileNode>
-    where TInputIter: Iterator<Item = &'a FileNodeDto>  {
-    dto_nodes.map(|dto| node_mapper(dto)).collect::<Vec<FileNode>>()
 }

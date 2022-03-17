@@ -1,9 +1,43 @@
 use actix_web::web;
-use deadpool_postgres::{Pool, tokio_postgres::Row};
+use deadpool_postgres::Pool;
 
-use home_space_contracts::files::{ParentNode, NODE_TYPE_FILE};
+use home_space_contracts::files::{ParentNode, NODE_TYPE_FILE, DisplayFileNode};
+use log::error;
 
 use crate::db::{query, query_one, execute, DbResult};
+
+pub async fn get_file_list(pool: &web::Data<Pool>, parent_id: i64, user_id: i64) -> DbResult<Vec<DisplayFileNode>> {
+    let sql = r#"select fn.id, fn.title, 
+    fn.parent_id, fn.node_type, fn.mime_type,
+    fn.modified_at, fn.node_size,
+    case 
+           when ffn.id is null then true
+           else false
+    end is_favorite
+from file_nodes fn
+left join favorite_nodes ffn on fn.id = ffn.id and fn.user_id = ffn.user_id  
+where fn.parent_id = $2 and fn.user_id = $1
+order by node_type, title"#;
+    match query(pool,  sql, &[&user_id, &parent_id]).await {
+        Ok(rows) => {
+            let nodes = rows.iter().map(|row| DisplayFileNode {
+                id: row.get(0),
+                title: row.get(1),
+                parent_id: row.get(2),
+                node_type: row.get(3),
+                mime_type: row.get(4),
+                modified_at: row.get::<usize, chrono::DateTime<chrono::Utc>>(5).to_rfc3339(),
+                node_size: row.get(6),
+                is_favorite: row.get(7)
+            }).collect();
+            return Ok(nodes);
+        },
+        Err(err) => {
+            error!("{:?}", err);
+            return Err(err);
+        }
+    }
+}
 
 pub struct FileNodeDto {
     pub id: i64,
@@ -17,21 +51,22 @@ pub struct FileNodeDto {
     pub node_size: i64
 }
 
-pub async fn fetch_nodes(pool: &web::Data<Pool>, parent_id: i64, user_id: i64) -> DbResult<Vec<FileNodeDto>> {
-    let sql = r#"select id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size from file_nodes
-                      where parent_id = $2 and user_id = $1
-                      order by node_type, title"#;
-    let rows = query(pool,  sql, &[&user_id, &parent_id]).await?;
-    let nodes = read_file_nodes(rows);
-    return Ok(nodes);
-}
-
 pub async fn fetch_node(pool: &web::Data<Pool>, id: i64, user_id: i64) -> DbResult<FileNodeDto> {
     let sql = r#"select id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size
                     from file_nodes
                     where id = $2 and user_id = $1"#;
     let row= query_one(pool, sql, &[&user_id, &id]).await?;
-    let node = read_file_node(&row);
+    let node = FileNodeDto {
+        id: row.get(0),
+        user_id: row.get(1),
+        title: row.get(2),
+        parent_id: row.get(3),
+        node_type: row.get(4),
+        filesystem_path: row.get(5),
+        mime_type: row.get(6),
+        modified_at: row.get(7),
+        node_size: row.get(8)
+    };
     return Ok(node);
 }
 
@@ -102,26 +137,20 @@ pub async fn get_parent_nodes(pool: &web::Data<Pool>, parent_id: i64, user_id: i
     return Ok(nodes);
 }
 
-
-fn read_file_nodes(rows: Vec<Row>) -> Vec<FileNodeDto> {
-    rows.iter().map(|r| read_file_node(r)).collect()
-}
-
-fn read_file_node(row: &Row) -> FileNodeDto {
-    FileNodeDto {
-        id: row.get(0),
-        user_id: row.get(1),
-        title: row.get(2),
-        parent_id: row.get(3),
-        node_type: row.get(4),
-        filesystem_path: row.get(5),
-        mime_type: row.get(6),
-        modified_at: row.get(7),
-        node_size: row.get(8)
-    }
-}
-
-
 fn get_file_node_id_sequence(user_id: i64) -> String {
     format!("file_nodes_user_{}", user_id)
+}
+
+/// Make file node favorite
+pub async fn set_favorite(pool: &web::Data<Pool>, id: i64, user_id: i64) -> DbResult<u64> {    
+    let insert_favorite_sql = r#"INSERT INTO favorite_nodes (id, user_id) VALUES($1, $2)"#;
+    let affected = execute(pool, insert_favorite_sql, &[&id, &user_id]).await?;
+    Ok(affected)
+}
+
+/// Unset file not as favorite
+pub async fn unset_favorite(pool: &web::Data<Pool>, id: i64, user_id: i64) -> DbResult<u64> {    
+    let delete_favorite_sql = r#"DELETE FROM favorite_nodes where id = $1 and user_id = $2"#;
+    let affected = execute(pool, delete_favorite_sql, &[&id, &user_id]).await?;
+    Ok(affected)
 }

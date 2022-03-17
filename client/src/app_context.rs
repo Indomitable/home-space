@@ -2,9 +2,11 @@ use log::debug;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use wasm_bindgen::JsValue;
-use std::borrow::Cow;
+use std::{borrow::Cow, rc::Rc, cell::RefCell};
 use yew::prelude::*;
 use js_sys::Date;
+
+use crate::dispatcher::Dispatcher;
 
 #[derive(Debug, PartialEq, Clone, Deserialize, Serialize)]
 pub struct JwtToken {
@@ -28,7 +30,8 @@ pub enum AuthContext {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct AppContextInner {
-    pub auth_context: AuthContext
+    pub auth_context: AuthContext,
+    pub pub_sub: Rc<RefCell<Dispatcher>>,
 }
 
 pub enum AppContextAction {
@@ -39,7 +42,7 @@ pub enum AppContextAction {
 impl Reducible for AppContextInner {
     type Action = AppContextAction;
 
-    fn reduce(self: std::rc::Rc<Self>, action: Self::Action) -> std::rc::Rc<Self> {
+    fn reduce(self: Rc<Self>, action: Self::Action) -> Rc<Self> {
         match action {
             AppContextAction::Authenticate(access_token) => {
                 let token: Cow<str> = access_token.into();
@@ -55,13 +58,15 @@ impl Reducible for AppContextInner {
                 };
                 let _ = save_user_context_from_storage(&user_context);
                 AppContextInner {
-                    auth_context: AuthContext::Authenticated(user_context)
+                    auth_context: AuthContext::Authenticated(user_context),
+                    pub_sub: Rc::clone(&self.pub_sub)
                 }.into()
             },
             AppContextAction::LogOut => {
                 let _ = delete_user_context_from_storage();
                 AppContextInner {
-                    auth_context: AuthContext::NotAuthenticated
+                    auth_context: AuthContext::NotAuthenticated,
+                    pub_sub: Rc::clone(&self.pub_sub)
                 }.into()
             },
         }
@@ -80,7 +85,8 @@ pub struct AppContextProviderProps {
 pub fn app_context_provider(props: &AppContextProviderProps) -> Html {
     let auth_context = read_user_context_from_storage().map_or(AuthContext::NotAuthenticated, |user_context| { AuthContext::Authenticated(user_context) });
     let context = use_reducer(|| AppContextInner {
-        auth_context
+        auth_context,
+        pub_sub: Rc::new(RefCell::new(Dispatcher::new()))
     });
 
     html! {

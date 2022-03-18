@@ -49,14 +49,14 @@ impl Component for UploadFileAction {
         let action = html! {
             <a {onclick}>
                 <span class="icon-outlined">{"upload_file"}</span>
-                <span>{"Upload file"}</span>
+                <span>{"Upload folder or files"}</span>
             </a>
         };
 
         let on_files_uploaded = ctx.link().callback(|_| UploadFileActionMessages::CloseModalDialog);
 
         if self.is_upload_file_modal_open {
-            let modal_dilog_header = ModalDialogHeader::Text("Select file(s) to upload.".to_owned());
+            let modal_dilog_header = ModalDialogHeader::Text("Select data to upload.".to_owned());
             let on_backdrop_click = ctx.link().callback(|_| UploadFileActionMessages::CloseModalDialog );
 
             let UploadFileActionProps { parent_id, supports_open_dialog, .. } = ctx.props();

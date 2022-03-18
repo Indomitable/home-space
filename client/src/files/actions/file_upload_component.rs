@@ -1,11 +1,12 @@
 use js_sys::Array;
 use log::debug;
-use serde::Deserialize;
-use wasm_bindgen::{JsCast, UnwrapThrowExt, JsValue, prelude::Closure};
-use yew::{prelude::*, callback};
+use wasm_bindgen::{JsCast, UnwrapThrowExt};
+use yew::prelude::*;
 use web_sys::{DragEvent, DataTransferItem};
 
-use super::file_api::{uploadDataTransferItems, showOpenFilePicker};
+use crate::files::actions::file_system_api::showDirectoryPicker;
+
+use super::file_system_api::{uploadDataTransferItems, showOpenFilePicker};
 
 pub(crate) struct FileUpload {
     state: FileUploadState
@@ -25,18 +26,18 @@ pub(crate) enum FileUploadState {
 }
 
 
-#[derive(Deserialize, Debug)]
-pub(crate) struct UploadProgress {
-    pub(crate) ftype: i32,
-    pub(crate) name: String
-}
+// #[derive(Deserialize, Debug)]
+// pub(crate) struct UploadProgress {
+//     pub(crate) ftype: i32,
+//     pub(crate) name: String
+// }
 
 pub(crate) enum FileUploadMessages {
     None,
     DragOver,
     DragLeave,
     DragDrop(Array),
-    UploadProgress(UploadProgress),
+    // UploadProgress(UploadProgress),
     UploadFinish,
     SelectFiles,
 }
@@ -101,11 +102,21 @@ impl Component for FileUpload {
             return FileUploadMessages::None
         });
 
+        let on_select_folder = ctx.link().callback_future(|_mouse_event| async {
+            if let Ok(items) = showDirectoryPicker().await {
+                debug!("{:?}", items);
+                return FileUploadMessages::SelectFiles
+            }
+            return FileUploadMessages::None
+        });
+
         html!{
             <div class={self.get_class_container()} {ondragleave} {ondrop} {ondragover}>
                 <div class="drop-hint">
                     if supports_open_dialog {
-                        <span>{"Drag and drop file(s) or folder(s) you want to upload or click "}<a class="select-file" onclick={on_select_files}>{"select"}</a></span>
+                        <span>{"Drag and drop file(s) or folder(s) you want to upload or click "}<a class="select-file" onclick={on_select_files}>{"select"}</a>
+                        {" to select files for upload or "}<br/><a class="select-folder" onclick={on_select_folder}>{"select"}</a>{" to select folder."}
+                        </span>
                     } else {
                         <span>{"Drag and drop file(s) or folder(s) you want to upload or "}<input type="file" /></span>
                     }
@@ -122,9 +133,9 @@ impl Component for FileUpload {
             },
             FileUploadMessages::DragDrop(items) => {
                 let parent_id = ctx.props().parent_id;
-                let callback = ctx.link().callback(|item: UploadProgress| {
-                    FileUploadMessages::UploadProgress(item)
-                });
+                // let callback = ctx.link().callback(|item: UploadProgress| {
+                //     FileUploadMessages::UploadProgress(item)
+                // });
 
                 ctx.link().send_future(async move {
                     let _ = uploadDataTransferItems(parent_id, items).await;
@@ -133,10 +144,10 @@ impl Component for FileUpload {
                 self.state = FileUploadState::UploadingFiles;
                 true
             },
-            FileUploadMessages::UploadProgress(item) => {
-                debug!("{:?}", item);
-                false
-            },
+            // FileUploadMessages::UploadProgress(item) => {
+            //     debug!("{:?}", item);
+            //     false
+            // },
             FileUploadMessages::SelectFiles => {
                 false
             },

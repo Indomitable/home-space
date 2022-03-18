@@ -144,13 +144,27 @@ fn get_file_node_id_sequence(user_id: i64) -> String {
 /// Make file node favorite
 pub async fn set_favorite(pool: &web::Data<Pool>, id: i64, user_id: i64) -> DbResult<u64> {    
     let insert_favorite_sql = r#"INSERT INTO favorite_nodes (id, user_id) VALUES($1, $2)"#;
-    let affected = execute(pool, insert_favorite_sql, &[&id, &user_id]).await?;
-    Ok(affected)
+    match execute(pool, insert_favorite_sql, &[&id, &user_id]).await {
+        Ok(affected) => {
+            Ok(affected)
+        },
+        Err(err) => {
+            error!("{:?}", err);
+            Err(err)
+        },
+    }
 }
 
 /// Unset file not as favorite
 pub async fn unset_favorite(pool: &web::Data<Pool>, id: i64, user_id: i64) -> DbResult<u64> {    
     let delete_favorite_sql = r#"DELETE FROM favorite_nodes where id = $1 and user_id = $2"#;
-    let affected = execute(pool, delete_favorite_sql, &[&id, &user_id]).await?;
-    Ok(affected)
+    match execute(pool, delete_favorite_sql, &[&id, &user_id]).await {
+        Ok(affected) => {
+            Ok(affected)
+        },
+        Err(err) => {
+            error!("{:?}", err);
+            Err(err)
+        },
+    }
 }

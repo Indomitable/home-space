@@ -11,15 +11,20 @@ use crate::auth::AuthContext;
 use super::file_system::*;
 use super::files_repository as repo;
 
+#[derive(Deserialize)]
+pub(crate) struct GetNodesQuery {
+    parent_id: i64
+}
+
 ///
 /// Method: GET 
 /// `/api/files/get_nodes/{parent_id}`
 /// parent_id = 0 => top node
 /// parent_id > 0 -> sub nodes
 /// 
-#[get("/get_nodes/{parent_id}")]
-pub async fn get_nodes(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
-    let parent_id = path.into_inner();
+#[get("/get_nodes")]
+pub(crate) async fn get_nodes(pool: web::Data<Pool>, query: web::Query<GetNodesQuery>, user: AuthContext) -> Result<impl Responder> {
+    let parent_id = query.parent_id;
     if let Ok(nodes) = repo::get_file_list(&pool, parent_id, user.user_id).await {
         return Ok(web::Json(nodes));
     }

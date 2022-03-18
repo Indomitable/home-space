@@ -102,8 +102,6 @@ impl Component for FilesView {
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
-        log::debug!("Render Files View");
-
         let (parent_id, token) = self.get_props(ctx);            
 
         html!{

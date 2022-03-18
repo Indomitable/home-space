@@ -4,8 +4,6 @@ use yew_router::prelude::*;
 
 use home_space_contracts::files::{FileNode, NODE_TYPE_FOLDER};
 
-use crate::app_context::AppContext;
-
 use super::file_list_header_component::FileListHeader;
 use super::actions::favorite_action::FavoriteAction;
 
@@ -57,8 +55,6 @@ fn node_row(props: &NodeRowProps) -> Html {
 
         })
     };
-
-    let context = use_context::<AppContext>().unwrap_throw();
 
     html!{
         <div class="file-list-row" {onclick}>

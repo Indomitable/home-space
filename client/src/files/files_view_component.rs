@@ -1,8 +1,10 @@
 
-use home_space_contracts::files::FileNode;
+use std::rc::Rc;
 use log::debug;
 use wasm_bindgen::UnwrapThrowExt;
 use yew::prelude::*;
+
+use home_space_contracts::files::FileNode;
 
 use crate::app_context::{AppContext, AuthContext};
 use crate::dispatcher::Subscriber;
@@ -11,6 +13,7 @@ use super::file_list_component::FileList;
 use super::actions::file_actions_toolbox::FileActions;
 use super::breadcrumbs::breadcrumbs_file_navigation::BreadcumbsFileNav;
 use super::file_repository::load_file_nodes;
+use super::node_actions::NodeActions;
 
 #[derive(Properties, PartialEq)]
 pub struct FilesViewProps {
@@ -21,7 +24,9 @@ pub struct FilesView {
     pub current_parent_id: i64,
     pub nodes: Option<Vec<FileNode>>,
     
-    refresh_subsriber: Subscriber
+    node_actions: Rc<NodeActions>,
+
+    refresh_subsriber: Rc<Subscriber>
 }
 
 pub enum FileViewActions {
@@ -32,13 +37,17 @@ pub enum FileViewActions {
 
 impl FilesView {
 
-    fn get_props(&self, ctx: &Context<Self>) -> (i64, String) {
+    fn get_token(ctx: &Context<Self>) -> String {
         let context = ctx.link().context::<AppContext>(Callback::noop()).unwrap_throw();
         let token = match &context.0.auth_context {
             AuthContext::Authenticated(user) => user.access_token.token.clone(),
             AuthContext::NotAuthenticated => panic!("Should be authenticated")
         };
+        token
+    }
 
+    fn get_props(&self, ctx: &Context<Self>) -> (i64, String) {
+        let token = FilesView::get_token(&ctx);
         let parent_id = ctx.props().parent_id;
 
         (parent_id, token)
@@ -56,12 +65,13 @@ impl Component for FilesView {
     type Properties = FilesViewProps;
 
     fn create(ctx: &Context<Self>) -> Self {
-        let cb = ctx.link().callback(|_| FileViewActions::FetchFileNodes);
-        let subscriber = subscribe(&ctx, "refresh".into(), cb);
+        let cb = ctx.link().callback(|_: ()| FileViewActions::FetchFileNodes);
+        let subscriber = subscribe(&ctx, "refresh-files-view".into(), cb);
 
         let obj = Self {
             current_parent_id: ctx.props().parent_id,
             nodes: None,
+            node_actions: NodeActions::new(FilesView::get_token(&ctx).into()).into(),
             refresh_subsriber: subscriber
         };
         obj.load_nodes(ctx);      
@@ -106,10 +116,10 @@ impl Component for FilesView {
 
         html!{
             <>
-                <FileActions parent_id={parent_id} />
+                <FileActions parent_id={parent_id} node_actions={&self.node_actions.clone()} />
                 <BreadcumbsFileNav parent_id={parent_id} access_token={token.clone()} />
                 if let Some(nodes) = &self.nodes {
-                   <FileList nodes={nodes.clone()} />
+                   <FileList nodes={nodes.clone()} node_actions={&self.node_actions.clone()} />
                 }
             </>
         }

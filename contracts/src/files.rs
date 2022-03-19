@@ -37,3 +37,9 @@ pub struct ParentNode {
 pub struct CreateNode {
     pub id: i64
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CreateFolderRequest {
+    pub parent_id: i64,
+    pub name: String
+}

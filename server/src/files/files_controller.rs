@@ -4,7 +4,7 @@ use deadpool_postgres::Pool;
 use futures_util::TryStreamExt;
 use serde::Deserialize;
 
-use home_space_contracts::files::{CreateNode, NODE_TYPE_FILE, NODE_TYPE_FOLDER};
+use home_space_contracts::files::{CreateNode, CreateFolderRequest, NODE_TYPE_FILE, NODE_TYPE_FOLDER};
 use crate::response::*;
 use crate::config::get_top_save_folder;
 use crate::auth::AuthContext;
@@ -46,24 +46,17 @@ pub async fn get_file(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthCon
     error_not_found() // file not found
 }
 
-#[derive(Deserialize)]
-pub struct CreateFolderRequestBody {
-    pub name: String,
-}
-
 ///
 /// Method: PUT
-/// `/api/files/create_folder/0` for top level folder
-/// `/api/files/create_folder/{parent_id}` for sub folder
-#[put("/create_folder/{parent_id}")]
-pub async fn create_folder(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext, body: web::Json<CreateFolderRequestBody>) -> Result<impl Responder> {
-    let parent_id = path.into_inner();
-    let folder_name = Cow::from(&body.name);
-    let path = get_save_path(&pool, parent_id, user.user_id, &folder_name).await;
+/// Creates folder, when parent_id is 0 then it is top folder.
+#[put("/create_folder")]
+pub async fn create_folder(pool: web::Data<Pool>, user: AuthContext, body: web::Json<CreateFolderRequest>) -> Result<impl Responder> {
+    let CreateFolderRequest { parent_id, name } = body.into_inner();
+    let path = get_save_path(&pool, parent_id, user.user_id, &name).await;
     let file_node = repo::FileNodeDto {
         id: 0,
         user_id: user.user_id,
-        title: folder_name.into_owned(),
+        title: name,
         parent_id: Some(parent_id),
         node_type: NODE_TYPE_FOLDER,
         filesystem_path: path.to_str().unwrap().to_owned(),

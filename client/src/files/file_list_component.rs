@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use wasm_bindgen::UnwrapThrowExt;
 use yew::prelude::*;
 use yew_router::prelude::*;
@@ -6,11 +8,13 @@ use home_space_contracts::files::{FileNode, NODE_TYPE_FOLDER};
 
 use super::file_list_header_component::FileListHeader;
 use super::actions::favorite_action::FavoriteAction;
+use super::node_actions::NodeActions;
 
 
 #[derive(Properties, PartialEq)]
 pub struct FileListProps {
-    pub nodes: Vec<FileNode>
+    pub nodes: Vec<FileNode>,
+    pub node_actions: Rc<NodeActions>
 }
 
 #[function_component(FileList)]
@@ -21,7 +25,7 @@ pub fn file_nodes_component(props: &FileListProps) -> Html {
             {
                 props.nodes.iter().map(|node: &FileNode| {
                     html!{
-                        <NodeRow key={node.id} node={node.clone()} />
+                        <NodeRow key={node.id} node={node.clone()} node_actions={props.node_actions.clone()} />
                     }
                 }).collect::<Html>()
             }
@@ -33,7 +37,8 @@ pub fn file_nodes_component(props: &FileListProps) -> Html {
 
 #[derive(Properties, PartialEq)]
 struct NodeRowProps {
-    node: FileNode
+    pub node_actions: Rc<NodeActions>,
+    node: FileNode,
 }
 
 #[function_component(NodeRow)]
@@ -51,8 +56,10 @@ fn node_row(props: &NodeRowProps) -> Html {
     };
 
     let on_favorite = {
-        Callback::from(|is_favorite: bool| {
-
+        let node_actions = props.node_actions.clone();
+        let node_id = id.clone();
+        Callback::from(move |is_favorite: bool| {
+            node_actions.toggle_favorite(node_id, is_favorite)
         })
     };
 
@@ -60,7 +67,7 @@ fn node_row(props: &NodeRowProps) -> Html {
         <div class="file-list-row" {onclick}>
             <div class="file-item-actions">
                 <span class="icon-outlined file-item-action">{"check_box_outline_blank"}</span>
-                <FavoriteAction is_favorite={false} {on_favorite} />
+                <FavoriteAction is_favorite={false} on_favorite={on_favorite} />
             </div>
             <div class="file-list-title">
                 <span class="icon-filled">{get_node_icon(*node_type, &mime_type)}</span>

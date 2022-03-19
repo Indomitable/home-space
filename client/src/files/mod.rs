@@ -3,5 +3,6 @@ mod file_list_component;
 mod file_repository;
 mod actions;
 mod breadcrumbs;
+mod node_actions;
 
 pub mod files_view_component;

@@ -32,7 +32,7 @@ pub fn create_action(props: &CreateActionProps) -> Html {
         let dispatcher = use_dispatcher();
         Callback::from(move |_| {
             action_list_visibility.set(false);
-            dispatcher.borrow().publish("refresh-files-view".into(), "");
+            dispatcher.borrow().publish("refresh-files-view".into(), ());
         })
     };
 

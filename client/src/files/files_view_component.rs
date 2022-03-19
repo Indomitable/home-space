@@ -4,7 +4,7 @@ use log::debug;
 use wasm_bindgen::UnwrapThrowExt;
 use yew::prelude::*;
 
-use home_space_contracts::files::FileNode;
+use home_space_contracts::files::DisplayFileNode;
 
 use crate::app_context::{AppContext, AuthContext};
 use crate::dispatcher::Subscriber;
@@ -22,7 +22,7 @@ pub struct FilesViewProps {
 
 pub struct FilesView {
     pub current_parent_id: i64,
-    pub nodes: Option<Vec<FileNode>>,
+    pub nodes: Option<Vec<DisplayFileNode>>,
     
     node_actions: Rc<NodeActions>,
 
@@ -31,7 +31,7 @@ pub struct FilesView {
 
 pub enum FileViewActions {
     FetchFileNodes,
-    FileNodesFetched(Vec<FileNode>),
+    FileNodesFetched(Vec<DisplayFileNode>),
     FileNodesFetchedFailed
 }
 

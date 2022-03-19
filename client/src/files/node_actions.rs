@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use wasm_bindgen_futures::spawn_local;
 
 use super::file_repository as repo;
 
@@ -15,18 +14,11 @@ impl NodeActions {
         }
     }
 
-    pub fn create_folder(&self, parent_id: i64, name: String) {
-        let token = self.token.clone();
-        //let name = name.to_owned();
-        spawn_local(async move {
-            repo::create_folder(parent_id, &token, &name).await;
-        });
+    pub async fn create_folder(&self, parent_id: i64, name: String) {
+        repo::create_folder(parent_id, &self.token, &name).await;
     }
 
-    pub fn toggle_favorite(&self, node_id: i64, value: bool) {
-        let token = self.token.clone();
-        spawn_local(async move {
-            repo::toggle_favorite(node_id, &token, value).await;
-        });
+    pub async fn toggle_favorite(&self, node_id: i64, value: bool) {
+        repo::toggle_favorite(node_id, &self.token, value).await;
     }
 }

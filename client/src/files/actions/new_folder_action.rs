@@ -1,6 +1,7 @@
 use std::{ops::Deref, rc::Rc};
 
 use wasm_bindgen::UnwrapThrowExt;
+use wasm_bindgen_futures::spawn_local;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
@@ -38,9 +39,13 @@ pub fn new_folder_action(props: &NewFolderActionProps) -> Html {
         Callback::from(move |key: KeyboardEvent| {
             let input = input_ref.cast::<HtmlInputElement>().expect("Input exists");
             if key.code() == "Enter" {
-                log::debug!("Folder name is {}", input.value());
-                node_actions.create_folder(parent_id, input.value());
-                on_finish.emit(());
+                let node_actions = node_actions.clone();
+                let on_finish = on_finish.clone();
+                spawn_local(async move {
+                    // Await create folder before finish action and refreshing file list.
+                    node_actions.create_folder(parent_id, input.value()).await;
+                    on_finish.emit(());
+                });
             }
         })
     };

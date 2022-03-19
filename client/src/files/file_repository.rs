@@ -1,7 +1,5 @@
-use wasm_bindgen::UnwrapThrowExt;
-
 use home_space_contracts::files::{
-    FileNode,
+    DisplayFileNode,
     ParentNode,
     CreateFolderRequest
 };
@@ -16,7 +14,7 @@ use crate::api::api_service::{
     METHOD_PUT
 };
 
-pub async fn load_file_nodes(parent_id: i64, token: &str) -> Result<Vec<FileNode>, ResponseReadError>  {
+pub async fn load_file_nodes(parent_id: i64, token: &str) -> Result<Vec<DisplayFileNode>, ResponseReadError>  {
     let url = format!("/api/files/get_nodes?parent_id={}", parent_id);
     let reader: ResponseReader = RequestInitBuilder::<()>::new()
         .set_method(METHOD_GET)
@@ -25,7 +23,7 @@ pub async fn load_file_nodes(parent_id: i64, token: &str) -> Result<Vec<FileNode
         .fetch()
         .await
         .into();
-    return reader.as_obj::<Vec<FileNode>>().await
+    return reader.as_obj::<Vec<DisplayFileNode>>().await
 }
 
 pub async fn load_breadcrumbs(parent_id: i64, token: &str) -> Result<Vec<ParentNode>, ResponseReadError>  {

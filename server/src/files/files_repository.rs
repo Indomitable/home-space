@@ -11,13 +11,13 @@ pub async fn get_file_list(pool: &web::Data<Pool>, parent_id: i64, user_id: i64)
     fn.parent_id, fn.node_type, fn.mime_type,
     fn.modified_at, fn.node_size,
     case 
-           when ffn.id is null then true
-           else false
+        when ffn.id is null then false
+        else true
     end is_favorite
 from file_nodes fn
 left join favorite_nodes ffn on fn.id = ffn.id and fn.user_id = ffn.user_id  
 where fn.parent_id = $2 and fn.user_id = $1
-order by node_type, title"#;
+order by is_favorite desc, node_type, title"#;
     match query(pool,  sql, &[&user_id, &parent_id]).await {
         Ok(rows) => {
             let nodes = rows.iter().map(|row| DisplayFileNode {

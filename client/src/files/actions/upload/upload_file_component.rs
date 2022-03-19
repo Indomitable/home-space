@@ -1,12 +1,10 @@
 use js_sys::Array;
 use log::debug;
-use wasm_bindgen::{JsCast, UnwrapThrowExt};
 use yew::prelude::*;
+use wasm_bindgen::{JsCast, UnwrapThrowExt};
 use web_sys::{DragEvent, DataTransferItem};
 
-use crate::files::actions::file_system_api::showDirectoryPicker;
-
-use super::file_system_api::{uploadDataTransferItems, showOpenFilePicker};
+use super::file_system_api::{uploadDataTransferItems, showDirectoryPicker, showOpenFilePicker};
 
 pub(crate) struct FileUpload {
     state: FileUploadState

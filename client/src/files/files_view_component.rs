@@ -10,7 +10,7 @@ use crate::app_context::{AppContext, AuthContext};
 use crate::dispatcher::Subscriber;
 use crate::utils::dispatcher_helpers::{subscribe, unsubscribe};
 use super::file_list_component::FileList;
-use super::actions::file_actions_toolbox::FileActions;
+use super::toolbox::file_actions::FileActions;
 use super::breadcrumbs::breadcrumbs_file_navigation::BreadcumbsFileNav;
 use super::file_repository::load_file_nodes;
 use super::node_actions::NodeActions;

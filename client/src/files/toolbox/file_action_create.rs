@@ -5,9 +5,9 @@ use yew::prelude::*;
 use crate::utils::dispatcher_helpers::use_dispatcher;
 
 use super::super::node_actions::NodeActions;
-use super::file_system_api::is_file_api_supported;
-use super::new_folder_action::NewFolderAction;
-use super::upload_file_action::UploadFileAction;
+use super::super::actions::upload::file_system_api::is_file_api_supported;
+use super::super::actions::new_folder_action::NewFolderAction;
+use super::super::actions::upload::upload_file_action::UploadFileAction;
 
 #[derive(Properties, PartialEq)]
 pub struct CreateActionProps {

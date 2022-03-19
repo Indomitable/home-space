@@ -42,7 +42,7 @@ pub async fn load_breadcrumbs(parent_id: i64, token: &str) -> Result<Vec<ParentN
 
 
 pub async fn create_folder<'a>(parent_id: i64, token: &'a str, name: &'a str) {
-    let url = "/api/files/create_folder/";
+    let url = "/api/files/create_folder";
     let payload = CreateFolderRequest { parent_id, name: name.to_owned() };
     RequestInitBuilder::<CreateFolderRequest>::new()
         .set_method(METHOD_PUT)
@@ -55,11 +55,11 @@ pub async fn create_folder<'a>(parent_id: i64, token: &'a str, name: &'a str) {
 
 pub async fn toggle_favorite(node_id: i64, token: &str, value: bool) {
     let url = if value { "/api/files/set_favorite" } else { "/api/files/unset_favorite" };
-    RequestInitBuilder::<String>::new()
+    RequestInitBuilder::<UpdateFavoriteRequest>::new()
         .set_method(METHOD_POST)
         .set_url(&url)
         .set_access_token(&token)
-        .set_data(&serde_json::to_string(&UpdateFavoriteRequest { id: node_id }).unwrap_throw())
+        .set_data(&UpdateFavoriteRequest { id: node_id })
         .fetch()
         .await;
 }

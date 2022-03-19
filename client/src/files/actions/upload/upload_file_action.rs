@@ -1,7 +1,7 @@
 use yew::prelude::*;
 
 use crate::modal::modal_dialog::{ModalDialog, ModalDialogHeader};
-use super::file_upload_component::FileUpload;
+use super::upload_file_component::FileUpload;
 
 #[derive(Properties, PartialEq)]
 pub(crate) struct UploadFileActionProps {

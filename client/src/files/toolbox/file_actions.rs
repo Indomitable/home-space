@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use yew::prelude::*;
 
-use super::create_action_list::CreateAction;
+use super::file_action_create::CreateAction;
 use super::super::node_actions::NodeActions;
 
 #[derive(Properties, PartialEq)]

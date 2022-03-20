@@ -1,7 +1,7 @@
 use std::{collections::HashMap, borrow::Cow, fmt::Debug, rc::Rc};
 
 use log::debug;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Serialize, Deserialize};
 use wasm_bindgen::UnwrapThrowExt;
 use yew::Callback;
 
@@ -19,7 +19,7 @@ impl Dispatcher {
     }
 
     pub fn subscribe<'a, TPayload>(&mut self, event: Cow<'a, str>, payload_handler: Callback<TPayload>) -> Rc<Subscriber>
-    where TPayload : DeserializeOwned + 'static {
+    where TPayload : for<'b> Deserialize<'b> + 'static {
         let handler = Callback::from(move |data: String| {
             let payload = serde_json::from_str::<TPayload>(&data).unwrap_throw();
             payload_handler.emit(payload);

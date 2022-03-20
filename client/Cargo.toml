@@ -35,5 +35,6 @@ features = [
   "DragEvent",
   "DataTransfer",
   "DataTransferItem",
-  "DataTransferItemList"
+  "DataTransferItemList",
+  "File"
 ]

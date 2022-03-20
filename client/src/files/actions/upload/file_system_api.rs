@@ -1,6 +1,7 @@
 use gloo_utils::window;
 use wasm_bindgen::prelude::*;
 use js_sys::{Reflect, AsyncIterator, Array};
+use web_sys::File;
 
 
 pub fn is_file_api_supported() -> bool {
@@ -36,15 +37,29 @@ extern "C" {
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(catch)]
-    pub async fn showDirectoryPicker() -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(extends=FileSystemHandle, js_name=FileSystemFileHandle, skip_typescript)]
+    #[derive(Debug, Clone, PartialEq)]
+    pub type FileSystemFileHandle;
 
-    #[wasm_bindgen(catch)]
-    pub async fn showOpenFilePicker() -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(method, js_class = "FileSystemFileHandle", js_name=getFile, catch)]
+    pub async fn getFile(this: &FileSystemFileHandle) -> Result<JsValue, JsValue>;
 }
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(catch, js_name="showDirectoryPicker")]
+    pub async fn show_directory_picker() -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(catch, js_name="showOpenFilePicker")]
+    pub async fn show_open_file_picker(options: JsValue) -> Result<JsValue, JsValue>;
+}
+
 
 #[wasm_bindgen(module = "/js/file-upload.js")]
 extern "C" {
-    #[wasm_bindgen(catch)]
-    pub async fn uploadDataTransferItems(parent_id: i64, items: Array) -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name="uploadDataTransferItems")]
+    pub async fn upload_data_transfer_items(parent_id: i64, items: Array) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(catch, js_name="uploadFile")]
+    pub async fn upload_file(parent_id: i64, file: JsValue) -> Result<JsValue, JsValue>;
 }

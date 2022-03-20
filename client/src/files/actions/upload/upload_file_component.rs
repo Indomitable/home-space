@@ -1,10 +1,13 @@
 use js_sys::Array;
 use log::debug;
+use serde::Serialize;
 use yew::prelude::*;
-use wasm_bindgen::{JsCast, UnwrapThrowExt};
+use wasm_bindgen::{JsCast, UnwrapThrowExt, JsValue};
 use web_sys::{DragEvent, DataTransferItem};
 
-use super::file_system_api::{uploadDataTransferItems, showDirectoryPicker, showOpenFilePicker};
+use crate::files::{actions::upload::file_system_api::FileSystemFileHandle};
+
+use super::file_system_api::{upload_data_transfer_items, show_directory_picker, show_open_file_picker, upload_file};
 
 pub(crate) struct FileUpload {
     state: FileUploadState
@@ -37,7 +40,7 @@ pub(crate) enum FileUploadMessages {
     DragDrop(Array),
     // UploadProgress(UploadProgress),
     UploadFinish,
-    SelectFiles,
+    SelectFiles(Vec<FileSystemFileHandle>),
 }
 
 impl FileUpload {
@@ -93,17 +96,22 @@ impl Component for FileUpload {
         });
 
         let on_select_files = ctx.link().callback_future(|_mouse_event| async {
-            if let Ok(items) = showOpenFilePicker().await {
-                debug!("{:?}", items);
-                return FileUploadMessages::SelectFiles
+            #[derive(Serialize)]
+            struct OpenFilePickerOptions { multiple: bool }
+            let options = OpenFilePickerOptions{ multiple: true };
+
+            let options = JsValue::from_serde(&options).unwrap_throw();
+            if let Ok(items) = show_open_file_picker(options).await {
+                let file_handles = items.unchecked_into::<Array>().to_vec().into_iter().map(|value| { value.unchecked_into::<FileSystemFileHandle>() }).collect();
+                return FileUploadMessages::SelectFiles(file_handles)
             }
             return FileUploadMessages::None
         });
 
         let on_select_folder = ctx.link().callback_future(|_mouse_event| async {
-            if let Ok(items) = showDirectoryPicker().await {
+            if let Ok(items) = show_directory_picker().await {
                 debug!("{:?}", items);
-                return FileUploadMessages::SelectFiles
+                return FileUploadMessages::None
             }
             return FileUploadMessages::None
         });
@@ -124,19 +132,19 @@ impl Component for FileUpload {
     }
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
+        let parent_id = ctx.props().parent_id;
         match msg {
             FileUploadMessages::DragLeave => {
                 self.state = FileUploadState::None;
                 true
             },
             FileUploadMessages::DragDrop(items) => {
-                let parent_id = ctx.props().parent_id;
                 // let callback = ctx.link().callback(|item: UploadProgress| {
                 //     FileUploadMessages::UploadProgress(item)
                 // });
 
                 ctx.link().send_future(async move {
-                    let _ = uploadDataTransferItems(parent_id, items).await;
+                    let _ = upload_data_transfer_items(parent_id, items).await;
                     FileUploadMessages::UploadFinish
                 });
                 self.state = FileUploadState::UploadingFiles;
@@ -146,7 +154,21 @@ impl Component for FileUpload {
             //     debug!("{:?}", item);
             //     false
             // },
-            FileUploadMessages::SelectFiles => {
+            FileUploadMessages::SelectFiles(file_handles) => {
+                ctx.link().send_future(async move {
+                    for file_handle in file_handles  {
+                        match file_handle.getFile().await {
+                            Ok(file) => {
+                                let _ = upload_file(parent_id, file).await.unwrap_throw();
+                            },
+                            Err(_) => {
+                                // Skip file.
+                            },
+                        }
+                    }
+                    return FileUploadMessages::UploadFinish;
+                });
+                
                 false
             },
             FileUploadMessages::DragOver => {

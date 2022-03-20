@@ -39,7 +39,7 @@ function readDirectoryEntriesAsync(entry) {
 }
 
 
-async function uploadFile(parentId, file) {
+export async function uploadFile(parentId, file) {
     try {
         const token = JSON.parse(sessionStorage['app_user_context_key']).access_token.token;
         const headers = new Headers();

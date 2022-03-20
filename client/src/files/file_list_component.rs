@@ -1,9 +1,10 @@
 use std::rc::Rc;
 
-use wasm_bindgen::UnwrapThrowExt;
+use wasm_bindgen::{UnwrapThrowExt, JsValue, JsCast};
 use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
 use yew_router::prelude::*;
+use js_sys::{Date,Object};
 
 use home_space_contracts::files::{DisplayFileNode, NODE_TYPE_FOLDER};
 
@@ -74,6 +75,8 @@ fn node_row(props: &NodeRowProps) -> Html {
         })
     };
 
+    let modified_at_local = Date::new(&JsValue::from_str(&modified_at)).unchecked_into::<Object>().to_locale_string();
+
     html!{
         <div class="file-list-row" {onclick}>
             <div class="file-item-actions">
@@ -86,7 +89,7 @@ fn node_row(props: &NodeRowProps) -> Html {
                 <span class="icon-filled file-item-menu file-item-action">{"more_vert"}</span>
             </div>
             <div>{node_size.clone()}</div>
-            <div>{modified_at.clone()}</div>
+            <div>{modified_at_local}</div>
         </div>
     }
 }

@@ -1,7 +1,6 @@
-use std::{path::{PathBuf, Path}, fs, fs::{File, DirEntry}, error::Error, io::Write, pin::Pin};
+use std::{path::{PathBuf, Path}, fs, fs::{File, DirEntry}, error::Error, io::Write};
 use uuid::Uuid;
 use actix_web::web::{self, Bytes};
-use futures_util::Future;
 
 pub async fn create_file(path: PathBuf) -> Result<File, Box<dyn Error>> {
     let f = web::block(move || File::create(path)).await??;

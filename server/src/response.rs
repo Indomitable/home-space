@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use actix_web::{HttpResponse, web, Responder, body::MessageBody};
+use actix_web::{HttpResponse, web, Responder};
 use serde::Serialize;
 
 // Successful codes 2XX

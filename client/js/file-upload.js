@@ -44,11 +44,13 @@ async function uploadFile(parentId, file) {
         const token = JSON.parse(sessionStorage['app_user_context_key']).access_token.token;
         const headers = new Headers();
         headers.append('Authorization', `Bearer ${token}`);
-        headers.append('X-File-Name', file.name);
-        const request = new Request(`/api/files/upload_file/${parentId}`, {
+        const formData = new FormData();
+        formData.append("parent_id", parentId);
+        formData.append("file", file, file.name);
+        const request = new Request(`/api/files/upload_file`, {
             method: 'PUT',
             headers,
-            body: file
+            body: formData
         });
         
         const response = await fetch(request);
@@ -65,10 +67,10 @@ async function createFolder(parentId, name) {
     const headers = new Headers();
     headers.append('Authorization', `Bearer ${token}`);
     headers.append('Content-Type', 'application/json');
-    const request = new Request(`/api/files/create_folder/${parentId}`, {
+    const request = new Request(`/api/files/create_folder`, {
         method: 'PUT',
         headers,
-        body: JSON.stringify({name})
+        body: JSON.stringify({parent_id: parentId, name})
     });
     
     const response = await fetch(request);

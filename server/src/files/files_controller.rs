@@ -1,7 +1,9 @@
-use std::{path::{Path, PathBuf}, borrow::Cow};
+use std::path::{Path, PathBuf};
+use actix_multipart::Multipart;
 use actix_web::{web, Responder, Result, HttpRequest, delete, get, put};
 use deadpool_postgres::Pool;
-use futures_util::TryStreamExt;
+use futures_util::stream::StreamExt as _;
+use log::error;
 use serde::Deserialize;
 
 use home_space_contracts::files::{CreateNode, CreateFolderRequest, NODE_TYPE_FILE, NODE_TYPE_FOLDER};
@@ -122,21 +124,57 @@ pub async fn delete_node(pool: web::Data<Pool>, path: web::Path<i64>, user: Auth
 /// `/api/files/upload_file/{parent_id}` parent_id > 0 upload file in sub folder
 /// Creates a new file or if file exits it creates a new version of it.
 ///
-#[put("/upload_file/{parent_id}")]
-pub async fn upload_file(request: HttpRequest, pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext, mut body: web::Payload) -> Result<impl Responder> {
-    let parent_id = path.into_inner();
-    if let Some(file_name) = get_file_name(&request) {
-        let user_id = user.user_id;       
-        let output = get_save_path(&pool, parent_id, user_id, &file_name).await;
-        let filesystem_path = output.clone().to_str().unwrap().to_string(); // Clone to filesystem_path because output will be moved on file create
-        let mut f = create_file(output).await?;
-        let mut size = 0_i64;
-        while let Some(bytes) = body.try_next().await? {
-            //bytes.extend(item);
-            size = size + bytes.len() as i64;
-            f = append_file(f, bytes).await?;
-            //web::block(move || f.write_all(&item).map(|_| f)).await??;
+#[put("/upload_file")]
+pub async fn upload_file(pool: web::Data<Pool>, user: AuthContext, mut body: Multipart) -> Result<impl Responder> {
+    let user_id = user.user_id;
+    let mut parent_id= -1_i64;
+    if let Some(item) = body.next().await {
+        let mut field = match item {
+            Ok(field) => field,
+            Err(err) => {
+                error!("{:?}", err);
+                return error_bad_request();
+            }
+        };
+        if !field.name().eq_ignore_ascii_case("parent_id") {
+            return error_bad_request();
         }
+        let value = field.next().await.unwrap().unwrap();
+        parent_id = String::from_utf8(value.to_vec()).unwrap().parse().unwrap();
+    }
+    if parent_id == -1 {
+        // parent id not set
+        return error_bad_request();
+    }
+
+    if let Some(item) = body.next().await {
+        let mut field = match item {
+            Ok(field) => field,
+            Err(err) => {
+                error!("{:?}", err);
+                return error_bad_request();
+            }
+        };
+        if !field.name().eq_ignore_ascii_case("file") {
+            return error_bad_request();
+        }
+        let file_name = field.content_disposition().get_filename().expect("File should have file name").to_owned();
+
+        let output = get_save_path(&pool, parent_id, user_id, &file_name).await;
+        let mut size = 0_i64;
+        {
+            let output = output.clone();
+            let mut f = create_file(output).await?;
+            while let Some(chunk) = field.next().await {
+                if let Ok(bytes) = chunk {
+                    size = size + bytes.len() as i64;
+                    f = append_file(f, bytes).await?;
+                }
+            }
+        }
+
+        let filesystem_path = output.to_str().unwrap().to_owned(); // Clone to filesystem_path because output will be moved on file create
+
         let file_node = repo::FileNodeDto {
             id: 0,
             user_id: user.user_id,
@@ -170,16 +208,6 @@ pub async fn get_parents(pool: web::Data<Pool>, path: web::Path<i64>, user: Auth
         }
         
     }
-}
-
-fn get_file_name(request: &HttpRequest) -> Option<String> {
-    request.headers()
-        .get("X-File-Name")
-        .map(|h| percent_encoding::percent_decode(h.as_bytes())
-                                .decode_utf8()
-                                .map(|cow| cow.to_string())
-                                .ok())
-        .unwrap_or(None)
 }
 
 async fn get_save_path(pool: &web::Data<Pool>, parent_id: i64, user_id: i64, name: &str) -> PathBuf {

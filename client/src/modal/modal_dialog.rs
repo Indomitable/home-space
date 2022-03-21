@@ -29,7 +29,7 @@ pub fn modal_dialog(props: &ModalDialogProps) -> Html {
 
     html! {
         <>
-            <div class="modal-dialog">
+            <div class="modal-dialog popup">
                 <div class="modal-header">{header}</div>
                 <div class="modal-body">
                     {for props.children.iter()}

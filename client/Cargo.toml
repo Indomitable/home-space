@@ -6,6 +6,9 @@ version = "0.1.0"
 edition = "2021"
 #default-target = "wasm32-unknown-unknown"
 
+[profile.release]
+lto = true
+
 [dependencies]
 home_space_contracts = { path = "../contracts" }
 yew = { git = "https://github.com/yewstack/yew", features = ["tokio"] }

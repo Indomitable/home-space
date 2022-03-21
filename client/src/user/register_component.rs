@@ -81,13 +81,13 @@ impl Component for RegisterComponent {
 
         html! {
             <div class="register-dialog">
-                <input type="text" value={self.user_name.clone()} ref={self.user_name_ref.clone()} />
-                <input type="password" value={self.password.clone()} ref={self.password_ref.clone()} />
+                <input class="input" type="text" value={self.user_name.clone()} ref={self.user_name_ref.clone()} />
+                <input class="input" type="password" value={self.password.clone()} ref={self.password_ref.clone()} />
                 if self.error.len() > 0 {
                     <span>{self.error.clone()}</span>
                 }
                 <div class="register-actions">
-                    <button class="register-button" {onclick}>{"Register"}</button>
+                    <button class="button register-button" {onclick}>{"Register"}</button>
                 </div>
             </div>
         }

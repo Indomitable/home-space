@@ -98,14 +98,14 @@ impl Component for Login {
 
         html! {
             <div class="login-dialog">
-                <input type="text" value={self.user_name.clone()} ref={self.user_name_ref.clone()} />
-                <input type="password" value={self.password.clone()} ref={self.password_ref.clone()} />
+                <input class="input" type="text" value={self.user_name.clone()} ref={self.user_name_ref.clone()} />
+                <input class="input" type="password" value={self.password.clone()} ref={self.password_ref.clone()} />
                 if self.error.len() > 0 {
                     <span>{self.error.to_owned()}</span>
                 }
                 <div class="login-actions">
-                    <button class="login-button" {onclick} disabled={self.is_logging}>{"Login"}</button>
-                    <button class="register-button" onclick={ctx.link().callback(|_| LoginMessage::Register)}>{"Register"}</button>
+                    <button class="button login-button" {onclick} disabled={self.is_logging}>{"Login"}</button>
+                    <button class="button register-button" onclick={ctx.link().callback(|_| LoginMessage::Register)}>{"Register"}</button>
                 </div>
             </div>
         }

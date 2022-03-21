@@ -132,13 +132,13 @@ impl Component for FilesView {
                 <BreadcumbsFileNav parent_id={parent_id} access_token={token.clone()} />
                 if has_favorites {
                     <div class="file_view__favorite_file_list">
-                        <div class="file_view__favorite_file_list__header">{"Favorites"}</div>
+                        <div class="file_view__favorite_file_list__header header">{"Favorites"}</div>
                         <FileList nodes={favorite_nodes} node_actions={&self.node_actions.clone()} />
                     </div>                    
                 }
                 if regular_nodes.len() > 0 {
                     if has_favorites {
-                        <div class="file_view__file_list__header">{"Files"}</div>
+                        <div class="file_view__file_list__header header">{"Files"}</div>
                     }
                     <FileList nodes={regular_nodes} node_actions={&self.node_actions.clone()} />
                 }

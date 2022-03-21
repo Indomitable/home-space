@@ -38,7 +38,7 @@ pub fn create_action(props: &CreateActionProps) -> Html {
 
     html! {
         <>
-            <button class="file-action-create" {onclick}>
+            <button class="file-action-create ghost-button" {onclick}>
                 <span class="icon-filled">{"note_add"}</span>
                 <span>{"Create"}</span>
                 <span class="icon-filled">{"arrow_drop_down"}</span>
@@ -60,7 +60,7 @@ pub struct CreateActionListProps {
 #[function_component(CreateActionList)]
 pub fn create_action_list(props: &CreateActionListProps) -> Html {
     html! {
-        <ul class="file-action-create-list">
+        <ul class="file-action-create-list popup">
             <li class="file-action-create-list-item file-action-create-list-item--end-group">
                 <NewFolderAction parent_id={props.parent_id} on_finish={props.close_action_list.clone()} node_actions={props.node_actions.clone()} />
             </li>

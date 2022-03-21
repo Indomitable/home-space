@@ -1,5 +1,4 @@
 use js_sys::Array;
-use log::debug;
 use serde::Serialize;
 use yew::prelude::*;
 use wasm_bindgen::{JsCast, UnwrapThrowExt, JsValue};
@@ -7,7 +6,13 @@ use web_sys::{DragEvent, DataTransferItem};
 
 use crate::files::{actions::upload::file_system_api::FileSystemFileHandle};
 
-use super::file_system_api::{upload_data_transfer_items, show_directory_picker, show_open_file_picker, upload_file};
+use super::file_system_api::{
+    upload_data_transfer_items,
+    upload_directory_handle,
+    show_directory_picker,
+    show_open_file_picker,
+    upload_file
+};
 
 pub(crate) struct FileUpload {
     state: FileUploadState
@@ -41,6 +46,7 @@ pub(crate) enum FileUploadMessages {
     // UploadProgress(UploadProgress),
     UploadFinish,
     SelectFiles(Vec<FileSystemFileHandle>),
+    SelectDirectory(JsValue)
 }
 
 impl FileUpload {
@@ -109,9 +115,8 @@ impl Component for FileUpload {
         });
 
         let on_select_folder = ctx.link().callback_future(|_mouse_event| async {
-            if let Ok(items) = show_directory_picker().await {
-                debug!("{:?}", items);
-                return FileUploadMessages::None
+            if let Ok(directory) = show_directory_picker().await {
+                return FileUploadMessages::SelectDirectory(directory);
             }
             return FileUploadMessages::None
         });
@@ -132,7 +137,7 @@ impl Component for FileUpload {
     }
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
-        let parent_id = ctx.props().parent_id;
+        let parent_id: JsValue = JsValue::from_str(&ctx.props().parent_id.to_string());
         match msg {
             FileUploadMessages::DragLeave => {
                 self.state = FileUploadState::None;
@@ -157,6 +162,7 @@ impl Component for FileUpload {
             FileUploadMessages::SelectFiles(file_handles) => {
                 ctx.link().send_future(async move {
                     for file_handle in file_handles  {
+                        let parent_id = parent_id.clone();
                         match file_handle.getFile().await {
                             Ok(file) => {
                                 let _ = upload_file(parent_id, file).await.unwrap_throw();
@@ -169,6 +175,13 @@ impl Component for FileUpload {
                     return FileUploadMessages::UploadFinish;
                 });
                 
+                false
+            },
+            FileUploadMessages::SelectDirectory(directory) => {
+                ctx.link().send_future(async move {
+                    let _ = upload_directory_handle(parent_id, directory).await;
+                    return FileUploadMessages::UploadFinish;
+                });
                 false
             },
             FileUploadMessages::DragOver => {

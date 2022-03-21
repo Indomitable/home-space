@@ -45,7 +45,7 @@ export async function uploadFile(parentId, file) {
         const headers = new Headers();
         headers.append('Authorization', `Bearer ${token}`);
         const formData = new FormData();
-        formData.append("parent_id", parentId);
+        formData.append("parent_id", +parentId);
         formData.append("file", file, file.name);
         const request = new Request(`/api/files/upload_file`, {
             method: 'PUT',
@@ -67,13 +67,27 @@ async function createFolder(parentId, name) {
     const headers = new Headers();
     headers.append('Authorization', `Bearer ${token}`);
     headers.append('Content-Type', 'application/json');
+    const body = JSON.stringify({parent_id: +parentId, name});
     const request = new Request(`/api/files/create_folder`, {
         method: 'PUT',
         headers,
-        body: JSON.stringify({parent_id: parentId, name})
+        body
     });
     
     const response = await fetch(request);
-    const body = await response.json();
-    return body.id;
+    const content = await response.json();
+    return content.id;
+}
+
+export async function uploadDirectoryHandle(parentId, directoryHandle) {
+    let newParentId = await createFolder(parentId, directoryHandle.name);
+    for await (const item of directoryHandle.values()) {
+        if (item.kind === 'directory') {
+            await uploadDirectoryHandle(newParentId, item);
+        }
+        if (item.kind === 'file') {
+            const file = await item.getFile();
+            await uploadFile(newParentId, file);
+        }
+    }
 }

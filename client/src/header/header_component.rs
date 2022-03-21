@@ -1,6 +1,6 @@
 use yew::prelude::*;
 
-use crate::user::secure_component::use_user_context;
+use crate::utils::auth_helpers::use_user_context;
 use super::logout_component::Logout;
 
 #[function_component(Header)]

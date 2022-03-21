@@ -1,13 +1,12 @@
 
 use std::rc::Rc;
 use log::debug;
-use wasm_bindgen::UnwrapThrowExt;
 use yew::prelude::*;
 
 use home_space_contracts::files::DisplayFileNode;
 
-use crate::app_context::{AppContext, AuthContext};
 use crate::dispatcher::Subscriber;
+use crate::utils::auth_helpers::get_user_context;
 use crate::utils::dispatcher_helpers::{subscribe, unsubscribe};
 use super::file_list_component::FileList;
 use super::toolbox::file_actions::FileActions;
@@ -38,12 +37,8 @@ pub enum FileViewActions {
 impl FilesView {
 
     fn get_token(ctx: &Context<Self>) -> String {
-        let context = ctx.link().context::<AppContext>(Callback::noop()).unwrap_throw();
-        let token = match &context.0.auth_context {
-            AuthContext::Authenticated(user) => user.access_token.token.clone(),
-            AuthContext::NotAuthenticated => panic!("Should be authenticated")
-        };
-        token
+        let user_context = get_user_context(&ctx);
+        user_context.access_token.token
     }
 
     fn get_props(&self, ctx: &Context<Self>) -> (i64, String) {

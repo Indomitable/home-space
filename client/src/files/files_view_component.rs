@@ -107,14 +107,40 @@ impl Component for FilesView {
     }
 
     fn view(&self, ctx: &Context<Self>) -> Html {
-        let (parent_id, token) = self.get_props(ctx);            
-
+        let (parent_id, token) = self.get_props(ctx);     
+        
+        let (favorite_nodes, regular_nodes) = match &self.nodes {
+            Some(nodes) => {
+                let mut favorite = Vec::new();
+                let mut regular = Vec::new();
+                for node in nodes.iter() {
+                    if node.is_favorite {
+                        favorite.push(node.clone());
+                    } else {
+                        regular.push(node.clone());
+                    }
+                }
+                (favorite, regular)
+            },
+            None => (Vec::new(), Vec::new())
+        };
+        let has_favorites = favorite_nodes.len() > 0;
+        
         html!{
             <>
                 <FileActions parent_id={parent_id} node_actions={&self.node_actions.clone()} />
                 <BreadcumbsFileNav parent_id={parent_id} access_token={token.clone()} />
-                if let Some(nodes) = &self.nodes {
-                   <FileList nodes={nodes.clone()} node_actions={&self.node_actions.clone()} />
+                if has_favorites {
+                    <div class="file_view__favorite_file_list">
+                        <div class="file_view__favorite_file_list__header">{"Favorites"}</div>
+                        <FileList nodes={favorite_nodes} node_actions={&self.node_actions.clone()} />
+                    </div>                    
+                }
+                if regular_nodes.len() > 0 {
+                    if has_favorites {
+                        <div class="file_view__file_list__header">{"Files"}</div>
+                    }
+                    <FileList nodes={regular_nodes} node_actions={&self.node_actions.clone()} />
                 }
             </>
         }

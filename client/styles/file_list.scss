@@ -1,6 +1,16 @@
+.file_view__favorite_file_list {
+    margin-bottom: 30px;
+}
+
+.file_view__favorite_file_list__header,
+.file_view__file_list__header {
+    font-size: 20px;
+    padding-left: 17px;
+}
+
 .file-list {
     display: grid;
-    grid-template-columns: 100px auto auto auto;
+    grid-template-columns: 100px auto 150px 300px;
 }
 
 .file-list-header {
@@ -9,6 +19,7 @@
     > div {
         height: 40px;
         line-height: 40px;
+        text-align: center;
         border-bottom: 1px solid var(--border-color);
     }
 }
@@ -36,7 +47,7 @@
 }
 
 
-.file-list-title {
+.file-list__title {
     display: flex;
     align-items: center;
     column-gap: 5px;
@@ -62,4 +73,12 @@
 .file-item-menu {
     margin-left: auto;
     margin-right: 15px;
+}
+
+.file-list__node-size {
+    text-align: right;
+}
+
+.file-list__modified_at {
+    text-align: center;
 }

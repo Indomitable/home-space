@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::rc::Rc;
 
 use wasm_bindgen::{UnwrapThrowExt, JsValue, JsCast};
@@ -83,13 +84,13 @@ fn node_row(props: &NodeRowProps) -> Html {
                 <span class="icon-outlined file-item-action">{"check_box_outline_blank"}</span>
                 <FavoriteAction is_favorite={is_favorite.clone()} on_favorite={on_favorite} />
             </div>
-            <div class="file-list-title">
+            <div class="file-list__title">
                 <span class="icon-filled">{get_node_icon(*node_type, &mime_type)}</span>
                 <span>{title.clone()}</span>
                 <span class="icon-filled file-item-menu file-item-action">{"more_vert"}</span>
             </div>
-            <div>{node_size.clone()}</div>
-            <div>{modified_at_local}</div>
+            <div class="file-list__node-size">{get_node_size(*node_type, *node_size)}</div>
+            <div class="file-list__modified_at">{modified_at_local}</div>
         </div>
     }
 }
@@ -100,5 +101,22 @@ fn get_node_icon<'a>(node_type: i16, mime_type: &'a str) -> &'a str {
     }
     match mime_type {
         _ => "insert_drive_file"
+    }
+}
+
+const KBYTES: f64 = 1024_f64;
+const MBYTES: f64 = 1048576_f64;
+const GBYTES: f64 = 1073741824_f64;
+
+fn get_node_size<'a>(node_type: i16, node_size: i64) -> Cow<'a, str> {
+    if node_type == 0 {
+        return "".into();
+    } else {
+        match node_size as f64 {
+            bytes if bytes > GBYTES => format!("{:.2} GiB", bytes / GBYTES),
+            bytes if bytes > MBYTES => format!("{:.2} MiB", bytes / MBYTES),
+            bytes if bytes > KBYTES => format!("{:.2} KiB", bytes / KBYTES),
+            bytes => bytes.to_string()
+        }.into()
     }
 }

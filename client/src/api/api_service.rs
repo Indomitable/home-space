@@ -18,31 +18,32 @@ pub const METHOD_PUT: &'static str = "PUT";
 pub const METHOD_DELETE: &'static str = "DELETE";
 
 pub struct RequestInitBuilder<'a, TData> 
-where TData: Serialize + Clone {
-    method: Cow<'static, str>,
-    url: String,
+where TData: Serialize {
+    method: &'static str,
+    url: Cow<'a, str>,
     access_token: Option<String>,
     data: Option<&'a TData>
 }
 
 impl<'a, TData> RequestInitBuilder<'a, TData> 
-where TData: Serialize + Clone {
+where TData: Serialize {
     pub fn new() -> Self {
         Self {
             method: "GET".into(),
-            url: String::default(),
+            url: "".into(),
             access_token: None,
             data: None
         }
     }
 
-    pub fn set_method(&mut self, method: &str) -> &mut Self {
-        self.method = method.to_owned().into();
+    pub fn set_method(&mut self, method: &'static str) -> &mut Self {
+        self.method = method;
         self
     }
 
-    pub fn set_url(&mut self, url: &str) -> &mut Self {
-        self.url = url.to_owned();
+    pub fn set_url<TUrl>(&mut self, url: TUrl) -> &mut Self
+    where TUrl: Into<Cow<'a, str>> {
+        self.url = url.into();
         self
     }
 
@@ -77,140 +78,83 @@ where TData: Serialize + Clone {
 
 pub enum ResponseReader {
     TextReader(Response),
-    JsonReader(Response)
+    JsonReader(Response),
+    // ErrorReader(u16)
 }
 
-pub enum ResponseReadError {
+pub enum FetchError {
+    ErrorCode(u16),
     ErrorResponseIsNotJson,
     ErrorJsonDeserialize(String),
     ErrorRead,
 }
 
 impl ResponseReader {
-    pub async fn as_str(&self) -> Result<String, ResponseReadError> {
+    pub async fn as_str(&self) -> Result<String, FetchError> {
         match &self {
             Self::TextReader(response) |
             Self::JsonReader(response) => {
-                let response_read_promise = response.text().map_err(|_| { ResponseReadError::ErrorRead })?;
-                let body = JsFuture::from(response_read_promise).await.map_err(|_| { ResponseReadError::ErrorRead })?;
+                let response_read_promise = response.text().map_err(|_| { FetchError::ErrorRead })?;
+                let body = JsFuture::from(response_read_promise).await.map_err(|_| { FetchError::ErrorRead })?;
                 let body_contents = body.as_string().unwrap_or_default();
                 Ok(body_contents)
-            }
+            },
+            // Self::ErrorReader(status) => {
+            //     Err(FetchError::ErrorCode(*status))
+            // }
         }
     }
 
-    pub async fn as_obj<T>(&self) -> Result<T, ResponseReadError>
+    pub async fn as_obj<T>(&self) -> Result<T, FetchError>
     where T: DeserializeOwned {
         match &self {
-            Self::TextReader(_) => Err(ResponseReadError::ErrorResponseIsNotJson),
+            Self::TextReader(_) => Err(FetchError::ErrorResponseIsNotJson),
             Self::JsonReader(_) => {
                 let contents = self.as_str().await;
                 match contents {
                     Ok(contents) if contents.len() > 0 => {
-                        let data = serde_json::from_str::<T>(contents.as_str()).map_err(|e| ResponseReadError::ErrorJsonDeserialize(e.to_string()))?;
+                        let data = serde_json::from_str::<T>(contents.as_str()).map_err(|e| FetchError::ErrorJsonDeserialize(e.to_string()))?;
                         Ok(data)
                     },
-                    Ok(_) => Err(ResponseReadError::ErrorResponseIsNotJson),
+                    Ok(_) => Err(FetchError::ErrorResponseIsNotJson),
                     Err(error) => Err(error)
                 }
-            }
+            },
+            // Self::ErrorReader(status) => {
+            //     Err(FetchError::ErrorCode(*status))
+            // }
         }
     }
 }
 
 impl From<Response> for ResponseReader {
     fn from(response: Response) -> Self {
-        if let Ok(content_type) = response.headers().get("Content-Type") {
-            if let Some(content_type) = content_type {
-                if content_type.starts_with("application/json") {
-                    return Self::JsonReader(response);
+        // let status = response.status();
+        // if status >= 200 && status < 300 {
+            if let Ok(content_type) = response.headers().get("Content-Type") {
+                if let Some(content_type) = content_type {
+                    if content_type.starts_with("application/json") {
+                        return Self::JsonReader(response);
+                    }
                 }
             }
-        }
-        return Self::TextReader(response);
+            return Self::TextReader(response);
+        // } else {
+        //     return Self::ErrorReader(status);
+        // }
     }
 }
 
-pub async fn get<TResult>(url: &str) -> Result<TResult, ApiError>
-where
-    TResult: DeserializeOwned,
-{
-    let mut init = RequestInit::new();
-    init.method("GET");
-    init.mode(RequestMode::SameOrigin);
-
-    let response = fetch(url, &init).await;
-    read_body(response).await.map(|contents| {
-        serde_json::from_str::<TResult>(contents.as_str())
-            .expect("Response should be a valid json")
-    })
-}
-
-pub async fn post<TResult, TData>(url: &str, data: &TData) -> Result<TResult, ApiError>
-where
-    TResult: DeserializeOwned,
-    TData: Serialize,
-{
-    let init = request_init(data);
-    let response = fetch(url, &init).await;
-
-    read_body(response).await.map(|contents| {
-        serde_json::from_str::<TResult>(contents.as_str())
-            .expect("Response should be a valid json")
-    })
-}
-
-/// Executes post request which doesn't return data if Ok is returned then request is successful
-pub async fn post_no_result<TData>(url: &str, data: &TData) -> Result<(), ApiError>
-where
-    TData: Serialize,
-{
-    let init = request_init(data);
-    let response = fetch(url, &init).await;
-
-    read_body(response).await.map(|_| ())
-}
-
-fn request_init<TData>(data: &TData) -> RequestInit
-where
-    TData: Serialize,
-{
-    let mut init = RequestInit::new();
-    init.method("POST");
-    let headers = Headers::new().expect("Unable to create headers");
-    headers
-        .append("Content-Type", "application/json")
-        .expect("Should add content type");
-    init.headers(&JsValue::from(headers));
-    let body = serde_json::to_string(data).expect("Data should be serializable");
-    let user = JsValue::from_str(body.as_str());
-    init.body(Some(&user));
-    //let data = serde_json::to_string(data).expect("Data should be serializable");
-    init.mode(RequestMode::SameOrigin);
-    init
-}
 
 async fn fetch(url: &str, init: &RequestInit) -> Response {
     let request = Request::new_with_str_and_init(url, &init)
-        .expect("Unable to crate request from request init");
+        .unwrap_throw();
     let window = gloo_utils::window();
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
         .await
-        .expect("Error while execution the request");
+        .unwrap_throw();
     let response: Response = resp_value
         .dyn_into()
-        .expect("Unable to convert JValue to Responce");
+        .unwrap_throw();
     response
-}
-
-async fn read_body(response: Response) -> Result<String, ApiError> {
-    let status = response.status();
-    let body = JsFuture::from(response.text().expect("Unable to read response body"))
-        .await
-        .expect("Error while getting body");
-    let body_contents = body.as_string().expect("Body doesn't contain text value");
-    if status < 200 || status > 299 {
-        return Err(ApiError::FetchError((status, body_contents)));
-    }
-    return Ok(body_contents);
 }

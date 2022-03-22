@@ -1,12 +1,15 @@
 use std::borrow::Cow;
 
 use web_sys::HtmlInputElement;
-use yew::{Component, Context, Html, html, NodeRef, Callback};
+use yew::{Component, Context, Html, html, NodeRef};
 use yew_router::prelude::*;
 
 use home_space_contracts::user::{ LoginRequest, LoginResponse };
 
-use crate::{api::api_service::post, router::AppRoute, app_context::{AppContext, AppContextAction}};
+use crate::api::api_service::{RequestInitBuilder, METHOD_POST, ResponseReader};
+use crate::router::AppRoute;
+use crate::app_context::AppContextAction;
+use crate::utils::context_helpers::get_app_context;
 
 pub enum LoginMessage {
     StartLogin(String, String),
@@ -53,7 +56,15 @@ impl Component for Login {
                             user_name,
                             password
                         };
-                        let user_result = post::<LoginResponse, LoginRequest>("/api/user/login", &request).await;
+                        let reader: ResponseReader = RequestInitBuilder::<LoginRequest>::new()
+                            .set_method(METHOD_POST)
+                            .set_url("/api/user/login")
+                            .set_data(&request)
+                            .fetch()
+                            .await
+                            .into();
+
+                        let user_result = reader.as_obj::<LoginResponse>().await;
                         return if let Ok(user) = user_result {
                             LoginMessage::LoginResulted(user)
                         } else {
@@ -64,7 +75,7 @@ impl Component for Login {
                 true
             },
             LoginMessage::LoginResulted(user) => {
-                let (app_context, _)  = ctx.link().context::<AppContext>(Callback::noop()).expect("Should have App context");
+                let app_context = get_app_context(&ctx);
                 app_context.dispatch(AppContextAction::Authenticate(user.access_token));
                 let navigator = ctx.link().navigator().expect("Should Have Navigator");
                 navigator.push(AppRoute::FileList{parent_id: 0});

@@ -1,16 +1,18 @@
 use std::borrow::Cow;
 
-use super::file_repository as repo;
+use super::{file_repository as repo, node_selection::NodeSelection};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct NodeActions {
-    token: String
+    token: String,
+    selection: NodeSelection
 }
 
 impl NodeActions {
     pub fn new<'a>(token: Cow<'a, str>) -> Self {
         Self {
-            token: token.into_owned()
+            token: token.into_owned(),
+            selection: NodeSelection::new()
         }
     }
 

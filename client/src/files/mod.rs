@@ -1,9 +1,11 @@
+mod file_repository;
+mod node_selection;
+mod node_actions;
+
 mod file_list_header_component;
 mod file_list_component;
-mod file_repository;
 mod actions;
 mod toolbox;
 mod breadcrumbs;
-mod node_actions;
 
 pub mod files_view_component;

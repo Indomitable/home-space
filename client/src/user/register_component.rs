@@ -1,12 +1,17 @@
-use serde::Serialize;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
+use yew_router::prelude::*;
 
-use crate::api::api_service::{post_no_result, ApiError};
+use home_space_contracts::user::{RegisterRequest, LoginResponse};
+
+use crate::api::api_service::{RequestInitBuilder, METHOD_POST, ResponseReader};
+use crate::app_context::AppContextAction;
+use crate::router::AppRoute;
+use crate::utils::context_helpers::get_app_context;
 
 pub(crate) enum RegisterMessage {
     StartRegister(String, String),
-    RegisterSuccessful,
+    RegisterSuccessful(LoginResponse),
     RegisterFailed(String)
 }
 
@@ -19,11 +24,7 @@ pub(crate) struct RegisterComponent {
     password_ref: NodeRef,
 }
 
-#[derive(Serialize)]
-struct RegisterRequest {
-    user_name: String,
-    password: String,
-}
+
 
 impl Component for RegisterComponent {
     type Message = RegisterMessage;
@@ -47,19 +48,30 @@ impl Component for RegisterComponent {
                     password: password
                 };
                 let callback = ctx.link().callback_future(|request: RegisterRequest| async move {
-                    let user_result = post_no_result::<RegisterRequest>("/api/user/register", &request).await;
-                    return if let Err(ApiError::FetchError(error)) = user_result {
-                        RegisterMessage::RegisterFailed(error.1)
-                    } else {
-                        RegisterMessage::RegisterSuccessful
+
+                    let reader: ResponseReader = RequestInitBuilder::<RegisterRequest>::new()
+                        .set_method(METHOD_POST)
+                        .set_url("/api/user/register")
+                        .set_data(&request)
+                        .fetch()
+                        .await
+                        .into();
+
+                    let user_result = reader.as_obj::<LoginResponse>().await;
+                    return match user_result {
+                        Ok(res) => RegisterMessage::RegisterSuccessful(res),
+                        Err(_) => RegisterMessage::RegisterFailed("Registration failed".to_owned())
                     }
                 });
                 callback.emit(input);
                 false                
             },
-            RegisterMessage::RegisterSuccessful => {
-                gloo_utils::window().alert_with_message("Registered").unwrap();
-                false
+            RegisterMessage::RegisterSuccessful(login_response) => {
+                let app_context = get_app_context(&ctx);
+                app_context.dispatch(AppContextAction::Authenticate(login_response.access_token));
+                let navigator = ctx.link().navigator().expect("Should Have Navigator");
+                navigator.push(AppRoute::FileList{parent_id: 0});
+                true
             },
             RegisterMessage::RegisterFailed(error) => {
                 self.error = error;

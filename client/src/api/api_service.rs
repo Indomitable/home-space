@@ -1,7 +1,7 @@
 #![allow(unused)]
 use std::borrow::Cow;
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -79,7 +79,7 @@ where TData: Serialize {
 pub enum ResponseReader {
     TextReader(Response),
     JsonReader(Response),
-    // ErrorReader(u16)
+    ErrorReader(u16)
 }
 
 pub enum FetchError {
@@ -99,14 +99,14 @@ impl ResponseReader {
                 let body_contents = body.as_string().unwrap_or_default();
                 Ok(body_contents)
             },
-            // Self::ErrorReader(status) => {
-            //     Err(FetchError::ErrorCode(*status))
-            // }
+            Self::ErrorReader(status) => {
+                Err(FetchError::ErrorCode(*status))
+            }
         }
     }
 
     pub async fn as_obj<T>(&self) -> Result<T, FetchError>
-    where T: DeserializeOwned {
+    where T: for<'a> Deserialize<'a> {
         match &self {
             Self::TextReader(_) => Err(FetchError::ErrorResponseIsNotJson),
             Self::JsonReader(_) => {
@@ -120,17 +120,17 @@ impl ResponseReader {
                     Err(error) => Err(error)
                 }
             },
-            // Self::ErrorReader(status) => {
-            //     Err(FetchError::ErrorCode(*status))
-            // }
+            Self::ErrorReader(status) => {
+                Err(FetchError::ErrorCode(*status))
+            }
         }
     }
 }
 
 impl From<Response> for ResponseReader {
     fn from(response: Response) -> Self {
-        // let status = response.status();
-        // if status >= 200 && status < 300 {
+        let status = response.status();
+        if status >= 200 && status < 300 {
             if let Ok(content_type) = response.headers().get("Content-Type") {
                 if let Some(content_type) = content_type {
                     if content_type.starts_with("application/json") {
@@ -139,9 +139,9 @@ impl From<Response> for ResponseReader {
                 }
             }
             return Self::TextReader(response);
-        // } else {
-        //     return Self::ErrorReader(status);
-        // }
+        } else {
+            return Self::ErrorReader(status);
+        }
     }
 }
 

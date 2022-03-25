@@ -1,6 +1,5 @@
 mod file_repository;
-mod node_selection;
-mod node_actions;
+mod node_state;
 
 mod file_list_header_component;
 mod file_list_component;

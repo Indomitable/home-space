@@ -1,25 +1,25 @@
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use wasm_bindgen::{UnwrapThrowExt, JsValue, JsCast};
-use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
 use yew_router::prelude::*;
 use js_sys::{Date,Object};
 
 use home_space_contracts::files::{DisplayFileNode, NODE_TYPE_FOLDER};
 
-use crate::utils::dispatcher_helpers::use_dispatcher;
-
 use super::file_list_header_component::FileListHeader;
 use super::actions::favorite_action::FavoriteAction;
-use super::node_actions::NodeActions;
-
+use super::actions::select_action::SelectAction;
+use super::files_view_component::FileViewActions;
+use super::node_state::{NodesState, NodeState};
 
 #[derive(Properties, PartialEq)]
 pub struct FileListProps {
     pub nodes: Vec<DisplayFileNode>,
-    pub node_actions: Rc<NodeActions>
+    pub node_states: Rc<RefCell<NodesState>>,
+    pub action_callback: Callback<FileViewActions>
 }
 
 #[function_component(FileList)]
@@ -29,8 +29,10 @@ pub fn file_nodes_component(props: &FileListProps) -> Html {
             <FileListHeader />
             {
                 props.nodes.iter().map(|node: &DisplayFileNode| {
+                    let node_state = props.node_states.borrow();
+                    let state = node_state.states.get(&node.id).unwrap_throw();
                     html!{
-                        <NodeRow key={node.id} node={node.clone()} node_actions={props.node_actions.clone()} />
+                        <NodeRow key={node.id} node={node.clone()} state={state.clone()} action_callback={props.action_callback.clone()} />
                     }
                 }).collect::<Html>()
             }
@@ -38,12 +40,11 @@ pub fn file_nodes_component(props: &FileListProps) -> Html {
     }
 }
 
-
-
 #[derive(Properties, PartialEq)]
 struct NodeRowProps {
-    pub node_actions: Rc<NodeActions>,
+    pub action_callback: Callback<FileViewActions>,
     node: DisplayFileNode,
+    state: NodeState
 }
 
 #[function_component(NodeRow)]
@@ -61,28 +62,28 @@ fn node_row(props: &NodeRowProps) -> Html {
     };
 
     let on_favorite = {
-        let node_actions = props.node_actions.clone();
         let node_id = id.clone();
-        let dispatcher = use_dispatcher();
+        let action_callback = props.action_callback.clone();
         Callback::from(move |is_favorite: bool| {
-            let node_actions = node_actions.clone();
-            let node_id = node_id.clone();
-            let dispatcher = dispatcher.clone();
-            spawn_local(async move {
-                // We need to await favorite change and then to do a refresh otherwise it can get nodes before favorite operation.
-                node_actions.toggle_favorite(node_id, is_favorite).await;
-                dispatcher.borrow().publish("refresh-files-view".into(), ());
-            });
+            action_callback.emit(FileViewActions::FileNodeFavoriteChanged((node_id, is_favorite)))
         })
     };
 
     let modified_at_local = Date::new(&JsValue::from_str(&modified_at)).unchecked_into::<Object>().to_locale_string();
+    
+    let on_selection = {
+        let node_id = id.clone();
+        let action_callback = props.action_callback.clone();
+        Callback::from(move |selected: bool| {
+            action_callback.emit(FileViewActions::FileNodeSelectionChanged((node_id, selected)))
+        })
+    };
 
     html!{
         <div class="file-list-row" {onclick}>
             <div class="file-item-actions">
-                <span class="icon-outlined file-item-action">{"check_box_outline_blank"}</span>
-                <FavoriteAction is_favorite={is_favorite.clone()} on_favorite={on_favorite} />
+                <SelectAction is_selected={props.state.is_selected} {on_selection} />
+                <FavoriteAction is_favorite={is_favorite.clone()} {on_favorite} />
             </div>
             <div class="file-list__title">
                 <span class="icon-filled">{get_node_icon(*node_type, &mime_type)}</span>

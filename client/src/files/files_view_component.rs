@@ -1,6 +1,6 @@
 
+use std::cell::RefCell;
 use std::rc::Rc;
-use log::debug;
 use yew::prelude::*;
 
 use home_space_contracts::files::DisplayFileNode;
@@ -9,10 +9,10 @@ use crate::dispatcher::Subscriber;
 use crate::utils::auth_helpers::get_user_context;
 use crate::utils::dispatcher_helpers::{subscribe, unsubscribe};
 use super::file_list_component::FileList;
+use super::node_state::NodesState;
 use super::toolbox::file_actions::FileActions;
 use super::breadcrumbs::breadcrumbs_file_navigation::BreadcumbsFileNav;
-use super::file_repository::load_file_nodes;
-use super::node_actions::NodeActions;
+use super::file_repository::{load_file_nodes, create_folder, toggle_favorite};
 
 #[derive(Properties, PartialEq)]
 pub struct FilesViewProps {
@@ -23,7 +23,7 @@ pub struct FilesView {
     pub current_parent_id: i64,
     pub nodes: Option<Vec<DisplayFileNode>>,
     
-    node_actions: Rc<NodeActions>,
+    node_states: Rc<RefCell<NodesState>>,
 
     refresh_subsriber: Rc<Subscriber>
 }
@@ -31,7 +31,10 @@ pub struct FilesView {
 pub enum FileViewActions {
     FetchFileNodes,
     FileNodesFetched(Vec<DisplayFileNode>),
-    FileNodesFetchedFailed
+    FileNodesFetchedFailed,
+    FileNodeSelectionChanged((i64, bool)),
+    FileNodesCreateFolder(String),
+    FileNodeFavoriteChanged((i64, bool)),
 }
 
 impl FilesView {
@@ -49,7 +52,6 @@ impl FilesView {
     }
 
     fn load_nodes(&self, ctx: &Context<Self>) {
-        debug!("Load Nodes");
         let cb = ctx.link().callback(|_| FileViewActions::FetchFileNodes);
         cb.emit(());
     }
@@ -66,7 +68,7 @@ impl Component for FilesView {
         let obj = Self {
             current_parent_id: ctx.props().parent_id,
             nodes: None,
-            node_actions: NodeActions::new(FilesView::get_token(&ctx).into()).into(),
+            node_states: RefCell::new(NodesState::new()).into(),
             refresh_subsriber: subscriber
         };
         obj.load_nodes(ctx);      
@@ -89,9 +91,36 @@ impl Component for FilesView {
             },
             FileViewActions::FileNodesFetched(nodes) => {
                 self.nodes = Some(nodes);
+                self.node_states.borrow_mut().fill_default(self.nodes.as_ref().unwrap());
                 true
             },
             FileViewActions::FileNodesFetchedFailed => {
+                false
+            },
+            FileViewActions::FileNodeSelectionChanged((node_id, selected)) => {
+                if let Some(state) = self.node_states.borrow_mut().states.get_mut(&node_id) {
+                    state.is_selected = selected;
+                }
+                true
+            },
+            FileViewActions::FileNodesCreateFolder(name) => {
+                let (parent_id, token) = self.get_props(ctx);
+                let cb = ctx.link().callback_future(|props: (i64, String, String)| async move {
+                    let (parent_id, token, name) = props;
+                    create_folder(parent_id, &token, &name).await;
+                    FileViewActions::FetchFileNodes
+                });
+                cb.emit((parent_id, token, name));
+                false
+            },
+            FileViewActions::FileNodeFavoriteChanged((node_id, is_favorite)) => {
+                let (_, token) = self.get_props(ctx);
+                let cb = ctx.link().callback_future(|props: (i64, String, bool)| async move {
+                    let (node_id, token, is_favorite) = props;
+                    toggle_favorite(node_id, &token, is_favorite).await;
+                    FileViewActions::FetchFileNodes
+                });
+                cb.emit((node_id, token, is_favorite));
                 false
             }
         }
@@ -125,22 +154,32 @@ impl Component for FilesView {
             None => (Vec::new(), Vec::new())
         };
         let has_favorites = favorite_nodes.len() > 0;
+
+
+        let action_callback = ctx.link().callback(|action: FileViewActions| action);
         
+        let selected_nodes = self.node_states.borrow().states.values().fold(0, |c, item| { 
+            if item.is_selected {
+                return c + 1;
+            }
+            return c;
+        } );
+
         html!{
             <>
-                <FileActions parent_id={parent_id} node_actions={&self.node_actions.clone()} />
+                <FileActions parent_id={parent_id} {selected_nodes} action_callback={action_callback.clone()} />
                 <BreadcumbsFileNav parent_id={parent_id} access_token={token.clone()} />
                 if has_favorites {
                     <div class="file_view__favorite_file_list">
                         <div class="file_view__favorite_file_list__header header">{"Favorites"}</div>
-                        <FileList nodes={favorite_nodes} node_actions={&self.node_actions.clone()} />
+                        <FileList nodes={favorite_nodes} node_states={&self.node_states.clone()} action_callback={action_callback.clone()} />
                     </div>                    
                 }
                 if regular_nodes.len() > 0 {
                     if has_favorites {
                         <div class="file_view__file_list__header header">{"Files"}</div>
                     }
-                    <FileList nodes={regular_nodes} node_actions={&self.node_actions.clone()} />
+                    <FileList nodes={regular_nodes} node_states={&self.node_states.clone()} {action_callback} />
                 }
             </>
         }

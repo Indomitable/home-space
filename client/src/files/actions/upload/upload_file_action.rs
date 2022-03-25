@@ -1,12 +1,11 @@
 use yew::prelude::*;
 
 use crate::modal::modal_dialog::{ModalDialog, ModalDialogHeader};
-use super::upload_file_component::FileUpload;
+use super::{upload_file_component::FileUpload, file_system_api::is_file_api_supported};
 
 #[derive(Properties, PartialEq)]
 pub(crate) struct UploadFileActionProps {
     pub parent_id: i64,
-    pub supports_open_dialog: bool,
     pub close_action_list: Callback<()>
 }
 
@@ -59,13 +58,14 @@ impl Component for UploadFileAction {
             let modal_dilog_header = ModalDialogHeader::Text("Select data to upload.".to_owned());
             let on_backdrop_click = ctx.link().callback(|_| UploadFileActionMessages::CloseModalDialog );
 
-            let UploadFileActionProps { parent_id, supports_open_dialog, .. } = ctx.props();
+            let supports_open_dialog = is_file_api_supported();
+            let UploadFileActionProps { parent_id, .. } = ctx.props();
             
             return html!{
                 <>
                     {action}
                     <ModalDialog header={modal_dilog_header} use_backdrop={Some(true)} on_backdrop_click={Some(on_backdrop_click)}>
-                        <FileUpload parent_id={parent_id} supports_open_dialog={*supports_open_dialog} {on_files_uploaded} />
+                        <FileUpload parent_id={parent_id} {supports_open_dialog} {on_files_uploaded} />
                     </ModalDialog>
                 </>
             };

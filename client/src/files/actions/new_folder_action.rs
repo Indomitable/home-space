@@ -1,20 +1,13 @@
-use std::{ops::Deref, rc::Rc};
+use std::ops::Deref;
 
 use wasm_bindgen::UnwrapThrowExt;
-use wasm_bindgen_futures::spawn_local;
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
-use super::super::node_actions::NodeActions;
-
-
 #[derive(Properties, PartialEq)]
 pub struct NewFolderActionProps {
-    pub parent_id: i64,
-    pub node_actions: Rc<NodeActions>,
-    pub on_finish: Callback<()>
+    pub(crate) on_create_folder: Callback<String>
 }
-
 
 
 #[function_component(NewFolderAction)]
@@ -33,19 +26,11 @@ pub fn new_folder_action(props: &NewFolderActionProps) -> Html {
 
     let onkeypress = {
         let input_ref = input_ref.clone();
-        let parent_id = props.parent_id;
-        let on_finish = props.on_finish.clone();
-        let node_actions = props.node_actions.clone();
+        let on_create_folder = props.on_create_folder.clone();
         Callback::from(move |key: KeyboardEvent| {
             let input = input_ref.cast::<HtmlInputElement>().expect("Input exists");
             if key.code() == "Enter" {
-                let node_actions = node_actions.clone();
-                let on_finish = on_finish.clone();
-                spawn_local(async move {
-                    // Await create folder before finish action and refreshing file list.
-                    node_actions.create_folder(parent_id, input.value()).await;
-                    on_finish.emit(());
-                });
+                on_create_folder.emit(input.value());
             }
         })
     };

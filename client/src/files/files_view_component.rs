@@ -8,7 +8,7 @@ use home_space_contracts::files::DisplayFileNode;
 use crate::dispatcher::Subscriber;
 use crate::utils::auth_helpers::get_user_context;
 use crate::utils::dispatcher_helpers::{subscribe, unsubscribe};
-use super::file_list_component::FileList;
+use super::node_list::NodeList;
 use super::node_state::NodesState;
 use super::toolbox::file_actions::FileActions;
 use super::breadcrumbs::breadcrumbs_file_navigation::BreadcumbsFileNav;
@@ -33,6 +33,7 @@ pub enum FileViewActions {
     FileNodesFetched(Vec<DisplayFileNode>),
     FileNodesFetchedFailed,
     FileNodeSelectionChanged((i64, bool)),
+    FileNodeSelectionToggle(i64),
     FileNodesCreateFolder(String),
     FileNodeFavoriteChanged((i64, bool)),
 }
@@ -100,6 +101,12 @@ impl Component for FilesView {
             FileViewActions::FileNodeSelectionChanged((node_id, selected)) => {
                 if let Some(state) = self.node_states.borrow_mut().states.get_mut(&node_id) {
                     state.is_selected = selected;
+                }
+                true
+            },
+            FileViewActions::FileNodeSelectionToggle(node_id) => {
+                if let Some(state) = self.node_states.borrow_mut().states.get_mut(&node_id) {
+                    state.is_selected = !state.is_selected;
                 }
                 true
             },
@@ -172,14 +179,14 @@ impl Component for FilesView {
                 if has_favorites {
                     <div class="file_view__favorite_file_list">
                         <div class="file_view__favorite_file_list__header header">{"Favorites"}</div>
-                        <FileList nodes={favorite_nodes} node_states={&self.node_states.clone()} action_callback={action_callback.clone()} />
+                        <NodeList nodes={favorite_nodes} node_states={&self.node_states.clone()} action_callback={action_callback.clone()} />
                     </div>                    
                 }
                 if regular_nodes.len() > 0 {
                     if has_favorites {
                         <div class="file_view__file_list__header header">{"Files"}</div>
                     }
-                    <FileList nodes={regular_nodes} node_states={&self.node_states.clone()} {action_callback} />
+                    <NodeList nodes={regular_nodes} node_states={&self.node_states.clone()} {action_callback} />
                 }
             </>
         }

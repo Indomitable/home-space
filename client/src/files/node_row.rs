@@ -1,6 +1,4 @@
 use std::borrow::Cow;
-use std::cell::RefCell;
-use std::rc::Rc;
 
 use wasm_bindgen::{UnwrapThrowExt, JsValue, JsCast};
 use yew::prelude::*;
@@ -9,49 +7,23 @@ use js_sys::{Date,Object};
 
 use home_space_contracts::files::{DisplayFileNode, NODE_TYPE_FOLDER};
 
-use super::file_list_header_component::FileListHeader;
 use super::actions::favorite_action::FavoriteAction;
 use super::actions::select_action::SelectAction;
 use super::files_view_component::FileViewActions;
-use super::node_state::{NodesState, NodeState};
+use super::node_state::NodeState;
 
 #[derive(Properties, PartialEq)]
-pub struct FileListProps {
-    pub nodes: Vec<DisplayFileNode>,
-    pub node_states: Rc<RefCell<NodesState>>,
-    pub action_callback: Callback<FileViewActions>
-}
-
-#[function_component(FileList)]
-pub fn file_nodes_component(props: &FileListProps) -> Html {
-    html! {
-        <div class="file-list">
-            <FileListHeader />
-            {
-                props.nodes.iter().map(|node: &DisplayFileNode| {
-                    let node_state = props.node_states.borrow();
-                    let state = node_state.states.get(&node.id).unwrap_throw();
-                    html!{
-                        <NodeRow key={node.id} node={node.clone()} state={state.clone()} action_callback={props.action_callback.clone()} />
-                    }
-                }).collect::<Html>()
-            }
-        </div>
-    }
-}
-
-#[derive(Properties, PartialEq)]
-struct NodeRowProps {
-    pub action_callback: Callback<FileViewActions>,
-    node: DisplayFileNode,
-    state: NodeState
+pub(crate) struct NodeRowProps {
+    pub(crate) action_callback: Callback<FileViewActions>,
+    pub(crate) node: DisplayFileNode,
+    pub(crate) state: NodeState
 }
 
 #[function_component(NodeRow)]
-fn node_row(props: &NodeRowProps) -> Html {
+pub(crate) fn node_row(props: &NodeRowProps) -> Html {
     let DisplayFileNode { id, title, parent_id: _, node_type, mime_type, modified_at, node_size, is_favorite } = &props.node;
     let navigator = use_navigator().unwrap_throw();
-    let onclick = {
+    let on_node_title_click = {
         let id = *id;
         let node_type = props.node.node_type;
         Callback::from(move |_| {
@@ -65,7 +37,7 @@ fn node_row(props: &NodeRowProps) -> Html {
         let node_id = id.clone();
         let action_callback = props.action_callback.clone();
         Callback::from(move |is_favorite: bool| {
-            action_callback.emit(FileViewActions::FileNodeFavoriteChanged((node_id, is_favorite)))
+            action_callback.emit(FileViewActions::FileNodeFavoriteChanged((node_id, is_favorite)));
         })
     };
 
@@ -75,23 +47,31 @@ fn node_row(props: &NodeRowProps) -> Html {
         let node_id = id.clone();
         let action_callback = props.action_callback.clone();
         Callback::from(move |selected: bool| {
-            action_callback.emit(FileViewActions::FileNodeSelectionChanged((node_id, selected)))
+            action_callback.emit(FileViewActions::FileNodeSelectionChanged((node_id, selected)));
+        })
+    };
+
+    let on_node_row_click = {
+        let node_id = id.clone();
+        let action_callback = props.action_callback.clone();
+        Callback::from(move |_| {
+            action_callback.emit(FileViewActions::FileNodeSelectionToggle(node_id));
         })
     };
 
     html!{
-        <div class="file-list-row" {onclick}>
-            <div class="file-item-actions">
+        <div class="node-row" onclick={on_node_row_click}>
+            <div class="node-row__actions">
                 <SelectAction is_selected={props.state.is_selected} {on_selection} />
                 <FavoriteAction is_favorite={is_favorite.clone()} {on_favorite} />
             </div>
-            <div class="file-list__title">
+            <div class="node-row__title">
                 <span class="icon-filled">{get_node_icon(*node_type, &mime_type)}</span>
-                <span>{title.clone()}</span>
-                <span class="icon-filled file-item-menu file-item-action">{"more_vert"}</span>
+                <span class="node-row__title__name" onclick={on_node_title_click}>{title.clone()}</span>
+                <span class="icon-filled file-item-menu node-row-action">{"more_vert"}</span>
             </div>
-            <div class="file-list__node-size">{get_node_size(*node_type, *node_size)}</div>
-            <div class="file-list__modified_at">{modified_at_local}</div>
+            <div class="node-row__node-size">{get_node_size(*node_type, *node_size)}</div>
+            <div class="node-row__modified_at">{modified_at_local}</div>
         </div>
     }
 }

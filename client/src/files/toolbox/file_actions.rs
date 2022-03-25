@@ -22,24 +22,36 @@ pub fn file_actions(props: &FileActionsProps) -> Html {
             }
             if len > 0 {
                 <li>
-                    <button>{"Share"}</button>
+                    <button class="ghost-button">
+                        <span class="icon-outlined">{"file_download"}</span>
+                        {"Download"}
+                    </button>
                 </li>
                 <li>
-                    <button>{"Download"}</button>
+                    <button class="ghost-button">
+                        <span class="icon-outlined">{"delete"}</span>
+                        {"Delete"}
+                    </button>
                 </li>
                 <li>
-                    <button>{"Delete"}</button>
+                    <button class="ghost-button">
+                        <span class="icon-outlined">{"drive_file_move"}</span>
+                        {"Move to"}
+                    </button>
                 </li>
-                <li>
-                    <button>{"Move to"}</button>
-                </li>
-                <li>
-                    <button>{"Copy to"}</button>
+                <li>                
+                    <button class="ghost-button">
+                        <span class="icon-outlined">{"file_copy"}</span>
+                        {"Copy to"}
+                    </button>
                 </li>
             }
             if len == 1 {
                 <li>
-                    <button>{"Rename"}</button>
+                    <button class="ghost-button">
+                        <span class="icon-outlined">{"drive_file_rename_outline"}</span>
+                        {"Rename"}
+                    </button>
                 </li>
             }
         </ul>

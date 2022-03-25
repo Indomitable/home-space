@@ -53,8 +53,7 @@ impl FilesView {
     }
 
     fn load_nodes(&self, ctx: &Context<Self>) {
-        let cb = ctx.link().callback(|_| FileViewActions::FetchFileNodes);
-        cb.emit(());
+        ctx.link().send_message(FileViewActions::FetchFileNodes);
     }
 }
 

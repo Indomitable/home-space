@@ -26,6 +26,7 @@ impl NodesState {
     }
 
     pub(crate) fn fill_default(&mut self, nodes: &Vec<DisplayFileNode>) {
+        self.states.clear();
         for node in nodes {
             self.states.insert(node.id, NodeState::default());
         }

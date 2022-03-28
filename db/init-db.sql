@@ -53,7 +53,7 @@ create table file_nodes (
 	node_type SMALLINT NOT NULL,	
 	filesystem_path varchar not null,
 	mime_type varchar not null,
-	modified_at timestamp not null,
+	modified_at timestamptz not null,
 	node_size bigint not null,
 	constraint pk_file_nodes primary key (id, user_id),
 	constraint fk_file_nodes foreign key (parent_id, user_id) references file_nodes(id, user_id)
@@ -65,9 +65,9 @@ create table file_versions (
 	id bigint not null,
 	user_id bigint not null,
 	version int not null,
-	filesystem_path varchar not null,
+	filesystem_path varchar not null,	
+	created_at timestamptz not null,
 	node_size bigint not null,
-	created_at timestamp not null,
 	constraint pk_file_versions primary key (id, user_id, version),
 	constraint fk_file_versions foreign key (id, user_id) references file_nodes(id, user_id)
 );

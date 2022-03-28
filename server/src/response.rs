@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use actix_web::{HttpResponse, web, Responder};
+use actix_web::{HttpResponse, web, Responder, HttpRequest};
 use serde::Serialize;
 
 // Successful codes 2XX
@@ -52,4 +52,25 @@ pub fn error_not_found<T>() -> Result<T, actix_web::Error> {
 /// 500, INTERNAL_SERVER_ERROR
 pub fn error_internal_server_error<T>() -> Result<T, actix_web::Error> {
     Err(actix_web::error::ErrorInternalServerError("Internal server error. Check logs."))
+}
+
+pub fn read_string_header(request: &HttpRequest, header_name: &str) -> Option<String> {
+    request.headers()
+        .get(header_name)
+        .map_or(None, |h| percent_encoding::percent_decode(h.as_bytes())
+                                .decode_utf8()
+                                .map(|cow| cow.to_string())
+                                .ok())
+}
+
+pub fn read_int_header(request: &HttpRequest, header_name: &str) -> Option<i64> {
+    request.headers()
+    .get(header_name)
+    .map_or(None, |hv| {        
+        return std::str::from_utf8(hv.as_bytes())
+            .expect("Header shoud be ascii encoded")
+            .parse::<i64>()
+            .expect("Header should be valid 64 bit number")
+            .into();
+    })
 }

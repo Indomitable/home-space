@@ -34,6 +34,13 @@ pub async fn query_one(pool: &web::Data<Pool>, query: &str, params: &[&(dyn ToSq
     return Ok(row);
 }
 
+pub async fn query_opt(pool: &web::Data<Pool>, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<Option<deadpool_postgres::tokio_postgres::Row>> {
+    let connection = pool.get().await?;
+    let statement = connection.prepare_cached(query).await?;
+    let row = connection.query_opt(&statement, params).await?;
+    return Ok(row);
+}
+
 pub async fn execute(pool: &web::Data<Pool>, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<u64> {
     let connection = pool.get().await?;
     let statement = connection.prepare_cached(query).await?;

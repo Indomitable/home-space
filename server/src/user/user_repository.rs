@@ -9,6 +9,7 @@ use scrypt::{
 };
 
 use crate::{db::{query_one, DbResult}, config::get_top_save_folder};
+use crate::files::file_system::init_user_fs;
 
 pub struct UserDto {
     pub id: i64,
@@ -77,7 +78,7 @@ async fn initialize_user(transaction: &Transaction<'_>, user_name: &str, passwor
     let user_files_root = get_top_save_folder(user_id);
     transaction.execute(insert_file_root, &[&user_id, &user_files_root, &chrono::Utc::now()]).await?;
     if let Ok(1) = transaction.execute(insert_auth_sql, &[&user_id, &password_id]).await {
-        if let Ok(Ok(_)) = actix_rt::task::spawn_blocking(move || std::fs::create_dir(user_files_root)).await {
+        if let Ok(_) = init_user_fs(user_files_root.into()) {
             return Ok(UserDto {
                 id: user_id,
                 name: user_name.to_owned()

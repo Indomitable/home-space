@@ -44,13 +44,12 @@ export async function uploadFile(parentId, file) {
         const token = JSON.parse(sessionStorage['app_user_context_key']).access_token.token;
         const headers = new Headers();
         headers.append('Authorization', `Bearer ${token}`);
-        const formData = new FormData();
-        formData.append("parent_id", +parentId);
-        formData.append("file", file, file.name);
+        headers.append('X-FILE-NAME', encodeURIComponent(file.name));
+        headers.append('X-PARENT-ID', +parentId);
         const request = new Request(`/api/files/upload_file`, {
             method: 'PUT',
             headers,
-            body: formData
+            body: file
         });
         
         const response = await fetch(request);

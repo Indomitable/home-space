@@ -1,10 +1,12 @@
+use std::borrow::Cow;
+
 use actix_web::web;
-use deadpool_postgres::Pool;
+use deadpool_postgres::{Pool, tokio_postgres::Row};
 
 use home_space_contracts::files::{ParentNode, NODE_TYPE_FILE, DisplayFileNode};
 use log::error;
 
-use crate::db::{query, query_one, execute, DbResult};
+use crate::db::{query, query_one, execute, DbResult, query_opt};
 
 pub async fn get_file_list(pool: &web::Data<Pool>, parent_id: i64, user_id: i64) -> DbResult<Vec<DisplayFileNode>> {
     let sql = r#"select fn.id, fn.title, 
@@ -51,12 +53,8 @@ pub struct FileNodeDto {
     pub node_size: i64
 }
 
-pub async fn fetch_node(pool: &web::Data<Pool>, id: i64, user_id: i64) -> DbResult<FileNodeDto> {
-    let sql = r#"select id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size
-                    from file_nodes
-                    where id = $2 and user_id = $1"#;
-    let row= query_one(pool, sql, &[&user_id, &id]).await?;
-    let node = FileNodeDto {
+fn read_node(row: &Row) -> FileNodeDto {
+    FileNodeDto {
         id: row.get(0),
         user_id: row.get(1),
         title: row.get(2),
@@ -66,8 +64,24 @@ pub async fn fetch_node(pool: &web::Data<Pool>, id: i64, user_id: i64) -> DbResu
         mime_type: row.get(6),
         modified_at: row.get(7),
         node_size: row.get(8)
-    };
-    return Ok(node);
+    }
+}
+
+pub async fn get_node(pool: &web::Data<Pool>, id: i64, user_id: i64) -> DbResult<FileNodeDto> {
+    let sql = r#"select id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size
+                    from file_nodes
+                    where id = $2 and user_id = $1"#;
+    let row= query_one(pool, sql, &[&user_id, &id]).await?;
+    let node = read_node(&row);
+    Ok(node)
+}
+
+pub async fn get_node_by_name(pool: &web::Data<Pool>, parent_id: &i64, user_id: &i64, title: Cow<'_, str>) -> DbResult<Option<FileNodeDto>> {
+    let sql = r#"select id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size
+                    from file_nodes
+                    where user_id = $1 and parent_id = $2 and title = $3"#;
+    let node = query_opt(pool, sql, &[user_id, parent_id, &title]).await?.map(|row| read_node(&row));
+    Ok(node)
 }
 
 pub async fn add_node(pool: &web::Data<Pool>, file_node: FileNodeDto) -> DbResult<i64>  {
@@ -87,6 +101,25 @@ pub async fn add_node(pool: &web::Data<Pool>, file_node: FileNodeDto) -> DbResul
     let row = query_one(pool, &sql, &[&user_id, &title, &parent_id, &node_type, &filesystem_path, &mime_type, &modified_at, &node_size]).await?;
     let node_id: i64 = row.get(0);
     Ok(node_id)
+}
+
+pub async fn update_node_version(pool: &web::Data<Pool>, old_node: &FileNodeDto, version_name: String, new_node: &FileNodeDto) -> DbResult<()> {
+    // Copy current one to file_versions
+    let copy_sql = r#"insert into file_versions
+    select fn.id, fn.user_id, 
+           (select count(1) + 1 from file_versions fv where fv.id  = fn.id and fv.user_id = fn.user_id),
+           $3, fn.node_size, fn.modified_at 
+    from file_nodes fn 
+    where fn.id = $1 and fn.user_id = $2"#;
+    execute(pool, copy_sql, &[&old_node.id, &old_node.user_id, &version_name]).await?;
+
+    let update_sql = r#"update file_nodes
+    set mime_type = $3,
+        modified_at = $4,
+        node_size = $5
+    where id = $1 and user_id = $2"#;
+    execute(pool, update_sql, &[&old_node.id, &old_node.user_id, &new_node.mime_type, &new_node.modified_at, &new_node.node_size]).await?;
+    Ok(())
 }
 
 pub async fn move_to_trash(pool: &web::Data<Pool>, id: i64, node_type: i16, user_id: i64) -> DbResult<u64> {
@@ -168,3 +201,4 @@ pub async fn unset_favorite(pool: &web::Data<Pool>, id: i64, user_id: i64) -> Db
         },
     }
 }
+

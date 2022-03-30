@@ -10,7 +10,7 @@ pub fn logout_component() -> Html {
     });
 
     html! {
-        <button class="button" {onclick}>
+        <button class="button ghost-button" {onclick}>
             <span class="icon-filled">{"logout"}</span>
         </button>
     }

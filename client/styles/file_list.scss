@@ -13,15 +13,21 @@
     grid-template-columns: 100px auto 150px 300px;
 }
 
-.file-list-header {
+.node-list-header {
     display: contents;
+}
 
-    > div {
-        height: 40px;
-        line-height: 40px;
-        text-align: center;
-        border-bottom: 1px solid var(--border-color);
-    }
+.node-list-header__title {
+    height: 40px;
+    line-height: 40px;
+    text-align: center;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.node-list-header__actions {
+    @extend .node-list-header__title;
+    text-align: left;
+    padding-left: 22px;
 }
 
 .node-row {
@@ -31,15 +37,17 @@
     > div {
         height: 40px;
         line-height: 40px;
-
-
     }
 
     &:hover {
         > div {
             background: var(--list-item-hover-color);
         }
+    }
+}
 
+.node-row, .node-list-header {
+    &:hover {
         .node-row-action {
             visibility: visible;
         }

@@ -33,6 +33,7 @@ pub enum FileViewActions {
     FileNodesFetched(Vec<DisplayFileNode>),
     FileNodesFetchedFailed,
     FileNodeSelectionChanged((i64, bool)),
+    FileNodesAllSelectionChanged(bool),
     FileNodeSelectionToggle(i64),
     FileNodesCreateFolder(String),
     FileNodeFavoriteChanged((i64, bool)),
@@ -100,6 +101,12 @@ impl Component for FilesView {
             FileViewActions::FileNodeSelectionChanged((node_id, selected)) => {
                 if let Some(state) = self.node_states.borrow_mut().states.get_mut(&node_id) {
                     state.is_selected = selected;
+                }
+                true
+            },
+            FileViewActions::FileNodesAllSelectionChanged(selection) => {
+                for (_, state) in self.node_states.borrow_mut().states.iter_mut() {
+                    state.is_selected = selection;
                 }
                 true
             },

@@ -19,6 +19,12 @@ pub struct FilesViewProps {
     pub parent_id: i64,
 }
 
+pub const NODE_ITEM_FAVORITE: u8 = 1;
+pub const NODE_ITEM_REGULAR: u8 = 2;
+
+#[derive(PartialEq)]
+pub struct NodeItems(pub Vec<DisplayFileNode>, pub u8);
+
 pub struct FilesView {
     pub current_parent_id: i64,
     pub nodes: Option<Vec<DisplayFileNode>>,
@@ -33,7 +39,7 @@ pub enum FileViewActions {
     FileNodesFetched(Vec<DisplayFileNode>),
     FileNodesFetchedFailed,
     FileNodeSelectionChanged((i64, bool)),
-    FileNodesAllSelectionChanged(bool),
+    FileNodesAllSelectionChanged((bool, u8)),
     FileNodeSelectionToggle(i64),
     FileNodesCreateFolder(String),
     FileNodeFavoriteChanged((i64, bool)),
@@ -104,11 +110,18 @@ impl Component for FilesView {
                 }
                 true
             },
-            FileViewActions::FileNodesAllSelectionChanged(selection) => {
-                for (_, state) in self.node_states.borrow_mut().states.iter_mut() {
-                    state.is_selected = selection;
+            FileViewActions::FileNodesAllSelectionChanged((selection, node_type)) => {
+                if let Some(ref nodes) = self.nodes {
+                    for node in nodes.iter().filter(|n| {
+                        (node_type == NODE_ITEM_FAVORITE && n.is_favorite) || (node_type == NODE_ITEM_REGULAR && !n.is_favorite)
+                    }) {
+                        if let Some(state) = self.node_states.borrow_mut().states.get_mut(&node.id) {
+                            state.is_selected = selection;
+                        }
+                    }
+                    return true;
                 }
-                true
+                false
             },
             FileViewActions::FileNodeSelectionToggle(node_id) => {
                 if let Some(state) = self.node_states.borrow_mut().states.get_mut(&node_id) {
@@ -162,11 +175,11 @@ impl Component for FilesView {
                         regular.push(node.clone());
                     }
                 }
-                (favorite, regular)
+                (NodeItems(favorite, NODE_ITEM_FAVORITE), NodeItems(regular, NODE_ITEM_REGULAR))
             },
-            None => (Vec::new(), Vec::new())
+            None => (NodeItems(Vec::new(), NODE_ITEM_FAVORITE), NodeItems(Vec::new(), NODE_ITEM_REGULAR))
         };
-        let has_favorites = favorite_nodes.len() > 0;
+        let has_favorites = favorite_nodes.0.len() > 0;
 
 
         let action_callback = ctx.link().callback(|action: FileViewActions| action);
@@ -185,14 +198,14 @@ impl Component for FilesView {
                 if has_favorites {
                     <div class="file_view__favorite_file_list">
                         <div class="file_view__favorite_file_list__header header">{"Favorites"}</div>
-                        <NodeList nodes={favorite_nodes} node_states={&self.node_states.clone()} action_callback={action_callback.clone()} />
+                        <NodeList node_items={favorite_nodes} node_states={&self.node_states.clone()} action_callback={action_callback.clone()} />
                     </div>                    
                 }
-                if regular_nodes.len() > 0 {
+                if regular_nodes.0.len() > 0 {
                     if has_favorites {
                         <div class="file_view__file_list__header header">{"Files"}</div>
                     }
-                    <NodeList nodes={regular_nodes} node_states={&self.node_states.clone()} {action_callback} />
+                    <NodeList node_items={regular_nodes} node_states={&self.node_states.clone()} {action_callback} />
                 }
             </>
         }

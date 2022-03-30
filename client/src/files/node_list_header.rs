@@ -5,16 +5,18 @@ use super::files_view_component::FileViewActions;
 
 #[derive(Properties, PartialEq)]
 pub struct NodeListHeaderProps {
-    pub(crate) is_all_nodes_selected: bool,
-    pub(crate) action_callback: Callback<FileViewActions>
+    pub is_all_nodes_selected: bool,
+    pub node_type: u8,
+    pub action_callback: Callback<FileViewActions>
 }
 
 #[function_component(NodeListHeader)]
 pub fn node_list_header(props: &NodeListHeaderProps) -> Html {
     let on_header_select_action = {
         let action_callback = props.action_callback.clone();
+        let node_type = props.node_type;
         Callback::from(move |selection: bool| {
-            action_callback.emit(FileViewActions::FileNodesAllSelectionChanged(selection));
+            action_callback.emit(FileViewActions::FileNodesAllSelectionChanged((selection, node_type)));
         })
     };
 

@@ -45,7 +45,7 @@ pub fn create_action(props: &CreateActionProps) -> Html {
     html! {
         <>
             <button class="file-action-create ghost-button" {onclick}>
-                <span class="icon-filled">{"note_add"}</span>
+                <span class="icon-outlined">{"note_add"}</span>
                 <span>{"Create"}</span>
                 <span class="icon-filled">{"arrow_drop_down"}</span>
             </button>

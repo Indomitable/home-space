@@ -4,6 +4,11 @@
     align-items: center;
     padding: 0 10px;
     border-bottom: 1px solid var(--border-color);
+
+    > li {
+        flex: 1;
+        max-width: auto;
+    }
 }
 
 .file-actions-create-container {

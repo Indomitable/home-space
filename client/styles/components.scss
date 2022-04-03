@@ -16,6 +16,13 @@
     background: transparent;
 }
 
+.icon-button {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    column-gap: 3px;
+}
+
 .input {
     background: #1d1f23;
     color: var(--primary-font-color);

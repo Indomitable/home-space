@@ -61,7 +61,7 @@ pub fn move_file(source_path: &PathBuf, destination_path: &PathBuf) -> Result<()
 }
 
 pub fn move_to_versions(source_path: &PathBuf, user_id: i64) -> Result<String> {
-    let destination_name = Uuid::new_v4().to_simple().to_string();
+    let destination_name = Uuid::new_v4().as_simple().to_string();
     let root = get_top_save_folder(user_id).into();
     let destination_path = get_version_dir(&root).join(&destination_name);
     move_file(&source_path, &destination_path);
@@ -113,7 +113,7 @@ pub fn move_dir_to_trash(dir: PathBuf, root: PathBuf) -> Result<()> {
     }
 
     visit_files(dir, |file| {
-        let filename = Uuid::new_v4().to_hyphenated().to_string();
+        let filename = Uuid::new_v4().as_hyphenated().to_string();
         fs::copy(file.path(), &filename)?;
         fs::remove_file(file.path())?;
         Ok(())

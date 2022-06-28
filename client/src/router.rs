@@ -1,5 +1,5 @@
 
-use yew::{html, Html, function_component, use_context};
+use yew::{html, Html, function_component, use_context, Callback};
 
 use yew_router::prelude::*;
 
@@ -37,12 +37,14 @@ pub enum AppRoute {
 pub fn router_content() -> Html {
     let context = use_context::<AppContext>().expect("Should have context");
 
+    let switch = Callback::from(move |route| { app_route_switch(&context, route) });
+
     html! {
-        <Switch<AppRoute> render={Switch::render(move |route| { app_route_switch(&context, route) })} />
+        <Switch<AppRoute> render={switch} />
     }
 }
 
-pub fn app_route_switch(_context: &AppContext, routes: &AppRoute) -> Html {   
+pub fn app_route_switch(_context: &AppContext, routes: AppRoute) -> Html {   
     match routes {
         AppRoute::Home => html!( <Redirect<AppRoute> to={AppRoute::FileList{parent_id: 0}} /> ),
         AppRoute::FileList { parent_id} => html!{

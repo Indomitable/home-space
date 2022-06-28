@@ -78,7 +78,7 @@ impl Component for Login {
                 let app_context = get_app_context(&ctx);
                 app_context.dispatch(AppContextAction::Authenticate(user.access_token));
                 let navigator = ctx.link().navigator().expect("Should Have Navigator");
-                navigator.push(AppRoute::FileList{parent_id: 0});
+                navigator.push(&AppRoute::FileList{parent_id: 0});
                 true
             },
             LoginMessage::LoginFailed => {
@@ -89,7 +89,7 @@ impl Component for Login {
             },
             LoginMessage::Register => {
                 let navigator = ctx.link().navigator().expect("Should Have Navigator");
-                navigator.push(AppRoute::Register);
+                navigator.push(&AppRoute::Register);
                 false
             }
         }

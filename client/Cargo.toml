@@ -11,7 +11,7 @@ lto = true
 
 [dependencies]
 home_space_contracts = { path = "../contracts" }
-yew = { git = "https://github.com/yewstack/yew", features = ["tokio"] }
+yew = { git = "https://github.com/yewstack/yew", features = ["csr", "tokio"] }
 yew-router = { git = "https://github.com/yewstack/yew" }
 yew-agent = { git = "https://github.com/yewstack/yew" }
 wasm-bindgen = "0.2.80"

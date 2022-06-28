@@ -39,5 +39,5 @@ fn main() {
     // let pub_sub = JsValue::from(PubSub::new());
     // Reflect::set(&window, &JsValue::from_str("pub_sub"), &pub_sub).unwrap();
     console_log::init_with_level(log::Level::Debug).expect("Unable to initialize logger");
-    yew::start_app::<App>();
+    yew::Renderer::<App>::new().render();
 }

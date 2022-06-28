@@ -70,7 +70,7 @@ impl Component for RegisterComponent {
                 let app_context = get_app_context(&ctx);
                 app_context.dispatch(AppContextAction::Authenticate(login_response.access_token));
                 let navigator = ctx.link().navigator().expect("Should Have Navigator");
-                navigator.push(AppRoute::FileList{parent_id: 0});
+                navigator.push(&AppRoute::FileList{parent_id: 0});
                 true
             },
             RegisterMessage::RegisterFailed(error) => {

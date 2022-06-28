@@ -134,7 +134,7 @@ fn breadcrumb(prop: &BreadcrumbProps) -> Html {
         let id = *id;
         Callback::from(move |_| {
             if !is_current {
-                navigator.push(AppRoute::FileList{ parent_id: id });
+                navigator.push(&AppRoute::FileList{ parent_id: id });
             }
         })
     };

@@ -3,7 +3,6 @@ use deadpool_postgres::Pool;
 
 use home_space_contracts::user::{ LoginRequest, LoginResponse, RegisterRequest };
 use log::debug;
-use crate::response::error_internal_server_error;
 use crate::response::json;
 
 use super::user_repository as repo;
@@ -31,7 +30,7 @@ pub async fn login(pool: web::Data<Pool>, login: web::Json<LoginRequest>) -> Res
             return Err(actix_web::error::ErrorUnauthorized("User not found!"))
         },
         Err(repo::ErrorVerifyPassword::PasswordHasError(_)) => {
-            return error_internal_server_error();
+            return Err(actix_web::error::ErrorUnauthorized("Wrong password!"))
         }
     }
 }

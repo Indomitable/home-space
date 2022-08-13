@@ -39,5 +39,6 @@ features = [
   "DataTransfer",
   "DataTransferItem",
   "DataTransferItemList",
-  "File"
+  "File",
+  "WritableStream",
 ]

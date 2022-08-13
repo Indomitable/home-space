@@ -1,6 +1,7 @@
 use gloo_utils::window;
 use wasm_bindgen::prelude::*;
 use js_sys::{Reflect, AsyncIterator, Array};
+//use web_sys::WritableStream;
 
 pub fn is_file_api_supported() -> bool {
     if let Ok(true) = Reflect::has(&window(), &JsValue::from_str("showDirectoryPicker")) {
@@ -41,7 +42,17 @@ extern "C" {
 
     #[wasm_bindgen(method, js_class = "FileSystemFileHandle", js_name=getFile, catch)]
     pub async fn getFile(this: &FileSystemFileHandle) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(method, js_class = "FileSystemFileHandle", js_name=createWritable, catch)]
+    pub async fn create_writable(this: &FileSystemFileHandle) -> Result<JsValue, JsValue>;
 }
+
+// #[wasm_bindgen]
+// extern "C" {
+//     #[wasm_bindgen(extends=WritableStream, js_name=FileSystemWritableFileStream, skip_typescript)]
+//     #[derive(Debug, Clone, PartialEq)]
+//     pub type FileSystemWritableFileStream;
+// }
 
 #[wasm_bindgen]
 extern "C" {
@@ -50,6 +61,9 @@ extern "C" {
 
     #[wasm_bindgen(catch, js_name="showOpenFilePicker")]
     pub async fn show_open_file_picker(options: JsValue) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(catch, js_name="showSaveFilePicker")]
+    pub async fn show_save_file_picker(options: JsValue) -> Result<JsValue, JsValue>;
 }
 
 

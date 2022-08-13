@@ -26,9 +26,12 @@ pub(crate) fn node_row(props: &NodeRowProps) -> Html {
     let on_node_title_click = {
         let id = *id;
         let node_type = props.node.node_type;
+        let action_callback = props.action_callback.clone();
         Callback::from(move |_| {
             if node_type == NODE_TYPE_FOLDER {
-                navigator.push(crate::router::AppRoute::FileList{ parent_id: id });
+                navigator.push(&crate::router::AppRoute::FileList{ parent_id: id });
+            } else {
+                action_callback.emit(FileViewActions::FileNodeDownload(id));
             }
         })
     };

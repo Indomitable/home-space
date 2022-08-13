@@ -1,6 +1,7 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use log::debug;
 use yew::prelude::*;
 
 use home_space_contracts::files::DisplayFileNode;
@@ -12,7 +13,7 @@ use super::node_list::NodeList;
 use super::node_state::NodesState;
 use super::toolbox::file_actions::FileActions;
 use super::breadcrumbs::breadcrumbs_file_navigation::BreadcumbsFileNav;
-use super::file_repository::{load_file_nodes, create_folder, toggle_favorite};
+use super::file_repository::{load_file_nodes, create_folder, toggle_favorite, get_file};
 
 #[derive(Properties, PartialEq)]
 pub struct FilesViewProps {
@@ -43,6 +44,7 @@ pub enum FileViewActions {
     FileNodeSelectionToggle(i64),
     FileNodesCreateFolder(String),
     FileNodeFavoriteChanged((i64, bool)),
+    FileNodeDownload(i64)
 }
 
 impl FilesView {
@@ -147,6 +149,15 @@ impl Component for FilesView {
                     FileViewActions::FetchFileNodes
                 });
                 cb.emit((node_id, token, is_favorite));
+                false
+            },
+            FileViewActions::FileNodeDownload(node_id) => {
+                let (_, token) = self.get_props(ctx);
+                debug!("Getting node {}", node_id);
+                async move {
+                    get_file(node_id, &token).await;
+                };
+                //cb.emit((node_id, token));
                 false
             }
         }

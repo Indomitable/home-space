@@ -61,3 +61,18 @@ pub async fn toggle_favorite(node_id: i64, token: &str, value: bool) {
         .fetch()
         .await;
 }
+
+pub async fn get_file(node_id: i64, token: &str) -> Result<(), FetchError> {
+    let url = format!("/api/files/get_file/{}", node_id);
+    let reader: ResponseReader = RequestInitBuilder::<()>::new()
+        .set_method(METHOD_GET)
+        .set_url(&url)
+        .set_access_token(&token)
+        .fetch()
+        .await
+        .into();
+    let blob = reader.as_binary().await?;
+
+    Ok(())
+    // reader.as_obj::<Vec<ParentNode>>().await
+}

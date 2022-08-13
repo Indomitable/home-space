@@ -6,6 +6,7 @@ use serde_json;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
+use web_sys::Blob;
 use web_sys::{Headers, Request, RequestInit, RequestMode, Response};
 
 pub enum ApiError {
@@ -79,6 +80,7 @@ where TData: Serialize {
 pub enum ResponseReader {
     TextReader(Response),
     JsonReader(Response),
+    BinaryReader(Response),
     ErrorReader(u16)
 }
 
@@ -87,6 +89,7 @@ pub enum FetchError {
     ErrorResponseIsNotJson,
     ErrorJsonDeserialize(String),
     ErrorRead,
+    ErrorResponseTypeNotSupported
 }
 
 impl ResponseReader {
@@ -98,6 +101,9 @@ impl ResponseReader {
                 let body = JsFuture::from(response_read_promise).await.map_err(|_| { FetchError::ErrorRead })?;
                 let body_contents = body.as_string().unwrap_or_default();
                 Ok(body_contents)
+            },
+            Self::BinaryReader(_) => {
+                Err(FetchError::ErrorResponseTypeNotSupported)
             },
             Self::ErrorReader(status) => {
                 Err(FetchError::ErrorCode(*status))
@@ -120,11 +126,32 @@ impl ResponseReader {
                     Err(error) => Err(error)
                 }
             },
+            Self::BinaryReader(_) => {
+                Err(FetchError::ErrorResponseTypeNotSupported)
+            },
             Self::ErrorReader(status) => {
                 Err(FetchError::ErrorCode(*status))
             }
         }
     }
+
+    pub async fn as_binary(&self) -> Result<web_sys::Blob, FetchError> {
+        match &self {
+            Self::BinaryReader(response) => {
+                let response_read_promise = response.blob().map_err(|_| { FetchError::ErrorRead })?;
+                let blob = JsFuture::from(response_read_promise).await.map_err(|_| { FetchError::ErrorRead })?;
+                Ok(blob.unchecked_into::<Blob>())
+            },
+            Self::TextReader(_) |
+            Self::JsonReader(_) => {
+                Err(FetchError::ErrorResponseTypeNotSupported)
+            },
+            Self::ErrorReader(status) => {
+                Err(FetchError::ErrorCode(*status))
+            }
+        }
+    }
+
 }
 
 impl From<Response> for ResponseReader {
@@ -136,6 +163,12 @@ impl From<Response> for ResponseReader {
                     if content_type.starts_with("application/json") {
                         return Self::JsonReader(response);
                     }
+                }
+            }
+            if let Ok(content_disposition) = response.headers().get("Content-Disposition") {
+                if let Some(content_disposition) = content_disposition {
+                    // TODO: get file name from the header.
+                    return Self::BinaryReader(response);
                 }
             }
             return Self::TextReader(response);

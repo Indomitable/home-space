@@ -1,7 +1,7 @@
-use actix_files::Files;
+use actix_cors::Cors;
 use openssl::ssl::{SslAcceptor, SslMethod, SslFiletype};
 use std::path::Path;
-use actix_web::{web, App, HttpServer};
+use actix_web::{web, App, HttpServer, middleware::Condition};
 
 use db::new_pool;
 
@@ -34,6 +34,12 @@ async fn main() -> std::io::Result<()> {
 
         App::new()
             .app_data(db_manager.clone())
+            .wrap(Condition::new(!config::dev_url().is_empty(), 
+                Cors::default()
+                    .allowed_origin(&config::dev_url())
+                    .allow_any_header()
+                    .allow_any_method()
+                ))
             .service(
                 web::scope("/api")
                     .configure(user::init_routes)
@@ -42,6 +48,7 @@ async fn main() -> std::io::Result<()> {
             .default_service(web::get().to(get_index))
     })
     .bind(get_listen_address())?;
+
 
     if config::is_ssl_enabled() {
         let mut ssl_builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();

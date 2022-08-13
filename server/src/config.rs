@@ -51,3 +51,7 @@ pub fn ssl_private_key() -> String {
 pub fn ssl_chain_key() -> String {
     return env::var("SSL_CHAIN_KEY").unwrap();
 }
+
+pub fn dev_url() -> String {
+    return env::var("DEV_URL").unwrap_or("".to_owned());
+}

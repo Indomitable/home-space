@@ -39,7 +39,6 @@ async fn main() -> std::io::Result<()> {
                     .configure(user::init_routes)
                     .configure(files::init_routes(auth_middleware))
             )
-            .service(Files::new("/", "client/dist").index_file("index.html"))
             .default_service(web::get().to(get_index))
     })
     .bind(get_listen_address())?;

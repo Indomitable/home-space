@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { isAuthenticated } from "../auth/authentication";
 import HomeView from "../views/HomeView.vue";
+import LoginView from "../views/LoginView.vue";
 
 const router = createRouter({
     history: createWebHistory(import.meta.env.BASE_URL),
@@ -12,12 +14,27 @@ const router = createRouter({
         {
             path: "/about",
             name: "about",
-            // route level code-splitting
-            // this generates a separate chunk (About.[hash].js) for this route
-            // which is lazy-loaded when the route is visited.
             component: () => import("../views/AboutView.vue"),
         },
+        {
+            path: "/login",
+            name: "login",
+            component: LoginView,
+            meta: {
+                guestOk: true,
+            },
+        },
     ],
+});
+
+router.beforeEach((to) => {
+    if (!(to.meta.guestOk || isAuthenticated())) {
+        // this route requires auth, check if logged in
+        // if not, redirect to login page.
+        return {
+            path: "/login",
+        };
+    }
 });
 
 export default router;

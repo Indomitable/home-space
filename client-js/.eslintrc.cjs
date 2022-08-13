@@ -12,4 +12,12 @@ module.exports = {
     parserOptions: {
         ecmaVersion: "latest",
     },
+    overrides: [
+        {
+            files: ["*.vue"],
+            rules: {
+                "no-undef": "off",
+            },
+        },
+    ],
 };

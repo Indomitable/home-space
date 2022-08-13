@@ -21,12 +21,12 @@ impl FromRequest for AuthContext {
     }
 }
 
-pub async fn request_validator(req: actix_web::dev::ServiceRequest, credentials: actix_web_httpauth::extractors::bearer::BearerAuth) -> Result<actix_web::dev::ServiceRequest, actix_web::Error> {
+pub async fn request_validator(req: actix_web::dev::ServiceRequest, credentials: actix_web_httpauth::extractors::bearer::BearerAuth) -> Result<actix_web::dev::ServiceRequest, (actix_web::Error, actix_web::dev::ServiceRequest)> {
     let token = credentials.token();
     if let Ok(user_id) = verify_access_token(token) {
         req.extensions_mut().insert(AuthContext { user_id });
         return Ok(req);
     }
-    error_unauthorized()
+    Err((actix_web::error::ErrorUnauthorized("Unauthorized! Please login."), req))
 }
 

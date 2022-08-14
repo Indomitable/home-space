@@ -11,7 +11,7 @@ export default defineComponent({
 </script>
 
 <template>
-    <button class="button ghost-button" v-on:click="logout">
+    <button class="ghost-button icon-button" v-on:click="logout">
         <span class="icon-filled">logout</span>
     </button>
 </template>

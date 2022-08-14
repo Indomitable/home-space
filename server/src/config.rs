@@ -52,6 +52,6 @@ pub fn ssl_chain_key() -> String {
     return env::var("SSL_CHAIN_KEY").unwrap();
 }
 
-pub fn dev_url() -> String {
-    return env::var("DEV_URL").unwrap_or("".to_owned());
+pub fn is_prod() -> bool {
+    return env::var("PROD").unwrap_or("1".to_owned()) == "1";
 }

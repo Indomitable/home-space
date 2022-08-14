@@ -1,4 +1,5 @@
 use actix_cors::Cors;
+use actix_files::Files;
 use openssl::ssl::{SslAcceptor, SslMethod, SslFiletype};
 use std::path::Path;
 use actix_web::{web, App, HttpServer, middleware::Condition};
@@ -32,11 +33,14 @@ async fn main() -> std::io::Result<()> {
 
         let auth_middleware = actix_web_httpauth::middleware::HttpAuthentication::bearer(request_validator);
 
-        App::new()
+        let is_prod = !config::is_prod();
+
+        let mut app = App::new()
             .app_data(db_manager.clone())
-            .wrap(Condition::new(!config::dev_url().is_empty(), 
+            .wrap(Condition::new(is_prod,
                 Cors::default()
-                    .allowed_origin(&config::dev_url())
+                    .allowed_origin("http://127.0.0.1:5173")
+                    .allowed_origin("http://localhost:7070")
                     .allow_any_header()
                     .allow_any_method()
                 ))
@@ -44,8 +48,16 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/api")
                     .configure(user::init_routes)
                     .configure(files::init_routes(auth_middleware))
-            )
-            .default_service(web::get().to(get_index))
+            );
+
+            if is_prod {
+                app = app
+                .service(Files::new("/", "client-js/dist")
+                    .index_file("index.html")
+                );                
+            }
+            app = app.default_service(web::get().to(get_index));
+            app
     })
     .bind(get_listen_address())?;
 
@@ -65,7 +77,7 @@ async fn main() -> std::io::Result<()> {
 }
 
 async fn get_index() -> actix_files::NamedFile {
-    let path = Path::new("client/dist/index.html");
+    let path = Path::new("client-js/dist/index.html");
     actix_files::NamedFile::open(path).unwrap()
 }
 

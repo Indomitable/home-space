@@ -28,7 +28,7 @@ pub(crate) fn node_row(props: &NodeRowProps) -> Html {
         let node_type = props.node.node_type;
         Callback::from(move |_| {
             if node_type == NODE_TYPE_FOLDER {
-                navigator.push(crate::router::AppRoute::FileList{ parent_id: id });
+                navigator.push(&crate::router::AppRoute::FileList{ parent_id: id });
             }
         })
     };

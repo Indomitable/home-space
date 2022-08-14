@@ -14,7 +14,7 @@ const props = defineProps<HeaderProps>();
     </header>
 </template>
 
-<style lang="scss">
+<style scoped lang="scss">
 .top-header {
     display: flex;
     align-items: center;

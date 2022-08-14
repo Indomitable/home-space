@@ -40,8 +40,12 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+#app {
+  height: 100%;
+}
+
 main {
-  min-height: 100%;
+  height: 100%;
   color: var(--primary-font-color);
   background: var(--background-color);
 }

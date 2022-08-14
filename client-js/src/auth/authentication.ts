@@ -8,8 +8,16 @@ interface JWtTokenPayload {
     exp: number;
 }
 
+export function saveToken(access_token: string): void {
+    sessionStorage.setItem(token_key, access_token);
+}
+
+export function getToken(): string | null {
+    return sessionStorage.getItem(token_key);
+}
+
 export function isAuthenticated(): boolean {
-    const token = sessionStorage.getItem(token_key);
+    const token = getToken();
     if (!token) {
         return false;
     }

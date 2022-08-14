@@ -14,8 +14,8 @@ const login = async (userName: string, password: string) => {
         const response = await loginUser(userName, password);
         authenticate(response);
         router.push("/");
-    } catch (e: Error) {
-        loginError.value = e.message;
+    } catch (e) {
+        loginError.value = (e as Error).message;
     }
 };
 </script>

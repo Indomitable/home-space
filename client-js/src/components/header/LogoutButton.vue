@@ -1,16 +1,11 @@
-<script lang="ts">
+<script setup lang="ts">
 import { logout } from "@/auth/authentication";
 import router from "@/router";
-import { defineComponent } from "vue";
 
-export default defineComponent({
-    methods: {
-        onLogout() {
-            logout();
-            router.push("/login");
-        },
-    },
-});
+const onLogout = () => {
+    logout();
+    router.push("/login");
+};
 </script>
 
 <template>

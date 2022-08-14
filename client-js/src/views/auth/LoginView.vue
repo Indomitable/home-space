@@ -1,30 +1,23 @@
-<script lang="ts">
-import { defineComponent } from "vue";
+<script setup lang="ts">
+import { ref } from "vue";
 import router from "@/router";
 import { loginUser } from "@/api/auth-api";
 import { authenticate } from "@/auth/authentication";
 
-export default defineComponent({
-    data() {
-        return {
-            userName: "",
-            password: "",
-            loginError: "",
-        };
-    },
-    methods: {
-        async login() {
-            this.loginError = "";
-            try {
-                const response = await loginUser(this.userName, this.password);
-                authenticate(response);
-                router.push("/");
-            } catch (e: Error) {
-                this.loginError = e.message;
-            }
-        },
-    },
-});
+const userName = ref("");
+const password = ref("");
+const loginError = ref("");
+
+const login = async (userName: string, password: string) => {
+    loginError.value = "";
+    try {
+        const response = await loginUser(userName, password);
+        authenticate(response);
+        router.push("/");
+    } catch (e: Error) {
+        loginError.value = e.message;
+    }
+};
 </script>
 
 <template>
@@ -33,7 +26,7 @@ export default defineComponent({
         <input class="input" type="password" v-model="password" />
         <span v-if="!!loginError">{{ loginError }}</span>
         <div class="login-actions">
-            <button class="button login-button" v-on:click="login">Login</button>
+            <button class="button login-button" v-on:click="login(userName, password)">Login</button>
             <button class="button register-button">Register</button>
         </div>
     </div>

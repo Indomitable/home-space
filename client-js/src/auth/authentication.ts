@@ -54,3 +54,7 @@ export function authenticate(loginResponse: LoginUserResponse): void {
         });
     }
 }
+
+export function logout(): void {
+    sessionStorage.removeItem(token_key);
+}

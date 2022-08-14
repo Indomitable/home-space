@@ -82,11 +82,19 @@ async fn get_index() -> actix_files::NamedFile {
 }
 
 fn init_logger() {
-    let stdout_appender = log4rs::append::console::ConsoleAppender::builder().build();
-    let config = log4rs::Config::builder()
-        .appender(log4rs::config::Appender::builder().build("stdout", Box::new(stdout_appender)))
-        .build(log4rs::config::Root::builder().appender("stdout").build(log::LevelFilter::Debug))
+    fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "{}[{}][{}] {}",
+                chrono::Utc::now().format("[%Y-%m-%dT%H:%M:%SZ]"),
+                record.target(),
+                record.level(),
+                message
+            ))
+        })
+        .level(log::LevelFilter::Debug)
+        .chain(std::io::stdout())
+        .apply()
         .unwrap();
-    log4rs::init_config(config).unwrap();
 }
 

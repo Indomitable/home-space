@@ -18,7 +18,7 @@ deadpool-postgres = "0.10.2"
 postgres-types = { version = "0.2.3", features = ["with-chrono-0_4"] }
 futures-util = "0.3.21"
 log = "0.4.17"
-log4rs = "1.1.1"
+fern = "0.6.1"
 scrypt = "0.10.0"
 jsonwebtoken = "8.1.0"
 dotenv = "0.15.0"

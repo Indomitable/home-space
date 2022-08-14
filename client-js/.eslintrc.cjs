@@ -12,6 +12,15 @@ module.exports = {
     parserOptions: {
         ecmaVersion: "latest",
     },
+    rules: {
+        "max-len": ["error", { code: 120, comments: 120 }],
+        "prettier/prettier": [
+            "error",
+            {
+                printWidth: 120,
+            },
+        ],
+    },
     overrides: [
         {
             files: ["*.vue"],

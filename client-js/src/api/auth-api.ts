@@ -1,7 +1,7 @@
 import { HttpMethod, RequestBuilder } from "./request-builder";
 import { resolveApiUrl } from "./url-resolver";
 
-interface LoginUserResponse {
+export interface LoginUserResponse {
     user_id: number;
     user_name: string;
     access_token: string;

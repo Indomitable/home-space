@@ -2,7 +2,7 @@
 import { defineComponent } from "vue";
 import router from "@/router";
 import { login_user } from "@/api/auth-api";
-import { saveToken } from "@/auth/authentication";
+import { authenticate } from "@/auth/authentication";
 
 export default defineComponent({
     data() {
@@ -17,7 +17,7 @@ export default defineComponent({
             this.loginError = "";
             try {
                 const response = await login_user(this.userName, this.password);
-                saveToken(response.access_token);
+                authenticate(response);
                 router.push("/");
             } catch (e: Error) {
                 this.loginError = e.message;
@@ -28,17 +28,15 @@ export default defineComponent({
 </script>
 
 <template>
-    <main>
-        <div class="login-dialog">
-            <input class="input" type="text" v-model="userName" />
-            <input class="input" type="password" v-model="password" />
-            <span v-if="!!loginError">{{ loginError }}</span>
-            <div class="login-actions">
-                <button class="button login-button" v-on:click="login">Login</button>
-                <button class="button register-button">Register</button>
-            </div>
+    <div class="login-dialog">
+        <input class="input" type="text" v-model="userName" />
+        <input class="input" type="password" v-model="password" />
+        <span v-if="!!loginError">{{ loginError }}</span>
+        <div class="login-actions">
+            <button class="button login-button" v-on:click="login">Login</button>
+            <button class="button register-button">Register</button>
         </div>
-    </main>
+    </div>
 </template>
 
 <style scoped>

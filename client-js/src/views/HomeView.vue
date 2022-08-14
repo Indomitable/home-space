@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import TopHeader from "@/components/header/TopHeader.vue";
 import { useUserStore } from "@/stores/user";
+import TopHeader from "@/components/header/TopHeader.vue";
+import LeftNavigation from "@/components/navigation/LeftNavigation.vue";
 
 const userStore = useUserStore();
 </script>
@@ -9,8 +10,12 @@ const userStore = useUserStore();
     <div class="home">
         <TopHeader :user-name="userStore.userName" />
         <div class="home-content">
-            <aside></aside>
-            <section></section>
+            <aside>
+                <LeftNavigation />
+            </aside>
+            <section>
+                <router-view :key="$route.path" />
+            </section>
         </div>
     </div>
 </template>

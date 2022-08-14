@@ -7,12 +7,12 @@ export interface LoginUserResponse {
     access_token: string;
 }
 
-export async function login_user(user_name: string, password: string): Promise<LoginUserResponse> {
+export async function loginUser(userName: string, password: string): Promise<LoginUserResponse> {
     const url = resolveApiUrl("user", "login");
     const response = await RequestBuilder.create(url)
         .setMethod(HttpMethod.POST)
         .setJsonBody({
-            user_name,
+            user_name: userName,
             password,
         })
         .build<LoginUserResponse>()

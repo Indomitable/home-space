@@ -1,7 +1,7 @@
 <script lang="ts">
 import { defineComponent } from "vue";
 import router from "@/router";
-import { login_user } from "@/api/auth-api";
+import { loginUser } from "@/api/auth-api";
 import { authenticate } from "@/auth/authentication";
 
 export default defineComponent({
@@ -16,7 +16,7 @@ export default defineComponent({
         async login() {
             this.loginError = "";
             try {
-                const response = await login_user(this.userName, this.password);
+                const response = await loginUser(this.userName, this.password);
                 authenticate(response);
                 router.push("/");
             } catch (e: Error) {

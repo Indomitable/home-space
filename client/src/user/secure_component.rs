@@ -13,19 +13,24 @@ pub struct SecureComponentProps {
 
 #[function_component(Secure)]
 pub fn secure_component(props: &SecureComponentProps) -> Html {
-    let context = use_context::<AppContext>().expect("Required context");
-    match &context.auth_context {
-        AuthContext::NotAuthenticated => {
-            html!( <Redirect<AppRoute> to={AppRoute::Login} /> )
-        }
-        AuthContext::Authenticated(_) => {
-            html! {
-                <>
-                    {props.children.clone()}
-                </>
-            }
-        }
+    html! {
+        <>
+            {props.children.clone()}
+        </>
     }
+    // let context = use_context::<AppContext>().expect("Required context");
+    // match &context.auth_context {
+    //     AuthContext::NotAuthenticated => {
+    //         html!( <Redirect<AppRoute> to={AppRoute::Login} /> )
+    //     }
+    //     AuthContext::Authenticated(_) => {
+    //         html! {
+    //             <>
+    //                 {props.children.clone()}
+    //             </>
+    //         }
+    //     }
+    // }
 }
 
 

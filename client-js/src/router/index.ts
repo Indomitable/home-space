@@ -15,12 +15,13 @@ export function createAppRouter(userService: UserService): Router {
         routes: [
             {
                 path: "/",
-                redirect: "files",
+                redirect: "files/0",
                 component: HomeView,
                 children: [
                     {
-                        path: "/files",
+                        path: "/files/:parent",
                         name: "files",
+                        props: true,
                         component: AllFiles,
                     },
                     {

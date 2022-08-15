@@ -2,7 +2,7 @@
     <nav class="left-nav">
         <ul>
             <li class="left-nav-item">
-                <router-link :to="{ name: 'files' }" class="left-nav-link">
+                <router-link :to="{ name: 'files', params: { parent: '0' } }" class="left-nav-link">
                     <span class="icon-filled">home</span>
                     <span>My Files</span>
                 </router-link>

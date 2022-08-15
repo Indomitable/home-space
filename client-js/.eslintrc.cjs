@@ -28,5 +28,11 @@ module.exports = {
                 "no-undef": "off",
             },
         },
+        {
+            files: ["*.vue", "*.ts"],
+            rules: {
+                "@typescript-eslint/no-non-null-assertion": "off",
+            },
+        },
     ],
 };

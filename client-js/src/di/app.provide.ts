@@ -3,7 +3,7 @@ import type { Router } from "vue-router";
 import { UserService, userServiceInjectionToken } from "@/services/user/user-service";
 import { createAppRouter, routerInjectionToken } from "../router";
 
-export function provideApp(app: App<Element>): Router {
+export function provideAppServices(app: App<Element>): Router {
     const userService = new UserService();
     app.provide(userServiceInjectionToken, userService);
 

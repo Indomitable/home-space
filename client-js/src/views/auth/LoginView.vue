@@ -1,18 +1,19 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import router from "@/router";
-import { loginUser } from "@/api/auth-api";
-import { authenticate } from "@/auth/authentication";
+import { inject, ref } from "vue";
+import { routerInjectionToken } from "@/router";
+import { userServiceInjectionToken } from "@/auth/user-service";
 
 const userName = ref("");
 const password = ref("");
 const loginError = ref("");
 
+const userService = inject(userServiceInjectionToken)!;
+const router = inject(routerInjectionToken)!;
+
 const login = async (userName: string, password: string) => {
     loginError.value = "";
     try {
-        const response = await loginUser(userName, password);
-        authenticate(response);
+        await userService.login(userName, password);
         router.push("/");
     } catch (e) {
         loginError.value = (e as Error).message;

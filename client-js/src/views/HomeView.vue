@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { useUserStore } from "@/stores/user";
+import { userServiceInjectionToken } from "@/auth/user-service";
 import TopHeader from "@/components/header/TopHeader.vue";
 import LeftNavigation from "@/components/navigation/LeftNavigation.vue";
+import { inject } from "vue";
 
-const userStore = useUserStore();
+const userService = inject(userServiceInjectionToken)!;
+const loggedUser = userService.getLoggedUser();
+const userName = loggedUser ? loggedUser.userName : "Session expired!";
 </script>
 
 <template>
     <div class="home">
-        <TopHeader :user-name="userStore.userName" />
+        <TopHeader :user-name="userName" />
         <div class="home-content">
             <aside>
                 <LeftNavigation />

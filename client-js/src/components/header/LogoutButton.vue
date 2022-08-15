@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { logout } from "@/auth/authentication";
-import router from "@/router";
+import { userServiceInjectionToken } from "@/auth/user-service";
+import { routerInjectionToken } from "@/router";
+import { inject } from "vue";
+
+const userService = inject(userServiceInjectionToken)!;
+const router = inject(routerInjectionToken)!;
 
 const onLogout = () => {
-    logout();
+    userService.logout();
     router.push("/login");
 };
 </script>

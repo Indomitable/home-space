@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { inject, ref } from "vue";
 import { routerInjectionToken } from "@/router";
-import { userServiceInjectionToken } from "@/auth/user-service";
+import { userServiceInjectionToken } from "@/services/user/user-service";
 
 const userName = ref("");
 const password = ref("");

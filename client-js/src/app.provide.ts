@@ -1,6 +1,6 @@
 import type { App } from "vue";
 import type { Router } from "vue-router";
-import { UserService, userServiceInjectionToken } from "./auth/user-service";
+import { UserService, userServiceInjectionToken } from "@/services/user/user-service";
 import { createAppRouter, routerInjectionToken } from "./router";
 
 export function provideApp(app: App<Element>): Router {

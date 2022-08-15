@@ -6,7 +6,7 @@ import FavoriteFiles from "@/views/home/FavoriteFiles.vue";
 import RecentFiles from "@/views/home/RecentFiles.vue";
 import SharedFiles from "@/views/home/SharedFiles.vue";
 import TrashFiles from "@/views/home/TrashFiles.vue";
-import type { UserService } from "@/auth/user-service";
+import type { UserService } from "@/services/user/user-service";
 import type { InjectionKey } from "vue";
 
 export function createAppRouter(userService: UserService): Router {

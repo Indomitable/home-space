@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { userServiceInjectionToken } from "@/auth/user-service";
+import { userServiceInjectionToken } from "@/services/user/user-service";
 import { routerInjectionToken } from "@/router";
 import { inject } from "vue";
 

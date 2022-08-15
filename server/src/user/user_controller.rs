@@ -3,6 +3,7 @@ use deadpool_postgres::Pool;
 
 use home_space_contracts::user::{ LoginRequest, LoginResponse, RegisterRequest };
 use log::debug;
+use log::info;
 use crate::response::json;
 
 use super::user_repository as repo;
@@ -16,7 +17,7 @@ pub async fn login(pool: web::Data<Pool>, login: web::Json<LoginRequest>) -> Res
             debug!("Password verified");
             match repo::fetch_user(&pool, &login.user_name).await {
                 Ok(user) => {
-                    debug!("User fetched");
+                    info!("[Auth] User logged in. [User: {}]", user.name);
                     return json(LoginResponse {
                         user_id: user.id,
                         user_name: user.name.to_string(),

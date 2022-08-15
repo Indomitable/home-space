@@ -1,7 +1,8 @@
 import jwt_decode from "jwt-decode";
+import type { InjectionKey } from "vue";
 import { HttpMethod, RequestBuilder } from "@/api/request-builder";
 import { resolveApiUrl } from "@/api/url-resolver";
-import type { InjectionKey } from "vue";
+import type { RequestInitVisitor } from "@/api/request-init-visitor";
 
 interface LoginUserResponse {
     user_id: number;
@@ -29,7 +30,7 @@ export interface User {
     userName: string;
 }
 
-export class UserService {
+export class UserService implements RequestInitVisitor {
     private static token_key = "app_user_context_key";
 
     async login(userName: string, password: string): Promise<void> {
@@ -51,16 +52,21 @@ export class UserService {
 
     getLoggedUser(): User | null {
         const userContext = this.getUserContext();
-        if (!userContext) {
-            return null;
-        }
-        if (!this.validateUserContext(userContext)) {
+        if (!userContext || !this.validateUserContext(userContext)) {
             return null;
         }
         return {
             userId: userContext.user_id,
             userName: userContext.user_name,
         };
+    }
+
+    visit(requestInit: RequestInit): void {
+        const userContext = this.getUserContext();
+        if (!userContext || !this.validateUserContext(userContext)) {
+            return;
+        }
+        (requestInit.headers as Record<string, string>)["Authorization"] = `Bearer ${userContext.access_token.token}`;
     }
 
     private createUserContext(loginResponse: LoginUserResponse): void {

@@ -1,5 +1,6 @@
 import { FetchRequest } from "./fetch-request";
 import { MimeTypes } from "./mime-types";
+import type { RequestInitVisitor } from "./request-init-visitor";
 
 export enum HttpMethod {
     GET = "GET",
@@ -34,6 +35,11 @@ export class RequestBuilder {
     setJsonBody<TBody>(body: TBody): RequestBuilder {
         (this.requestInit.headers as Record<string, string>)["Content-Type"] = MimeTypes.Json;
         return this.setBody(JSON.stringify(body));
+    }
+
+    enhance(visitor: RequestInitVisitor): RequestBuilder {
+        visitor.visit(this.requestInit);
+        return this;
     }
 
     build<TResponse>(): FetchRequest<TResponse>;

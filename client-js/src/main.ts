@@ -2,7 +2,7 @@ import { createApp } from "vue";
 import { createPinia } from "pinia";
 
 import App from "./App.vue";
-import { provideApp } from "./app.provide";
+import { provideApp } from "./di/app.provide";
 
 import "./assets/main.scss";
 

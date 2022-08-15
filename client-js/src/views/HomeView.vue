@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { userServiceInjectionToken } from "@/auth/user-service";
+import { userServiceInjectionToken } from "@/services/user/user-service";
 import TopHeader from "@/components/header/TopHeader.vue";
 import LeftNavigation from "@/components/navigation/LeftNavigation.vue";
 import { inject } from "vue";

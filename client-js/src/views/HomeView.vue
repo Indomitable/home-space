@@ -11,10 +11,10 @@ const userName = loggedUser ? loggedUser.userName : "Session expired!";
 
 <template>
     <div class="home">
-        <TopHeader :user-name="userName" />
+        <top-header :user-name="userName" />
         <div class="home-content">
             <aside>
-                <LeftNavigation />
+                <left-navigation />
             </aside>
             <section>
                 <router-view :key="$route.path" />

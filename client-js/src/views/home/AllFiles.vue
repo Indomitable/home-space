@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import FileActions from "@/components/files/toolbox/FilesActions.vue";
+import BreadcrumbsFileNav from "@/components/files/breadcrumbs/BreadcrumbsFileNav.vue";
 import { provideFileServices } from "@/di/files.provide";
 import { inject, provide } from "vue";
 
@@ -14,4 +15,7 @@ provideFileServices(provide, inject);
 
 <template>
     <file-actions :parent-id="+props.parent" :selected-nodes="0"></file-actions>
+    <suspense>
+        <breadcrumbs-file-nav :parent-id="+props.parent" />
+    </suspense>
 </template>

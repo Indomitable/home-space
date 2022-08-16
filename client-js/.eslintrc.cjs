@@ -18,6 +18,7 @@ module.exports = {
             "error",
             {
                 printWidth: 120,
+                arrowParens: "avoid",
             },
         ],
     },

@@ -13,8 +13,8 @@ export class BreadcrumbsService {
     constructor(private userService: UserService, private router: Router) {}
 
     async loadBreadcrumbs(parentId: number): Promise<ParentNode[]> {
-        const parentsUrl = resolveApiUrl("files", "parents");
-        const response = RequestBuilder.create(`${parentsUrl}/${parentId}`)
+        const url = resolveApiUrl("files", "parents", parentId);
+        const response = RequestBuilder.create(url)
             .setMethod(HttpMethod.GET)
             .enhance(this.userService)
             .build<ParentNode[]>()

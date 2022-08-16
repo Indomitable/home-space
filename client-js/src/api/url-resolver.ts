@@ -1,4 +1,5 @@
-export function resolveApiUrl(controller: string, method: string): string {
+export function resolveApiUrl(controller: string, method: string, param?: string | number): string {
     const serverUrl = import.meta.env.VITE_SERVER_LISTEN_URL;
-    return `${serverUrl}/api/${controller}/${method}`;
+    const actionUrl = `${serverUrl}/api/${controller}/${method}`;
+    return typeof param === "undefined" ? actionUrl : `${actionUrl}/${param}`;
 }

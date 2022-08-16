@@ -22,7 +22,7 @@ function onBreadcrumbClick(): void {
         <span>{{ props.title }}</span>
     </div>
 </template>
-<style scopped lang="scss">
+<style scoped lang="scss">
 @use "@/assets/icons.scss";
 
 .breadcrumb-item {

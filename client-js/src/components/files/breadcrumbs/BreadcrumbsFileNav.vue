@@ -33,7 +33,7 @@ function onBreadcrumbNavigate(id: number, isLast: boolean) {
     </nav>
 </template>
 
-<style scopped lang="scss">
+<style scoped lang="scss">
 .breadcrumbs-nav {
     padding: 20px 17px 30px 17px;
     display: flex;

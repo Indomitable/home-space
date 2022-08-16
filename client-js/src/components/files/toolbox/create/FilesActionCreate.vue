@@ -12,7 +12,7 @@ const listVisible = ref(false);
     </button>
     <files-action-create-list v-if="listVisible" />
 </template>
-<style scopped lang="scss">
+<style scoped lang="scss">
 .file-action-create {
     padding: 2px 7px;
     display: flex;

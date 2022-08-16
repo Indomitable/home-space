@@ -22,7 +22,7 @@ import UploadFileAction from "./UploadFileAction.vue";
     </ul>
 </template>
 
-<style scopped lang="scss">
+<style scoped lang="scss">
 .file-action-create-list {
     position: absolute;
     left: 7px;

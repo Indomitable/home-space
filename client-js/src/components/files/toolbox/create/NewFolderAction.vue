@@ -36,7 +36,7 @@ function onNewFolderKeyDown(event: KeyboardEvent) {
         />
     </a>
 </template>
-<style scopped lang="scss">
+<style scoped lang="scss">
 .new-folder-action-input {
     width: 100%;
     height: 30px !important;

@@ -6,12 +6,26 @@ export class FormatterService {
             return "0";
         }
 
+        if (sizeBytes === 0) {
+            return "0";
+        }
+
         const kbyte = 1024;
-        const formats = ["", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"];
+        const mbyte = 1048576;
+        const gbyte = 1073741824;
+        const tbyte = 1099511627776;
 
-        const formatIndex = Math.floor(Math.log(sizeBytes) / Math.log(kbyte));
-
-        return `${parseFloat((sizeBytes / kbyte ** formatIndex).toFixed(2))} ${formats[formatIndex]}`;
+        if (sizeBytes > tbyte) {
+            return `${(sizeBytes / tbyte).toFixed(2)} TiB`;
+        } else if (sizeBytes > gbyte) {
+            return `${(sizeBytes / gbyte).toFixed(2)} GiB`;
+        } else if (sizeBytes > mbyte) {
+            return `${(sizeBytes / mbyte).toFixed(2)} MiB`;
+        } else if (sizeBytes > kbyte) {
+            return `${(sizeBytes / kbyte).toFixed(2)} KiB`;
+        } else {
+            return `${sizeBytes} byte(s)`;
+        }
     }
 }
 

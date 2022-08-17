@@ -10,8 +10,10 @@ export interface AllFilesProps {
 }
 
 const props = defineProps<AllFilesProps>();
+const parentId = +props.parent;
 
 provideFileServices(provide, inject);
+provide("parent-id", parentId);
 </script>
 
 <template>

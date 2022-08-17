@@ -7,7 +7,6 @@ import RecentFiles from "@/views/home/RecentFiles.vue";
 import SharedFiles from "@/views/home/SharedFiles.vue";
 import TrashFiles from "@/views/home/TrashFiles.vue";
 import type { UserService } from "@/services/user/user-service";
-import type { InjectionKey } from "vue";
 
 export function createAppRouter(userService: UserService): Router {
     const router = createRouter({
@@ -62,7 +61,7 @@ export function createAppRouter(userService: UserService): Router {
         ],
     });
 
-    router.beforeEach((to) => {
+    router.beforeEach(to => {
         if (!(to.meta.guestOk || !!userService.getLoggedUser())) {
             // this route requires auth, check if logged in
             // if not, redirect to login page.
@@ -74,5 +73,3 @@ export function createAppRouter(userService: UserService): Router {
 
     return router;
 }
-
-export const routerInjectionToken: InjectionKey<Router> = Symbol("router");

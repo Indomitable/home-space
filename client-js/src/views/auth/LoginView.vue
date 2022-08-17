@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { inject, ref } from "vue";
-import { routerInjectionToken } from "@/router";
 import { userServiceInjectionToken } from "@/services/user/user-service";
+import { useRouter } from "vue-router";
 
 const userName = ref("");
 const password = ref("");
 const loginError = ref("");
 
 const userService = inject(userServiceInjectionToken)!;
-const router = inject(routerInjectionToken)!;
+const router = useRouter();
 
 const login = async (userName: string, password: string) => {
     loginError.value = "";

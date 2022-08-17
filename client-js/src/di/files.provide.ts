@@ -1,4 +1,3 @@
-import { routerInjectionToken } from "@/router";
 import { breadcrumbServiceInjectionToken, BreadcrumbsService } from "@/services/files/breadcrumbs-service";
 import { FileActionService, fileActionServiceInjectionToken } from "@/services/files/file-action-service";
 import { FileSystemService, fileSystemServiceInjectionToken } from "@/services/files/file-system-service";
@@ -10,12 +9,13 @@ import type { Provider, Injector } from ".";
 
 export function provideFileServices(provide: Provider, inject: Injector): void {
     const userService = inject(userServiceInjectionToken)!;
-    const router = inject(routerInjectionToken)!;
+
     const fileSystem = new FileSystemService();
     provide(fileSystemServiceInjectionToken, fileSystem);
 
     const fileActionService = new FileActionService(userService, fileSystem);
     provide(fileActionServiceInjectionToken, fileActionService);
+    provide(breadcrumbServiceInjectionToken, new BreadcrumbsService(userService, fileActionService));
 
     const formatter = inject(formatterServiceInjectionToken)!;
     provide(fileLoadServiceInjectionToken, new FileLoadService(userService, formatter));

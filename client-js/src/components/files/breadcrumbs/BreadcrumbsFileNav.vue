@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { breadcrumbServiceInjectionToken } from "@/services/files/breadcrumbs-service";
 import { inject } from "vue";
+import { useRouter } from "vue-router";
 import BreadcrumbItem from "./BreadcrumbItem.vue";
 
 export interface BreadcrumbsFileNavProps {
@@ -12,9 +13,10 @@ const breadcrumbsService = inject(breadcrumbServiceInjectionToken)!;
 
 const nodes = await breadcrumbsService.loadBreadcrumbs(props.parentId);
 
+const router = useRouter();
 function onBreadcrumbNavigate(id: number, isLast: boolean) {
     if (!isLast) {
-        breadcrumbsService.navigate(id);
+        breadcrumbsService.navigate(router, id);
     }
 }
 </script>

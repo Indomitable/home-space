@@ -3,7 +3,7 @@ import type { Router } from "vue-router";
 import { UserService, userServiceInjectionToken } from "@/services/user/user-service";
 import { FormatterService, formatterServiceInjectionToken } from "@/services/formatter-service";
 
-import { createAppRouter, routerInjectionToken } from "../router";
+import { createAppRouter } from "../router";
 
 export function provideAppServices(app: App<Element>): Router {
     const userService = new UserService();
@@ -11,8 +11,5 @@ export function provideAppServices(app: App<Element>): Router {
 
     app.provide(formatterServiceInjectionToken, new FormatterService());
 
-    const router = createAppRouter(userService);
-    app.provide(routerInjectionToken, router);
-
-    return router;
+    return createAppRouter(userService);
 }

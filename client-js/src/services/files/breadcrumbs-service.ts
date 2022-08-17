@@ -3,6 +3,7 @@ import type { InjectionKey } from "vue";
 import type { Router } from "vue-router";
 import { resolveApiUrl } from "@/api/url-resolver";
 import type { UserService } from "@/services/user/user-service";
+import type { FileActionService } from "./file-action-service";
 
 interface ParentNode {
     id: number;
@@ -10,7 +11,7 @@ interface ParentNode {
 }
 
 export class BreadcrumbsService {
-    constructor(private userService: UserService, private router: Router) {}
+    constructor(private userService: UserService, private fileActionService: FileActionService) {}
 
     async loadBreadcrumbs(parentId: number): Promise<ParentNode[]> {
         const url = resolveApiUrl("files", "parents", parentId);
@@ -22,8 +23,8 @@ export class BreadcrumbsService {
         return response;
     }
 
-    navigate(id: number): void {
-        this.router.push({ name: "files", params: { parent: id } });
+    navigate(router: Router, id: number): void {
+        this.fileActionService.navigateFolder(router, id);
     }
 }
 

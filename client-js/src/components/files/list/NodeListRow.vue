@@ -35,7 +35,7 @@ function onNodeTitleClick() {
             <span class="node-row__title__name" @click="onNodeTitleClick">{{ node.title }}</span>
             <span class="icon-filled file-item-menu node-row-action">more_vert</span>
         </div>
-        <div class="node-row__node-size">{{ node.nodeSizeHuman }}</div>
+        <div class="node-row__node-size">{{ node.nodeType === NodeType.File ? node.nodeSizeHuman : "" }}</div>
         <div class="node-row__modified_at">{{ node.modifiedAt.toLocaleString() }}</div>
     </div>
 </template>

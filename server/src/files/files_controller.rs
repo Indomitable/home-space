@@ -3,7 +3,6 @@ use actix_web::HttpRequest;
 use actix_web::{web, Responder, Result, delete, get, put};
 use deadpool_postgres::Pool;
 use futures_util::TryStreamExt;
-use serde::Deserialize;
 
 use home_space_contracts::files::{CreateNode, CreateFolderRequest, NODE_TYPE_FILE, NODE_TYPE_FOLDER};
 use crate::response::*;
@@ -30,7 +29,7 @@ pub(crate) async fn get_nodes(pool: web::Data<Pool>, path: web::Path<i64>, user:
 ///
 /// Downloads file with id.
 /// 
-#[get("/get_file/{id}")]
+#[get("/file/{id}")]
 pub async fn get_file(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
     let id = path.into_inner();
     if let Ok(node) = repo::get_node(&pool, id, user.user_id).await {
@@ -114,11 +113,11 @@ pub async fn delete_node(pool: web::Data<Pool>, path: web::Path<i64>, user: Auth
 
 ///
 /// Method: PUT 
-/// `/api/files/upload_file/0` upload file in top folder
-/// `/api/files/upload_file/{parent_id}` parent_id > 0 upload file in sub folder
+/// `/api/files/upload-file/0` upload file in top folder
+/// `/api/files/upload-file/{parent_id}` parent_id > 0 upload file in sub folder
 /// Creates a new file or if file exits it creates a new version of it.
 ///
-#[put("/upload_file")]
+#[put("/upload-file")]
 pub async fn upload_file(pool: web::Data<Pool>, request: HttpRequest, user: AuthContext, body: web::Payload) -> Result<impl Responder> {
     let user_id = user.user_id;
     let file_name = read_string_header(&request, "X-FILE-NAME").expect("Request should have File name present");

@@ -2,7 +2,7 @@
   "extends": "@vue/tsconfig/tsconfig.web.json",
   "include": [
     "env.d.ts",
-    "extensions.d.ts",
+    "types/extensions.d.ts",
     "src/**/*",
     "src/**/*.vue"
   ],

@@ -2,6 +2,9 @@
 import SelectAction from "./actions/SelectAction.vue";
 import FavoriteAction from "./actions/FavoriteAction.vue";
 import { NodeType, type FileNode } from "@/services/files/files-load-service";
+import { useRouter } from "vue-router";
+import { inject } from "vue";
+import { fileActionServiceInjectionToken } from "@/services/files/file-action-service";
 
 export interface NodeListRowProps {
     node: FileNode;
@@ -12,6 +15,13 @@ export interface NodeListEvent {
 }
 
 const props = defineProps<NodeListRowProps>();
+
+const router = useRouter();
+const fileActionService = inject(fileActionServiceInjectionToken)!;
+
+function onNodeTitleClick() {
+    fileActionService.open(props.node, router);
+}
 </script>
 
 <template>
@@ -22,7 +32,7 @@ const props = defineProps<NodeListRowProps>();
         </div>
         <div class="node-row__title">
             <span class="icon-filled">{{ node.nodeType === NodeType.Folder ? "folder" : "insert_drive_file" }}</span>
-            <span class="node-row__title__name">{{ node.title }}</span>
+            <span class="node-row__title__name" @click="onNodeTitleClick">{{ node.title }}</span>
             <span class="icon-filled file-item-menu node-row-action">more_vert</span>
         </div>
         <div class="node-row__node-size">{{ node.nodeSizeHuman }}</div>

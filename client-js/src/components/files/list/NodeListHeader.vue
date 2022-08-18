@@ -6,14 +6,14 @@ export interface NodeListHeaderProps {
 }
 
 export interface NodeListHeaderEvents {
-    (event: "select-all-toggled", value: boolean): void;
+    (event: "select-all-toggled", selected: boolean): void;
 }
 
 const props = defineProps<NodeListHeaderProps>();
 const emit = defineEmits<NodeListHeaderEvents>();
 
-function onSelectAllToggled() {
-    emit("select-all-toggled", props.isAllRowsSelected);
+function onSelectAllToggled(selected: boolean) {
+    emit("select-all-toggled", selected);
 }
 </script>
 

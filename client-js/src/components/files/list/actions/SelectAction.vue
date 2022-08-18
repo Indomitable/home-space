@@ -4,13 +4,13 @@ export interface SelectActionProps {
 }
 
 export interface SelectActionEvents {
-    (event: "selection-toggled", isFavorite: boolean): void;
+    (event: "selection-toggled", selected: boolean): void;
 }
 
 const props = defineProps<SelectActionProps>();
 const emit = defineEmits<SelectActionEvents>();
 function onSelectionClick() {
-    emit("selection-toggled", props.isSelected);
+    emit("selection-toggled", !props.isSelected);
 }
 </script>
 

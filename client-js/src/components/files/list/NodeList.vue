@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import type { FileNode } from "@/services/files/files-load-service";
 import NodeListHeader from "./NodeListHeader.vue";
 import NodeListRow from "./NodeListRow.vue";
 
+import type { NodeListController } from "@/components/files/list/node-list-controller";
+
 export interface NodeListProps {
-    nodes: FileNode[];
+    controller: NodeListController;
 }
 
 const props = defineProps<NodeListProps>();
@@ -12,8 +13,18 @@ const props = defineProps<NodeListProps>();
 
 <template>
     <div class="node-list">
-        <node-list-header :is-all-rows-selected="false" />
-        <node-list-row v-for="node in props.nodes" :key="node.id" :node="node" />
+        <node-list-header
+            :is-all-rows-selected="props.controller.allNodesSelected.value"
+            @select-all-toggled="selected => props.controller.toggleAllNodeSelection(selected)"
+        />
+        <node-list-row
+            v-for="node in props.controller.nodes"
+            :key="node.id"
+            :node="node"
+            :state="props.controller.nodesState[node.id]"
+            @node-selection-toggled="(node, selected) => props.controller.toggleNodeSelection(node, selected)"
+            @node-title-click="node => props.controller.nodeTitleClicked(node)"
+        />
     </div>
 </template>
 

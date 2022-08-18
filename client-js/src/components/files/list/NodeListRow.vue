@@ -1,34 +1,37 @@
 <script setup lang="ts">
+import { NodeType, type FileNode } from "@/services/files/files-load-service";
+
 import SelectAction from "./actions/SelectAction.vue";
 import FavoriteAction from "./actions/FavoriteAction.vue";
-import { NodeType, type FileNode } from "@/services/files/files-load-service";
-import { useRouter } from "vue-router";
-import { inject } from "vue";
-import { fileActionServiceInjectionToken } from "@/services/files/file-action-service";
+import type { NodeState } from "./node-list-controller";
 
 export interface NodeListRowProps {
     node: FileNode;
+    state: NodeState;
 }
 
-export interface NodeListEvent {
-    (event: "file-node-selected", value: { id: number; selected: boolean }): void;
+export interface NodeListRowEvent {
+    (event: "node-selection-toggled", node: FileNode, selected: boolean): void;
+    (event: "node-title-click", node: FileNode): void;
 }
 
 const props = defineProps<NodeListRowProps>();
+const emits = defineEmits<NodeListRowEvent>();
 
-const router = useRouter();
-const fileActionService = inject(fileActionServiceInjectionToken)!;
+function onNodeSelectionToggled(selected: boolean) {
+    emits("node-selection-toggled", props.node, selected);
+}
 
 function onNodeTitleClick() {
-    fileActionService.open(props.node, router);
+    emits("node-title-click", props.node);
 }
 </script>
 
 <template>
     <div class="node-row">
         <div class="node-row__actions">
-            <select-action :is-selected="false" />
-            <favorite-action :is-favorite="false" />
+            <select-action :is-selected="props.state.selected" @selection-toggled="onNodeSelectionToggled" />
+            <favorite-action :is-favorite="node.isFavorite" />
         </div>
         <div class="node-row__title">
             <span class="icon-filled">{{ node.nodeType === NodeType.Folder ? "folder" : "insert_drive_file" }}</span>

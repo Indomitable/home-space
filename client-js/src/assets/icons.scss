@@ -1,16 +1,18 @@
+// https://github.com/marella/material-icons/releases
 @font-face {
     font-family: 'Material Icons';
     font-style: normal;
     font-weight: 400;
-    src: url(@/assets/fonts/MaterialIcons-Regular.ttf);
-    src: url(@/assets/fonts/MaterialIcons-Regular.woff2) format('woff2');
+    src: url(@/assets/fonts/material-icons.woff2) format('woff2'),
+        url(@/assets/fonts/material-icons.woff) format('woff');
 }
 
 @font-face {
     font-family: 'Material Icons Outlined';
     font-style: normal;
     font-weight: 400;
-    src: url(@/assets/fonts/MaterialIconsOutlined-Regular.otf);
+    src: url(@/assets/fonts/material-icons-outlined.woff2) format('woff2'),
+        url(@/assets/fonts/material-icons-outlined.woff) format('woff');
 }
 
 .icon {

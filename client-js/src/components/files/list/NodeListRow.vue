@@ -35,7 +35,8 @@ function onNodeTitleClick() {
         </div>
         <div class="node-row__title">
             <span class="icon-filled">{{ node.nodeType === NodeType.Folder ? "folder" : "insert_drive_file" }}</span>
-            <span class="node-row__title__name" @click="onNodeTitleClick">{{ node.title }}</span>
+            <input class="input node-row__title__name-input" type="text" v-if="state.rename" :value="node.title" />
+            <span class="node-row__title__name" @click="onNodeTitleClick" v-else>{{ node.title }}</span>
             <span class="icon-filled file-item-menu node-row-action">more_vert</span>
         </div>
         <div class="node-row__node-size">{{ node.nodeType === NodeType.File ? node.nodeSizeHuman : "" }}</div>
@@ -94,6 +95,9 @@ function onNodeTitleClick() {
     text-overflow: ellipsis;
     overflow: hidden;
 }
+
+.node-row__title__name-input {
+    height: 30px;
 }
 
 .node-row__title__name:hover {

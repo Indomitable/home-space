@@ -6,6 +6,7 @@ import type { FileActionService } from "@/services/files/file-action-service";
 
 export interface NodeState {
     selected: boolean;
+    rename: boolean;
 }
 
 export class NodeListController {
@@ -18,6 +19,7 @@ export class NodeListController {
         const ns = nodes.reduce((aggr, node) => {
             aggr[node.id] = {
                 selected: false,
+                rename: false,
             };
             return aggr;
         }, {} as Record<number, NodeState>);
@@ -29,12 +31,18 @@ export class NodeListController {
 
     toggleNodeSelection(node: FileNode, selected: boolean): void {
         this.nodesState[node.id].selected = selected;
+        this.nodesState[node.id].rename = false;
     }
 
     toggleAllNodeSelection(selected: boolean) {
         for (const node of this.nodes) {
             this.nodesState[node.id].selected = selected;
+            this.nodesState[node.id].rename = false;
         }
+    }
+
+    toggleNodeRename(node: FileNode, rename: boolean): void {
+        this.nodesState[node.id].rename = rename;
     }
 
     async nodeTitleClicked(node: FileNode): Promise<void> {

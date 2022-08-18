@@ -42,7 +42,7 @@ const props = defineProps<FileActionsProps>();
         </template>
         <template v-if="ctrl.allSelectedNodes.value.length === 1">
             <li>
-                <button class="icon-button ghost-button">
+                <button class="icon-button ghost-button" @click="() => ctrl.toggleSelectedNodeRename(true)">
                     <span class="icon-outlined">drive_file_rename_outline</span>
                     Rename
                 </button>

@@ -18,6 +18,6 @@ const listVisible = ref(false);
     display: flex;
     column-gap: 5px;
     align-items: center;
-    font-size: 1rem;
+    font-size: 15px;
 }
 </style>

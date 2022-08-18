@@ -10,11 +10,9 @@ const props = defineProps<FileActionsProps>();
 </script>
 <template>
     <ul class="file-actions">
-        <template v-if="props.selectedNodes === 0">
-            <li class="file-actions-create-container">
-                <files-action-create />
-            </li>
-        </template>
+        <li class="file-actions-create-container">
+            <files-action-create />
+        </li>
         <template v-if="props.selectedNodes > 0">
             <li>
                 <button class="icon-button ghost-button">
@@ -56,13 +54,18 @@ const props = defineProps<FileActionsProps>();
 .file-actions {
     height: 50px;
     display: flex;
+    flex-flow: row nowrap;
     align-items: center;
     padding: 0 10px;
     border-bottom: 1px solid var(--border-color);
 
     > li {
-        flex: 1;
-        max-width: auto;
+        width: 120px;
+
+        > button {
+            margin: 0 auto;
+            font-size: 15px;
+        }
     }
 }
 

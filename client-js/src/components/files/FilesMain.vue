@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject } from "vue";
+import { inject, computed } from "vue";
 import { useRouter } from "vue-router";
 
 import { fileLoadServiceInjectionToken, type FileNode } from "@/services/files/files-load-service";
@@ -40,10 +40,14 @@ const fileActionService = inject(fileActionServiceInjectionToken)!;
 
 const regularNodesController = new NodeListController(regular, fileActionService, router);
 const favoritesNodesController = new NodeListController(favorites, fileActionService, router);
+const allSelectedNodes = computed(() => [
+    ...regularNodesController.selectedNodes.value,
+    ...favoritesNodesController.selectedNodes.value,
+]);
 </script>
 
 <template>
-    <file-actions :parent-id="parentId" :selected-nodes="0"></file-actions>
+    <file-actions :parent-id="parentId" :selected-nodes="allSelectedNodes.length"></file-actions>
     <breadcrumbs-file-nav :parent-id="parentId" />
     <favorite-node-list
         v-if="favoritesNodesController.hasNodes.value"

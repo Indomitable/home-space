@@ -12,6 +12,7 @@ export class NodeListController {
     nodesState: Record<number, NodeState>;
     hasNodes: ComputedRef<boolean>;
     allNodesSelected: ComputedRef<boolean>;
+    selectedNodes: ComputedRef<FileNode[]>;
 
     constructor(public nodes: FileNode[], private fileActionService: FileActionService, private router: Router) {
         const ns = nodes.reduce((aggr, node) => {
@@ -23,6 +24,7 @@ export class NodeListController {
         this.nodesState = reactive(ns);
         this.hasNodes = computed(() => this.nodes.length > 0);
         this.allNodesSelected = computed(() => Object.values(this.nodesState).every(s => s.selected));
+        this.selectedNodes = computed(() => this.nodes.filter(n => this.nodesState[n.id].selected));
     }
 
     toggleNodeSelection(node: FileNode, selected: boolean): void {

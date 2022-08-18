@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, defineEmits } from "vue";
+import { ref } from "vue";
 
 export interface NewFolderActionEmit {
     (event: "new-folder-name", name: string): void;

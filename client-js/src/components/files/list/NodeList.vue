@@ -31,7 +31,7 @@ const props = defineProps<NodeListProps>();
 <style scoped lang="scss">
 .node-list {
     display: grid;
-    grid-template-columns: 100px auto 150px 300px;
+    grid-template-columns: 100px 650px 150px 300px;
 }
 
 :deep(.node-row-action) {

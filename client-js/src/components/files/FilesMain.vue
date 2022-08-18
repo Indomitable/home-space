@@ -28,20 +28,26 @@ const ctrl = new FilesMainController(nodes, fileActionService, router);
 <template>
     <file-actions :parent-id="parentId" :ctrl="ctrl"></file-actions>
     <breadcrumbs-file-nav :parent-id="parentId" />
-    <favorite-node-list
+    <div class="file-view-lists-container">
+        <favorite-node-list
             v-if="ctrl.favoritesCtrl.hasNodes.value"
             :controller="ctrl.favoritesCtrl"
             :has-more-favorites="ctrl.hasMoreFavoriteNodes"
-    />
+        />
         <template v-if="ctrl.regularCtrl.hasNodes.value">
             <div v-if="ctrl.favoritesCtrl.hasNodes.value" class="file_view__file_list__header header">Files</div>
             <node-list :controller="ctrl.regularCtrl" />
-    </template>
+        </template>
+    </div>
 </template>
 
 <style scoped lang="scss">
 .file_view__file_list__header {
     font-size: 20px;
     padding-left: 17px;
+}
+
+.file-view-lists-container {
+    max-width: 1200px;
 }
 </style>

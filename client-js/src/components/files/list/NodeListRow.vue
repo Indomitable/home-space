@@ -85,10 +85,15 @@ function onNodeTitleClick() {
     display: flex;
     align-items: center;
     column-gap: 5px;
+    max-width: 650px;
 }
 
 .node-row__title__name {
     cursor: pointer;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
 }
 
 .node-row__title__name:hover {

@@ -54,7 +54,7 @@
     padding: 0 20px;
     text-decoration: none;
     cursor: pointer;
-    color: var(--menu-font-color);
+    color: var(--link-font-color);
 
     &:hover {
         background: var(--list-item-hover-color);

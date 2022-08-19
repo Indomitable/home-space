@@ -2,7 +2,6 @@
 import { inject } from "vue";
 import { useRouter } from "vue-router";
 
-import { fileLoadServiceInjectionToken } from "@/services/files/files-load-service";
 import { fileActionServiceInjectionToken } from "@/services/files/file-action-service";
 
 import FileActions from "./toolbox/FilesActions.vue";
@@ -15,13 +14,11 @@ export interface FilesMainProps {
 }
 
 const props = defineProps<FilesMainProps>();
-
-const fileLoadService = inject(fileLoadServiceInjectionToken)!;
-const nodes = await fileLoadService.loadFileNodes(props.parentId);
 const router = useRouter();
 const fileActionService = inject(fileActionServiceInjectionToken)!;
+const nodes = await fileActionService.loadNodes(props.parentId);
 
-const ctrl = new NodeListController(nodes, fileActionService, router);
+const ctrl = new NodeListController(nodes, fileActionService, router, props.parentId);
 </script>
 
 <template>

@@ -15,6 +15,7 @@ mod response;
 mod auth;
 mod user;
 mod files;
+mod sorting;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {

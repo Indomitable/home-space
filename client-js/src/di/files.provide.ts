@@ -13,12 +13,13 @@ export function provideFileServices(provide: Provider, inject: Injector): void {
     const fileSystem = new FileSystemService();
     provide(fileSystemServiceInjectionToken, fileSystem);
 
-    const fileActionService = new FileActionService(userService, fileSystem);
-    provide(fileActionServiceInjectionToken, fileActionService);
-    provide(breadcrumbServiceInjectionToken, new BreadcrumbsService(userService, fileActionService));
-
     const formatter = inject(formatterServiceInjectionToken)!;
-    provide(fileLoadServiceInjectionToken, new FileLoadService(userService, formatter));
+    const fileLoadService = new FileLoadService(userService, formatter);
+    provide(fileLoadServiceInjectionToken, fileLoadService);
 
+    const fileActionService = new FileActionService(userService, fileSystem, fileLoadService);
+    provide(fileActionServiceInjectionToken, fileActionService);
+
+    provide(breadcrumbServiceInjectionToken, new BreadcrumbsService(userService, fileActionService));
     provide(nodeCreateServiceInjectionToken, new NodeCreateService(userService));
 }

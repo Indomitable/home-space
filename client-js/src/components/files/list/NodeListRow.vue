@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-import { NodeType, type FileNode } from "@/services/files/files-load-service";
+import { NodeType, type FileNode } from "@/models/file-node";
 
 import SelectAction from "./actions/SelectAction.vue";
 import FavoriteAction from "./actions/FavoriteAction.vue";

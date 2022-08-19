@@ -8,22 +8,24 @@ export interface NodeListProps {
     controller: NodeListController;
 }
 
-const props = defineProps<NodeListProps>();
+defineProps<NodeListProps>();
 </script>
 
 <template>
     <div class="node-list">
         <node-list-header
-            :is-all-rows-selected="props.controller.allNodesSelected.value"
-            @select-all-toggled="selected => props.controller.toggleAllNodeSelection(selected)"
+            :is-all-rows-selected="controller.allNodesSelected.value"
+            :sorting="controller.sorting.value"
+            @select-all-toggled="selected => controller.toggleAllNodeSelection(selected)"
+            @sort-changed="sorting => controller.sortNodes(sorting)"
         />
         <node-list-row
-            v-for="node in props.controller.nodes"
+            v-for="node in controller.nodes.value"
             :key="node.id"
             :node="node"
-            :state="props.controller.nodesState[node.id]"
-            @node-selection-toggled="(node, selected) => props.controller.toggleNodeSelection(node, selected)"
-            @node-title-click="node => props.controller.nodeTitleClicked(node)"
+            :state="controller.nodesState[node.id]"
+            @node-selection-toggled="(node, selected) => controller.toggleNodeSelection(node, selected)"
+            @node-title-click="node => controller.nodeTitleClicked(node)"
         />
     </div>
 </template>

@@ -8,6 +8,7 @@ use home_space_contracts::files::{CreateNode, CreateFolderRequest, NODE_TYPE_FIL
 use crate::response::*;
 use crate::config::get_top_save_folder;
 use crate::auth::AuthContext;
+use crate::sorting::Sorting;
 use super::file_system::*;
 use super::files_repository::{self as repo, FileNodeDto};
 
@@ -18,9 +19,10 @@ use super::files_repository::{self as repo, FileNodeDto};
 /// parent_id > 0 -> sub nodes
 /// 
 #[get("/nodes/{parent_id}")]
-pub(crate) async fn get_nodes(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
+pub(crate) async fn get_nodes(pool: web::Data<Pool>, path: web::Path<i64>, query: web::Query<Sorting>, user: AuthContext) -> Result<impl Responder> {
     let parent_id = path.into_inner();
-    if let Ok(nodes) = repo::get_file_list(&pool, parent_id, user.user_id).await {
+    let sorting: Sorting = query.into_inner();
+    if let Ok(nodes) = repo::get_file_list(&pool, parent_id, user.user_id, &sorting).await {
         return Ok(web::Json(nodes));
     }
     error_internal_server_error()

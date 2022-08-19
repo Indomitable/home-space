@@ -2,9 +2,11 @@ import type { InjectionKey } from "vue";
 
 import { HttpMethod, RequestBuilder } from "@/api/request-builder";
 import { resolveApiUrl } from "@/api/url-resolver";
+import { NodeType, type FileNode } from "@/models/file-node";
 
 import type { FormatterService } from "../formatter-service";
 import type { UserService } from "../user/user-service";
+import { SortDirection, type Sorting } from "@/models/sorting";
 
 interface FileNodeDto {
     id: number;
@@ -17,29 +19,20 @@ interface FileNodeDto {
     is_favorite: boolean;
 }
 
-export enum NodeType {
-    File,
-    Folder,
-}
-
-export interface FileNode {
-    id: number;
-    title: string;
-    parentId?: number;
-    nodeType: NodeType;
-    mimeType: string;
-    modifiedAt: Date;
-    nodeSize: number;
-    nodeSizeHuman: string;
-    isFavorite: boolean;
-}
-
 export class FileLoadService {
     constructor(private userService: UserService, private formatter: FormatterService) {}
 
-    async loadFileNodes(parentId: number): Promise<FileNode[]> {
+    async loadFileNodes(
+        parentId: number,
+        sorting: Sorting = { columnName: "title", direction: SortDirection.Asc }
+    ): Promise<FileNode[]> {
         const url = resolveApiUrl("files", "nodes", parentId);
-        const response = await RequestBuilder.create(url)
+        const query = new URLSearchParams({
+            column_name: sorting.columnName,
+            direction: sorting.direction,
+        });
+        const sortedUrl = `${url}?${query.toString()}`;
+        const response = await RequestBuilder.create(sortedUrl)
             .setMethod(HttpMethod.GET)
             .enhance(this.userService)
             .build<FileNodeDto[]>()

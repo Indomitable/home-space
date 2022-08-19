@@ -6,9 +6,9 @@ use deadpool_postgres::{Pool, tokio_postgres::Row};
 use home_space_contracts::files::{ParentNode, NODE_TYPE_FILE, DisplayFileNode};
 use log::error;
 
-use crate::db::{query, query_one, execute, DbResult, query_opt};
+use crate::{db::{query, query_one, execute, DbResult, query_opt}, sorting::Sorting};
 
-pub async fn get_file_list(pool: &web::Data<Pool>, parent_id: i64, user_id: i64) -> DbResult<Vec<DisplayFileNode>> {
+pub async fn get_file_list(pool: &web::Data<Pool>, parent_id: i64, user_id: i64, sorting: &Sorting) -> DbResult<Vec<DisplayFileNode>> {
     let sql = r#"select fn.id, fn.title, 
     fn.parent_id, fn.node_type, fn.mime_type,
     fn.modified_at, fn.node_size,
@@ -19,8 +19,9 @@ pub async fn get_file_list(pool: &web::Data<Pool>, parent_id: i64, user_id: i64)
 from file_nodes fn
 left join favorite_nodes ffn on fn.id = ffn.id and fn.user_id = ffn.user_id  
 where fn.parent_id = $2 and fn.user_id = $1
-order by is_favorite desc, node_type, title"#;
-    match query(pool,  sql, &[&user_id, &parent_id]).await {
+order by node_type"#;
+    let sorted_sql = format!("{}, {}", sql, sorting.build_order_by());
+    match query(pool,  &sorted_sql, &[&user_id, &parent_id]).await {
         Ok(rows) => {
             let nodes = rows.iter().map(|row| DisplayFileNode {
                 id: row.get(0),

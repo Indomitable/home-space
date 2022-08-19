@@ -60,7 +60,7 @@ export class NodeListController {
         await this.fileActionService.open(node, this.router);
     }
 
-    async sortNodes(sorting: Sorting) {
+    async reload(sorting: Sorting) {
         const nodes = await this.fileActionService.loadNodes(this.parentId, sorting);
         this.nodes.value = nodes;
         this.sorting.value = sorting;
@@ -74,5 +74,10 @@ export class NodeListController {
                 this.nodesState[node.id].rename = false;
             }
         }
+    }
+
+    async toggleNodeFavorite(node: FileNode, favorite: boolean): Promise<void> {
+        await this.fileActionService.toggleNodeFavorite(node, favorite);
+        await this.reload(this.sorting.value); // reload with same sorting
     }
 }

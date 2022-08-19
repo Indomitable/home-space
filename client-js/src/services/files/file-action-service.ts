@@ -33,6 +33,16 @@ export class FileActionService {
         }
     }
 
+    async toggleNodeFavorite(node: FileNode, favorite: boolean): Promise<void> {
+        const url = resolveApiUrl("files", "favorite");
+        await RequestBuilder.create(url)
+            .setMethod(HttpMethod.POST)
+            .enhance(this.userService)
+            .setJsonBody({ id: node.id, favorite })
+            .build("json")
+            .execute();
+    }
+
     private async downloadFile(file: FileNode): Promise<void> {
         const url = resolveApiUrl("files", "file", file.id);
         const blob = await RequestBuilder.create(url)

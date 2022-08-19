@@ -10,7 +10,7 @@ export interface FavoriteActionEvents {
 const props = defineProps<FavoriteActionProps>();
 const emit = defineEmits<FavoriteActionEvents>();
 function onFavoriteClick() {
-    emit("favorite-toggled", props.isFavorite);
+    emit("favorite-toggled", !props.isFavorite);
 }
 </script>
 

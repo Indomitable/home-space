@@ -14,6 +14,7 @@ export interface NodeListRowProps {
 
 export interface NodeListRowEvent {
     (event: "node-selection-toggled", node: FileNode, selected: boolean): void;
+    (event: "node-favorite-toggled", node: FileNode, favorite: boolean): void;
     (event: "node-title-click", node: FileNode): void;
 }
 
@@ -27,6 +28,10 @@ function onNodeSelectionToggled(selected: boolean) {
     emits("node-selection-toggled", props.node, selected);
 }
 
+function onNodeFavoriteToggled(favorite: boolean) {
+    emits("node-favorite-toggled", props.node, favorite);
+}
+
 function onNodeTitleClick() {
     emits("node-title-click", props.node);
 }
@@ -36,7 +41,7 @@ function onNodeTitleClick() {
     <div class="node-row">
         <div class="node-row__actions">
             <select-action :is-selected="state.selected" @selection-toggled="onNodeSelectionToggled" />
-            <favorite-action :is-favorite="node.isFavorite" />
+            <favorite-action :is-favorite="node.isFavorite" @favorite-toggled="onNodeFavoriteToggled" />
         </div>
         <div class="node-row__title">
             <span class="icon-filled">{{ nodeIcon }}</span>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from "vue";
+
 import { NodeType, type FileNode } from "@/services/files/files-load-service";
 
 import SelectAction from "./actions/SelectAction.vue";
@@ -18,6 +20,9 @@ export interface NodeListRowEvent {
 const props = defineProps<NodeListRowProps>();
 const emits = defineEmits<NodeListRowEvent>();
 
+const nodeIcon = computed(() => (props.node.nodeType === NodeType.Folder ? "folder" : "insert_drive_file"));
+const nodeSize = computed(() => (props.node.nodeType === NodeType.File ? props.node.nodeSizeHuman : ""));
+
 function onNodeSelectionToggled(selected: boolean) {
     emits("node-selection-toggled", props.node, selected);
 }
@@ -30,16 +35,16 @@ function onNodeTitleClick() {
 <template>
     <div class="node-row">
         <div class="node-row__actions">
-            <select-action :is-selected="props.state.selected" @selection-toggled="onNodeSelectionToggled" />
+            <select-action :is-selected="state.selected" @selection-toggled="onNodeSelectionToggled" />
             <favorite-action :is-favorite="node.isFavorite" />
         </div>
         <div class="node-row__title">
-            <span class="icon-filled">{{ node.nodeType === NodeType.Folder ? "folder" : "insert_drive_file" }}</span>
+            <span class="icon-filled">{{ nodeIcon }}</span>
             <input class="input node-row__title__name-input" type="text" v-if="state.rename" :value="node.title" />
             <span class="node-row__title__name" @click="onNodeTitleClick" v-else>{{ node.title }}</span>
             <span class="icon-filled file-item-menu node-row-action">more_vert</span>
         </div>
-        <div class="node-row__node-size">{{ node.nodeType === NodeType.File ? node.nodeSizeHuman : "" }}</div>
+        <div class="node-row__node-size">{{ nodeSize }}</div>
         <div class="node-row__modified_at">{{ node.modifiedAt.toLocaleString() }}</div>
     </div>
 </template>
@@ -73,15 +78,6 @@ function onNodeTitleClick() {
     column-gap: 10px;
 }
 
-.node-row-action {
-    visibility: hidden;
-    user-select: none;
-}
-
-.node-row-action--visible {
-    visibility: visible;
-}
-
 .node-row__title {
     display: flex;
     align-items: center;
@@ -98,6 +94,7 @@ function onNodeTitleClick() {
 
 .node-row__title__name-input {
     height: 30px;
+    width: 100%;
 }
 
 .node-row__title__name:hover {

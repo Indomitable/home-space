@@ -37,6 +37,7 @@ const props = defineProps<NodeListProps>();
 :deep(.node-row-action) {
     visibility: hidden;
     user-select: none;
+    cursor: pointer;
 }
 
 :deep(.node-row-action--visible) {

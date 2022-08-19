@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import type { FilesMainController } from "../files-main-controller";
+import type { NodeListController } from "../list/node-list-controller";
 import FilesActionCreate from "./create/FilesActionCreate.vue";
 
 export interface FileActionsProps {
     parentId: number;
-    ctrl: FilesMainController;
+    ctrl: NodeListController;
 }
 
-const props = defineProps<FileActionsProps>();
+defineProps<FileActionsProps>();
 </script>
 <template>
     <ul class="file-actions">
         <li class="file-actions-create-container">
             <files-action-create />
         </li>
-        <template v-if="ctrl.allSelectedNodes.value.length > 0">
+        <template v-if="ctrl.selectedNodes.value.length > 0">
             <li>
                 <button class="icon-button ghost-button">
                     <span class="icon-outlined">file_download</span>
@@ -40,9 +40,12 @@ const props = defineProps<FileActionsProps>();
                 </button>
             </li>
         </template>
-        <template v-if="ctrl.allSelectedNodes.value.length === 1">
+        <template v-if="ctrl.selectedNodes.value.length === 1">
             <li>
-                <button class="icon-button ghost-button" @click="() => ctrl.toggleSelectedNodeRename(true)">
+                <button
+                    class="icon-button ghost-button"
+                    @click="() => ctrl.toggleNodeRename(ctrl.selectedNodes.value[0], true)"
+                >
                     <span class="icon-outlined">drive_file_rename_outline</span>
                     Rename
                 </button>

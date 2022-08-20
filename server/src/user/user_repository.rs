@@ -1,4 +1,4 @@
-use std::{sync::Arc};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use deadpool_postgres::{Pool, Transaction};
@@ -22,7 +22,7 @@ pub enum ErrorVerifyPassword {
     PasswordHasError(scrypt::password_hash::Error)
 }
 
-#[async_trait(?Send)] 
+#[async_trait] 
 pub(crate) trait UserRepository {
     async fn verify_password(&self, user_name: &str, password: &str) -> Result<(), ErrorVerifyPassword>;
     async fn fetch_user(&self, user_name: &str) -> DbResult<UserDto>;
@@ -31,17 +31,18 @@ pub(crate) trait UserRepository {
 
 pub(crate) struct UserRepositoryImpl {
     pool: Arc<Pool>,
-    path_manager: Arc<dyn PathManager>,
+    path_manager: Arc<dyn PathManager + Send + Sync>,
 }
 
-pub(crate) fn user_repository_new(pool: Arc<Pool>, path_manager: Arc<dyn PathManager>) -> impl UserRepository {
+pub(crate) fn user_repository_new<PM>(pool: Arc<Pool>, path_manager: Arc<PM>) -> impl UserRepository
+where PM: PathManager + Send + Sync + 'static {
     UserRepositoryImpl {
         pool,
         path_manager
     }
 }
 
-#[async_trait(?Send)] 
+#[async_trait] 
 impl UserRepository for UserRepositoryImpl {
     async fn verify_password(&self, user_name: &str, password: &str) -> Result<(), ErrorVerifyPassword> {
         let sql = r#"select ap.hash from authentication_password ap
@@ -73,8 +74,9 @@ impl UserRepository for UserRepositoryImpl {
                 transaction.commit().await.map_err(|_| ErrorRegisterUser::RegistrationFailed)?;
                 Ok(user)
             },
-            Err(_) => {
+            Err(err) => {
                 transaction.rollback().await.map_err(|_| ErrorRegisterUser::RegistrationFailed)?;
+                log::error!("Error while registering user: {:?}", err);
                 Err(ErrorRegisterUser::RegistrationFailed)
             }
         }
@@ -82,22 +84,24 @@ impl UserRepository for UserRepositoryImpl {
 }
 
 impl UserRepositoryImpl {
-    async fn initialize_user(&self, transaction: &Transaction<'_>, user_name: &str, password: &str) -> Result<UserDto, Box<dyn std::error::Error>> {
+    async fn initialize_user(&self, transaction: &Transaction<'_>, user_name: &str, password: &str) -> Result<UserDto, ErrorRegisterUser> {
         let insert_user_sql = "insert into users (name) values ($1) RETURNING id";
         let insert_password_sql = "insert into authentication_password (hash) values ($1) RETURNING id";
         let insert_auth_sql = "insert into authentication (user_id, auth_type_id, auth_password_id) values ($1, 1, $2)";
         let insert_file_root = r#"insert into file_nodes (id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size)
         values (0, $1, 'ROOT', null, 0, $2, 'inode/directory', $3, 0)"#;
     
-        let row = transaction.query_one(insert_user_sql, &[&user_name]).await?;
+        let row = transaction.query_one(insert_user_sql, &[&user_name]).await.map_err(|_| ErrorRegisterUser::InsertUserFailed)?;
         let user_id: i64 = row.get(0);
-        let password_hash = hash_password(password)?;
-        let row = transaction.query_one(insert_password_sql, &[&password_hash]).await?;
+        let password_hash = hash_password(password).map_err(|_| ErrorRegisterUser::HashingPasswordFailed)?;
+        let row = transaction.query_one(insert_password_sql, &[&password_hash]).await.map_err(|_| ErrorRegisterUser::InsertPasswordFailed)?;
         let password_id: i64 = row.get(0);
-        transaction.execute(&format!("create sequence file_nodes_user_{} as bigint increment by 1 minvalue 1 NO MAXVALUE no cycle owned by file_nodes.id", user_id), &[]).await?;
+        transaction.execute(&format!("create sequence file_nodes_user_{} as bigint increment by 1 minvalue 1 NO MAXVALUE no cycle owned by file_nodes.id", user_id), &[])
+            .await
+            .map_err(|_| ErrorRegisterUser::CreateFileNodeSequenceFailed)?;
         let user_files_root = &self.path_manager.get_top_save_folder(user_id);
         let user_files_root_str = user_files_root.as_os_str().to_str().unwrap();
-        transaction.execute(insert_file_root, &[&user_id, &user_files_root_str, &chrono::Utc::now()]).await?;
+        transaction.execute(insert_file_root, &[&user_id, &user_files_root_str, &chrono::Utc::now()]).await.map_err(|_| ErrorRegisterUser::InsertFileRootFailed)?;
         if let Ok(1) = transaction.execute(insert_auth_sql, &[&user_id, &password_id]).await {
             if let Ok(_) = &self.path_manager.init_user_fs(user_id) {
                 return Ok(UserDto {
@@ -106,12 +110,18 @@ impl UserRepositoryImpl {
                 });
             }
         }
-        Err("Unable to register user".into())
+        Err(ErrorRegisterUser::RegistrationFailed)
     }
 }
 
+#[derive(Debug)]
 pub enum ErrorRegisterUser {
     RegistrationFailed,
+    InsertUserFailed,
+    HashingPasswordFailed,
+    InsertPasswordFailed,
+    CreateFileNodeSequenceFailed,
+    InsertFileRootFailed,
 }
 
 fn hash_password(password: &str) -> Result<String, scrypt::password_hash::Error> {

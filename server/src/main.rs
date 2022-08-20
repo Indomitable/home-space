@@ -4,8 +4,6 @@ use openssl::ssl::{SslAcceptor, SslMethod, SslFiletype};
 use std::path::Path;
 use actix_web::{web, App, HttpServer, middleware::Condition};
 
-use db::new_pool;
-
 use crate::auth::request_validator;
 use crate::config::{init_config, get_host_url, get_listen_address, ssl_private_key, ssl_chain_key, ssl_listen_address};
 
@@ -16,14 +14,14 @@ mod auth;
 mod user;
 mod files;
 mod sorting;
+mod ioc;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     init_config();
     init_logger();
-    let pool = new_pool();
-    // Wrap the pool to web::Data which uses Arc and can be shared between the threads
-    let db_manager = web::Data::new(pool);
+    let container = ioc::container::Contrainer::new();
+    let container_data = web::Data::new(container);
 
     log::info!("Listen on: {}", get_host_url());
     if config::is_ssl_enabled() {
@@ -37,7 +35,7 @@ async fn main() -> std::io::Result<()> {
         let is_prod = !config::is_prod();
 
         let mut app = App::new()
-            .app_data(db_manager.clone())
+            .app_data(container_data.clone())
             .wrap(Condition::new(is_prod,
                 Cors::default()
                     .allowed_origin("http://127.0.0.1:5173")

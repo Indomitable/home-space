@@ -3,7 +3,6 @@
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use deadpool_postgres::tokio_postgres::NoTls;
 use deadpool_postgres::tokio_postgres::types::ToSql;
-use actix_web::web;
 
 use crate::config::get_db_connection_url;
 
@@ -27,7 +26,7 @@ pub fn new_pool() -> Pool {
     return pool;
 }
 
-pub async fn query(pool: &web::Data<Pool>, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<Vec<deadpool_postgres::tokio_postgres::Row>> {
+pub async fn query(pool: &Pool, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<Vec<deadpool_postgres::tokio_postgres::Row>> {
     let connection = get_connection(pool).await?;
     let statement = prepare_statement(&connection, query).await?;
     return match connection.query(&statement, params).await {
@@ -41,7 +40,7 @@ pub async fn query(pool: &web::Data<Pool>, query: &str, params: &[&(dyn ToSql + 
     }
 }
 
-pub async fn query_one(pool: &web::Data<Pool>, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<deadpool_postgres::tokio_postgres::Row> {
+pub async fn query_one(pool: &Pool, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<deadpool_postgres::tokio_postgres::Row> {
     let connection = get_connection(pool).await?;
     let statement = prepare_statement(&connection, query).await?;
     return match connection.query_one(&statement, params).await {
@@ -55,7 +54,7 @@ pub async fn query_one(pool: &web::Data<Pool>, query: &str, params: &[&(dyn ToSq
     }
 }
 
-pub async fn query_opt(pool: &web::Data<Pool>, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<Option<deadpool_postgres::tokio_postgres::Row>> {
+pub async fn query_opt(pool: &Pool, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<Option<deadpool_postgres::tokio_postgres::Row>> {
     let connection = get_connection(pool).await?;
     let statement = prepare_statement(&connection, query).await?;
     return match connection.query_opt(&statement, params).await {
@@ -69,7 +68,7 @@ pub async fn query_opt(pool: &web::Data<Pool>, query: &str, params: &[&(dyn ToSq
     }
 }
 
-pub async fn execute(pool: &web::Data<Pool>, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<u64> {
+pub async fn execute(pool: &Pool, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<u64> {
     let connection = get_connection(pool).await?;
     let statement = prepare_statement(&connection, query).await?;
     return match connection.execute(&statement, params).await {
@@ -83,7 +82,7 @@ pub async fn execute(pool: &web::Data<Pool>, query: &str, params: &[&(dyn ToSql 
     }
 }
 
-async fn get_connection(pool: &web::Data<Pool>) -> Result<deadpool_postgres::Object, DbError> {
+async fn get_connection(pool: &Pool) -> Result<deadpool_postgres::Object, DbError> {
     return match pool.get().await {
         Ok(connection) => {
             Ok(connection)

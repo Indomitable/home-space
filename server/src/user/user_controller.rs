@@ -1,21 +1,22 @@
 use actix_web::{web, Responder, Result, post};
-use deadpool_postgres::Pool;
 
 use home_space_contracts::user::{ LoginRequest, LoginResponse, RegisterRequest };
 use log::debug;
 use log::info;
+use crate::ioc::container::Contrainer;
 use crate::response::json;
+use crate::user::user_repository::UserRepository;
 
 use super::user_repository as repo;
 use super::token;
 
 #[post("/login")]
-pub async fn login(pool: web::Data<Pool>, login: web::Json<LoginRequest>) -> Result<impl Responder> {
-    debug!("Start login");
-    match repo::verify_password(&pool, &login.user_name, &login.password).await {
+pub async fn login(provider: web::Data<Contrainer>, login: web::Json<LoginRequest>) -> Result<impl Responder> {
+    let repo = provider.get_user_repository();
+    match repo.verify_password(&login.user_name, &login.password).await {
         Ok(_) => {
             debug!("Password verified");
-            match repo::fetch_user(&pool, &login.user_name).await {
+            match repo.fetch_user(&login.user_name).await {
                 Ok(user) => {
                     info!("[Auth] User logged in. [User: {}]", user.name);
                     return json(LoginResponse {
@@ -37,8 +38,9 @@ pub async fn login(pool: web::Data<Pool>, login: web::Json<LoginRequest>) -> Res
 }
 
 #[post("/register")]
-pub async fn register(pool: web::Data<Pool>, register: web::Json<RegisterRequest>) -> Result<impl Responder> {
-    if let Ok(user) = repo::register_user(&pool, &register.user_name, &register.password).await {
+pub async fn register(provider: web::Data<Contrainer>, register: web::Json<RegisterRequest>) -> Result<impl Responder> {
+    let repo = provider.get_user_repository();
+    if let Ok(user) = repo.register_user(&register.user_name, &register.password).await {
         return json(LoginResponse {
             user_id: user.id,
             user_name: user.name.to_string(),

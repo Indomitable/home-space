@@ -2,7 +2,7 @@ use std::future::ready;
 
 use actix_web::{HttpMessage, FromRequest};
 
-use crate::{user::{token::verify_access_token}, response::error_unauthorized};
+use crate::{user::token::verify_access_token, response::error_unauthorized};
 
 pub struct AuthContext {
     pub user_id: i64

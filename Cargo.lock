@@ -798,6 +798,7 @@ dependencies = [
  "actix-rt",
  "actix-web",
  "actix-web-httpauth",
+ "async-trait",
  "chrono",
  "deadpool-postgres",
  "dotenv",

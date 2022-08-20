@@ -1,16 +1,18 @@
 use std::path::{Path, PathBuf};
 use actix_web::HttpRequest;
 use actix_web::{web, Responder, Result, delete, get, put};
-use deadpool_postgres::Pool;
 use futures_util::TryStreamExt;
 
 use home_space_contracts::files::{CreateNode, CreateFolderRequest, NODE_TYPE_FILE, NODE_TYPE_FOLDER};
+use crate::files::trash_mover::TrashMover;
+use crate::files::versions_mover::VersionsMover;
+use crate::ioc::container::Contrainer;
 use crate::response::*;
-use crate::config::get_top_save_folder;
 use crate::auth::AuthContext;
 use crate::sorting::Sorting;
-use super::file_system::*;
-use super::files_repository::{self as repo, FileNodeDto};
+use super::paths_manager::PathManager;
+use super::{file_system::*};
+use super::files_repository::{FileRepository, FileNodeDto};
 
 ///
 /// Method: GET 
@@ -19,10 +21,11 @@ use super::files_repository::{self as repo, FileNodeDto};
 /// parent_id > 0 -> sub nodes
 /// 
 #[get("/nodes/{parent_id}")]
-pub(crate) async fn get_nodes(pool: web::Data<Pool>, path: web::Path<i64>, query: web::Query<Sorting>, user: AuthContext) -> Result<impl Responder> {
+pub(crate) async fn get_nodes(provider: web::Data<Contrainer>, path: web::Path<i64>, query: web::Query<Sorting>, user: AuthContext) -> Result<impl Responder> {
     let parent_id = path.into_inner();
     let sorting: Sorting = query.into_inner();
-    if let Ok(nodes) = repo::get_file_list(&pool, parent_id, user.user_id, &sorting).await {
+    let repo = provider.get_file_repository();
+    if let Ok(nodes) = repo.get_file_list(parent_id, user.user_id, &sorting).await {
         return Ok(web::Json(nodes));
     }
     error_internal_server_error()
@@ -32,9 +35,10 @@ pub(crate) async fn get_nodes(pool: web::Data<Pool>, path: web::Path<i64>, query
 /// Downloads file with id.
 /// 
 #[get("/file/{id}")]
-pub async fn get_file(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
+pub async fn get_file(provider: web::Data<Contrainer>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
     let id = path.into_inner();
-    if let Ok(node) = repo::get_node(&pool, id, user.user_id).await {
+    let repo = provider.get_file_repository();
+    if let Ok(node) = repo.get_node(id, user.user_id).await {
         if node.node_type == NODE_TYPE_FILE {
             let file = actix_files::NamedFile::open_async(node.filesystem_path).await?;
             return Ok(file);
@@ -46,11 +50,13 @@ pub async fn get_file(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthCon
 ///
 /// Method: PUT
 /// Creates folder, when parent_id is 0 then it is top folder.
-#[put("/create_folder")]
-pub async fn create_folder(pool: web::Data<Pool>, user: AuthContext, body: web::Json<CreateFolderRequest>) -> Result<impl Responder> {
+#[put("/create-folder")]
+pub async fn create_folder(provider: web::Data<Contrainer>, user: AuthContext, body: web::Json<CreateFolderRequest>) -> Result<impl Responder> {
     let CreateFolderRequest { parent_id, name } = body.into_inner();
-    let path = get_save_path(&pool, parent_id, user.user_id, &name).await;
-    let file_node = repo::FileNodeDto {
+    let repo = provider.get_file_repository();
+    let path_manager = provider.get_path_manager();
+    let path = get_save_path(&repo, &path_manager, parent_id, user.user_id, &name).await;
+    let file_node = FileNodeDto {
         id: 0,
         user_id: user.user_id,
         title: name,
@@ -61,13 +67,13 @@ pub async fn create_folder(pool: web::Data<Pool>, user: AuthContext, body: web::
         modified_at: chrono::Utc::now(),
         node_size: 0
     };
-    match repo::add_node(&pool, file_node).await {
+    match repo.add_node(file_node).await {
         Ok(node_id) => {
             match execute_file_system_operation(move || create_dir(path)).await {
                 Ok(_) => return created(CreateNode { id: node_id }),
                 _ => {
                     // When there is a problem creating folder delete created node.                    
-                    let _ = repo::permanent_delete(&pool, node_id, user.user_id).await;
+                    let _ = repo.permanent_delete(node_id, user.user_id).await;
                 }
             }
         },
@@ -82,14 +88,20 @@ pub async fn create_folder(pool: web::Data<Pool>, user: AuthContext, body: web::
 /// Method: DELETE
 /// `/api/files/delete_node/{id}` delete node - if folder delete all contents
 /// 
-#[delete("/delete_node/{id}")]
-pub async fn delete_node(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
+#[delete("/delete-node/{id}")]
+pub async fn delete_node(provider: web::Data<Contrainer>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
     let id = path.into_inner();
-    if let Ok(node) = repo::get_node(&pool, id, user.user_id).await {
-        if node.node_type == NODE_TYPE_FILE {
-            if let Ok(1) = repo::move_to_trash(&pool, id, node.node_type, user.user_id).await {
-                // delete file from the file system only if it was deleted.
-                if execute_file_system_operation(move || delete_file(node.filesystem_path.into())).await.is_ok() {
+    let repo = provider.get_file_repository();
+    if let Ok(node) = repo.get_node(id, user.user_id).await {
+        if let Ok(_) = repo.move_to_trash(id, node.node_type, user.user_id).await {
+            // delete file from the file system only if it was deleted.
+            let trash_mover = provider.get_trash_mover(user.user_id);
+            if node.node_type == NODE_TYPE_FILE {
+                if execute_file_system_operation(move || trash_mover.move_file_to_trash(node.filesystem_path.into())).await.is_ok() {
+                    return no_content()
+                }
+            } else {
+                if execute_file_system_operation(move || trash_mover.move_dir_to_trash(node.filesystem_path.into())).await.is_ok() {
                     return no_content()
                 }
             }
@@ -100,14 +112,14 @@ pub async fn delete_node(pool: web::Data<Pool>, path: web::Path<i64>, user: Auth
 
 
 // #[post("/move_node/{id}/{parent_id}")]
-// pub async fn move_node(request: HttpRequest, pool: web::Data<Pool>, path: web::Path<i64>, user: web::Query<User>) -> Result<impl Responder> {
+// pub async fn move_node(request: HttpRequest, provider: web::Data<Contrainer>, path: web::Path<i64>, user: web::Query<User>) -> Result<impl Responder> {
 //     todo!("Implement move node");
 //     // let id = path.into_inner();
 //     no_content()
 // }
 
 // #[post("/copy_node/{id}/{parent_id}")]
-// pub async fn copy_node(request: HttpRequest, pool: web::Data<Pool>, path: web::Path<i64>, user: web::Query<User>) -> Result<impl Responder> {
+// pub async fn copy_node(request: HttpRequest, provider: web::Data<Contrainer>, path: web::Path<i64>, user: web::Query<User>) -> Result<impl Responder> {
 //     todo!("Implement copy node");
 //     // let id = path.into_inner();
 //     created()
@@ -120,17 +132,20 @@ pub async fn delete_node(pool: web::Data<Pool>, path: web::Path<i64>, user: Auth
 /// Creates a new file or if file exits it creates a new version of it.
 ///
 #[put("/upload-file")]
-pub async fn upload_file(pool: web::Data<Pool>, request: HttpRequest, user: AuthContext, body: web::Payload) -> Result<impl Responder> {
+pub async fn upload_file(provider: web::Data<Contrainer>, request: HttpRequest, user: AuthContext, body: web::Payload) -> Result<impl Responder> {
     let user_id = user.user_id;
     let file_name = read_string_header(&request, "X-FILE-NAME").expect("Request should have File name present");
     let parent_id = read_int_header(&request, "X-PARENT-ID").expect("Request should have parent id");
+    let repo = provider.get_file_repository();
 
-    if let Some(node) = check_existing_file(&pool, &file_name, &parent_id, &user_id).await {
+    let node = repo.get_node_by_name(parent_id, user_id, file_name.clone().into()).await;
+    if let Ok(Some(node)) = node {
         let source_path = Path::new(&node.filesystem_path);
-        if let Ok(version_name) = move_to_versions(&source_path.to_path_buf(), user_id) {
+        let versions_mover = provider.get_versions_mover(user_id);
+        if let Ok(version_name) = versions_mover.move_to_versions(&source_path.to_path_buf()) {
             let written_bytes = write_request_to_file(&source_path.to_path_buf(), body).await?;
 
-            let file_node = repo::FileNodeDto {
+            let file_node = FileNodeDto {
                 id: node.id,
                 user_id: user.user_id,
                 title: file_name,
@@ -141,16 +156,16 @@ pub async fn upload_file(pool: web::Data<Pool>, request: HttpRequest, user: Auth
                 modified_at: chrono::Utc::now(),
                 node_size: written_bytes
             };
-            if repo::update_node_version(&pool, &node, version_name, &file_node).await.is_ok() {
+            if repo.update_node_version(&node, version_name, &file_node).await.is_ok() {
                 return created(CreateNode { id: node.id });
             }
-
         }
     } else {
-        let output = get_save_path(&pool, parent_id, user_id, &file_name).await;
+        let path_manager = provider.get_path_manager();
+        let output = get_save_path(&repo, &path_manager, parent_id, user_id, &file_name).await;
         let written_bytes = write_request_to_file(&output, body).await?;
 
-        let file_node = repo::FileNodeDto {
+        let file_node = FileNodeDto {
             id: 0,
             user_id: user.user_id,
             title: file_name,
@@ -161,16 +176,11 @@ pub async fn upload_file(pool: web::Data<Pool>, request: HttpRequest, user: Auth
             modified_at: chrono::Utc::now(),
             node_size: written_bytes
         };
-        if let Ok(node_id) = repo::add_node(&pool, file_node).await {
+        if let Ok(node_id) = repo.add_node(file_node).await {
             return created(CreateNode { id: node_id });
         }
     }
     error_bad_request()
-}
-
-async fn check_existing_file(pool: &web::Data<Pool>, file_name: &str, parent_id: &i64, user_id: &i64) -> Option<FileNodeDto> {
-    let node = repo::get_node_by_name(&pool, parent_id, user_id, file_name.into()).await;
-    node.map_or(None, |n| n)
 }
 
 async fn write_request_to_file(output: &PathBuf, mut body: web::Payload) -> std::result::Result<i64, Box<dyn std::error::Error>> {
@@ -187,12 +197,13 @@ async fn write_request_to_file(output: &PathBuf, mut body: web::Payload) -> std:
 }
 
 #[get("/parents/{parent_id}")]
-pub async fn get_parents(pool: web::Data<Pool>, path: web::Path<i64>, user: AuthContext )-> Result<impl Responder>  {
+pub async fn get_parents(provider: web::Data<Contrainer>, path: web::Path<i64>, user: AuthContext )-> Result<impl Responder>  {
     let parent_id = path.into_inner();
     if parent_id == 0 {
         return json(Vec::new());
     } else {
-        match repo::get_parent_nodes(&pool, parent_id, user.user_id).await {
+        let repo = provider.get_file_repository();
+        match repo.get_parent_nodes(parent_id, user.user_id).await {
             Ok(nodes) => json(nodes),
             Err(e) => {
                 log::error!("Error getting parents: {:?}", e);
@@ -203,8 +214,10 @@ pub async fn get_parents(pool: web::Data<Pool>, path: web::Path<i64>, user: Auth
     }
 }
 
-async fn get_save_path(pool: &web::Data<Pool>, parent_id: i64, user_id: i64, name: &str) -> PathBuf {
-    let node = repo::get_node(&pool, parent_id, user_id).await;
-    let path = node.map_or(get_top_save_folder(user_id), |n| n.filesystem_path);
+async fn get_save_path<R, PM>(repo: &R, path_manager: &PM, parent_id: i64, user_id: i64, name: &str) -> PathBuf
+where R: FileRepository,
+      PM: PathManager {
+    let node = repo.get_node(parent_id, user_id).await;
+    let path = node.map_or(path_manager.path_to_string(&path_manager.get_top_save_folder(user_id)), |n| n.filesystem_path);
     Path::new(&path).join(name).to_path_buf()
 }

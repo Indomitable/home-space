@@ -55,21 +55,21 @@ pub async fn create_folder(provider: web::Data<Contrainer>, user: AuthContext, b
     let CreateFolderRequest { parent_id, name } = body.into_inner();
     let repo = provider.get_file_repository();
     let path_manager = provider.get_path_manager();
-    let path = get_save_path(&repo, &path_manager, parent_id, user.user_id, &name).await;
+    let node_path = get_path(&repo, &path_manager, parent_id, user.user_id, &name).await;
     let file_node = FileNodeDto {
         id: 0,
         user_id: user.user_id,
         title: name,
         parent_id: Some(parent_id),
         node_type: NODE_TYPE_FOLDER,
-        filesystem_path: path.to_str().unwrap().to_owned(),
+        filesystem_path: node_path.relative_path,
         mime_type: "inode/directory".to_owned(),
         modified_at: chrono::Utc::now(),
         node_size: 0
     };
     match repo.add_node(file_node).await {
         Ok(node_id) => {
-            match execute_file_system_operation(move || create_dir(path)).await {
+            match execute_file_system_operation(move || create_dir(node_path.absolute_path)).await {
                 Ok(_) => return created(CreateNode { id: node_id }),
                 _ => {
                     // When there is a problem creating folder delete created node.                    
@@ -162,8 +162,8 @@ pub async fn upload_file(provider: web::Data<Contrainer>, request: HttpRequest, 
         }
     } else {
         let path_manager = provider.get_path_manager();
-        let output = get_save_path(&repo, &path_manager, parent_id, user_id, &file_name).await;
-        let written_bytes = write_request_to_file(&output, body).await?;
+        let node_path = get_path(&repo, &path_manager, parent_id, user_id, &file_name).await;
+        let written_bytes = write_request_to_file(&node_path.absolute_path, body).await?;
 
         let file_node = FileNodeDto {
             id: 0,
@@ -171,7 +171,7 @@ pub async fn upload_file(provider: web::Data<Contrainer>, request: HttpRequest, 
             title: file_name,
             parent_id: Some(parent_id),
             node_type: NODE_TYPE_FILE,
-            filesystem_path: output.to_str().unwrap().to_owned(),
+            filesystem_path: node_path.relative_path,
             mime_type: "text/plain".to_owned(),
             modified_at: chrono::Utc::now(),
             node_size: written_bytes
@@ -214,10 +214,25 @@ pub async fn get_parents(provider: web::Data<Contrainer>, path: web::Path<i64>, 
     }
 }
 
-async fn get_save_path<R, PM>(repo: &R, path_manager: &PM, parent_id: i64, user_id: i64, name: &str) -> PathBuf
+struct NodePaths {
+    absolute_path: PathBuf,
+    relative_path: String,
+}
+
+async fn get_path<R, PM>(repo: &R, path_manager: &PM, parent_id: i64, user_id: i64, name: &str) -> NodePaths
 where R: FileRepository,
       PM: PathManager {
-    let node = repo.get_node(parent_id, user_id).await;
-    let path = node.map_or(path_manager.path_to_string(&path_manager.get_top_save_folder(user_id)), |n| n.filesystem_path);
-    Path::new(&path).join(name).to_path_buf()
+    let top_path = path_manager.get_top_save_folder(user_id);
+    return if parent_id == 0 {        
+        NodePaths {
+            absolute_path: top_path.join(name),
+            relative_path: name.to_owned()
+        }
+    } else {
+        let node = repo.get_node(parent_id, user_id).await.unwrap();
+        NodePaths {
+            absolute_path: top_path.join(&node.filesystem_path).join(name),
+            relative_path: PathBuf::from(&node.filesystem_path).join(name).to_str().unwrap().to_owned()
+        }
+    }
 }

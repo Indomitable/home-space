@@ -99,9 +99,7 @@ impl UserRepositoryImpl {
         transaction.execute(&format!("create sequence file_nodes_user_{} as bigint increment by 1 minvalue 1 NO MAXVALUE no cycle owned by file_nodes.id", user_id), &[])
             .await
             .map_err(|_| ErrorRegisterUser::CreateFileNodeSequenceFailed)?;
-        let user_files_root = &self.path_manager.get_top_save_folder(user_id);
-        let user_files_root_str = user_files_root.as_os_str().to_str().unwrap();
-        transaction.execute(insert_file_root, &[&user_id, &user_files_root_str, &chrono::Utc::now()]).await.map_err(|_| ErrorRegisterUser::InsertFileRootFailed)?;
+        transaction.execute(insert_file_root, &[&user_id, &"/", &chrono::Utc::now()]).await.map_err(|_| ErrorRegisterUser::InsertFileRootFailed)?;
         if let Ok(1) = transaction.execute(insert_auth_sql, &[&user_id, &password_id]).await {
             if let Ok(_) = &self.path_manager.init_user_fs(user_id) {
                 return Ok(UserDto {

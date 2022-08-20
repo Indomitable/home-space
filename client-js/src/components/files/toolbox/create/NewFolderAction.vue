@@ -2,7 +2,7 @@
 import { ref } from "vue";
 
 export interface NewFolderActionEmit {
-    (event: "new-folder-name", name: string): void;
+    (event: "create-folder", name: string): void;
 }
 
 const isReadOnly = ref(true);
@@ -12,7 +12,7 @@ const emit = defineEmits<NewFolderActionEmit>();
 
 function onNewFolderKeyPress(event: KeyboardEvent) {
     if (event.code === "Enter") {
-        emit("new-folder-name", folderName.value);
+        emit("create-folder", folderName.value);
     }
 }
 

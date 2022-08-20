@@ -4,11 +4,12 @@ import type { Router } from "vue-router";
 import { HttpMethod, RequestBuilder } from "@/api/request-builder";
 import { resolveApiUrl } from "@/api/url-resolver";
 import { NodeType, type FileNode } from "@/models/file-node";
+import type { Sorting } from "@/models/sorting";
 
 import type { UserService } from "../user/user-service";
 import type { FileSystemService } from "./file-system-service";
 import type { FileLoadService } from "./files-load-service";
-import type { Sorting } from "@/models/sorting";
+import { UploadFileRequestEnchancer } from "./upload-file-request-enchancer";
 
 export class FileActionService {
     constructor(
@@ -41,6 +42,39 @@ export class FileActionService {
             .setJsonBody({ id: node.id, favorite })
             .build("json")
             .execute();
+    }
+
+    createFolder(parentId: number, folderName: string): Promise<{ id: number }> {
+        const url = resolveApiUrl("files", "create-folder");
+        return RequestBuilder.create(url)
+            .setMethod(HttpMethod.PUT)
+            .enhance(this.userService)
+            .setJsonBody({ parent_id: parentId, name: folderName })
+            .build<{ id: number }>("json")
+            .execute();
+    }
+
+    async uploadFile(parentId: number, file: File): Promise<number> {
+        interface FileNodeDto {
+            id: number;
+            user_id: number;
+            title: string;
+            parent_id: number;
+            node_type: number;
+            filesystem_path: string;
+            mime_type: number;
+            modified_at: string;
+            node_size: number;
+        }
+        const url = resolveApiUrl("files", "upload-file");
+        const response = await RequestBuilder.create(url)
+            .setMethod(HttpMethod.PUT)
+            .enhance(this.userService)
+            .enhance(new UploadFileRequestEnchancer(parentId, file.name))
+            .setBody(file)
+            .build<FileNodeDto>()
+            .execute();
+        return response.id;
     }
 
     private async downloadFile(file: FileNode): Promise<void> {

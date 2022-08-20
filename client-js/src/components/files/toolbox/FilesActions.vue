@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import { inject } from "vue";
+
+import { fileActionServiceInjectionToken } from "@/services/files/file-action-service";
+import { fileSystemServiceInjectionToken } from "@/services/files/file-system-service";
+
 import type { NodeListController } from "../list/node-list-controller";
 import FilesActionCreate from "./create/FilesActionCreate.vue";
 
@@ -7,12 +12,27 @@ export interface FileActionsProps {
     ctrl: NodeListController;
 }
 
-defineProps<FileActionsProps>();
+const props = defineProps<FileActionsProps>();
+
+const fileActionService = inject(fileActionServiceInjectionToken)!;
+async function onCreateFolder(name: string) {
+    await fileActionService.createFolder(props.parentId, name);
+    await props.ctrl.refresh();
+}
+
+const fs = inject(fileSystemServiceInjectionToken)!;
+async function onUploadFiles() {
+    const files = fs.loadFiles([]);
+    for await (const file of files) {
+        await fileActionService.uploadFile(props.parentId, file);
+    }
+    await props.ctrl.refresh();
+}
 </script>
 <template>
     <ul class="file-actions">
         <li class="file-actions-create-container">
-            <files-action-create />
+            <files-action-create @create-folder="onCreateFolder" @upload-files="onUploadFiles" />
         </li>
         <template v-if="ctrl.selectedNodes.value.length > 0">
             <li>

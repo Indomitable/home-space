@@ -2,7 +2,6 @@ import { breadcrumbServiceInjectionToken, BreadcrumbsService } from "@/services/
 import { FileActionService, fileActionServiceInjectionToken } from "@/services/files/file-action-service";
 import { FileSystemService, fileSystemServiceInjectionToken } from "@/services/files/file-system-service";
 import { FileLoadService, fileLoadServiceInjectionToken } from "@/services/files/files-load-service";
-import { NodeCreateService, nodeCreateServiceInjectionToken } from "@/services/files/node-create-service";
 import { formatterServiceInjectionToken } from "@/services/formatter-service";
 import { userServiceInjectionToken } from "@/services/user/user-service";
 import type { Provider, Injector } from ".";
@@ -21,5 +20,4 @@ export function provideFileServices(provide: Provider, inject: Injector): void {
     provide(fileActionServiceInjectionToken, fileActionService);
 
     provide(breadcrumbServiceInjectionToken, new BreadcrumbsService(userService, fileActionService));
-    provide(nodeCreateServiceInjectionToken, new NodeCreateService(userService));
 }

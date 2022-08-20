@@ -17,7 +17,7 @@ defineProps<NodeListProps>();
             :is-all-rows-selected="controller.allNodesSelected.value"
             :sorting="controller.sorting.value"
             @select-all-toggled="selected => controller.toggleAllNodeSelection(selected)"
-            @sort-changed="sorting => controller.reload(sorting)"
+            @sort-changed="sorting => controller.load(sorting)"
         />
         <node-list-row
             v-for="node in controller.nodes.value"

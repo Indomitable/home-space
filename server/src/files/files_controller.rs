@@ -40,7 +40,9 @@ pub async fn get_file(provider: web::Data<Contrainer>, path: web::Path<i64>, use
     let repo = provider.get_file_repository();
     if let Ok(node) = repo.get_node(id, user.user_id).await {
         if node.node_type == NODE_TYPE_FILE {
-            let file = actix_files::NamedFile::open_async(node.filesystem_path).await?;
+            let path_manager = provider.get_path_manager();
+            let file_path = path_manager.get_top_save_folder(user.user_id).join(node.filesystem_path);
+            let file = actix_files::NamedFile::open_async(file_path).await?;
             return Ok(file);
         }
     }
@@ -139,8 +141,9 @@ pub async fn upload_file(provider: web::Data<Contrainer>, request: HttpRequest, 
     let repo = provider.get_file_repository();
 
     let node = repo.get_node_by_name(parent_id, user_id, file_name.clone().into()).await;
+    let path_manager = provider.get_path_manager();
     if let Ok(Some(node)) = node {
-        let source_path = Path::new(&node.filesystem_path);
+        let source_path = path_manager.get_top_save_folder(user_id).join(&node.filesystem_path);
         let versions_mover = provider.get_versions_mover(user_id);
         if let Ok(version_name) = versions_mover.move_to_versions(&source_path.to_path_buf()) {
             let written_bytes = write_request_to_file(&source_path.to_path_buf(), body).await?;
@@ -161,7 +164,6 @@ pub async fn upload_file(provider: web::Data<Contrainer>, request: HttpRequest, 
             }
         }
     } else {
-        let path_manager = provider.get_path_manager();
         let node_path = get_path(&repo, &path_manager, parent_id, user_id, &file_name).await;
         let written_bytes = write_request_to_file(&node_path.absolute_path, body).await?;
 

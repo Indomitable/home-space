@@ -36,7 +36,7 @@ impl PathManager for PathManagerImpl {
     
     fn get_version_dir(&self, user_id: i64) -> PathBuf {
         let save_dir: PathBuf = self.get_top_save_folder(user_id);
-        return save_dir.join(SYSTEM_DIR).join(TRASH_DIR);
+        return save_dir.join(SYSTEM_DIR).join(VERSION_DIR);
     }
 
     fn init_user_fs(&self, user_id: i64) -> std::io::Result<()>  {

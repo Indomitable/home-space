@@ -33,17 +33,15 @@ function uploadFiles() {
         <li class="file-action-create-list-item file-action-create-list-item--end-group">
             <new-folder-action @create-folder="createFolder" />
         </li>
-        <li
-            class="file-action-create-list-item file-action-create-list-item--start-group file-action-create-list-item--end-group"
-        >
+        <li class="file-action-create-list-item file-action-create-list-item--start-group">
             <upload-file-action parent_id="{props.parent_id}" @upload-files="uploadFiles" />
         </li>
-        <li class="file-action-create-list-item file-action-create-list-item--start-group">
+        <!-- <li class="file-action-create-list-item file-action-create-list-item--start-group">
             <a>
                 <span class="icon-outlined">description</span>
                 <span>Text file</span>
             </a>
-        </li>
+        </li> -->
     </ul>
 </template>
 <style scoped lang="scss">

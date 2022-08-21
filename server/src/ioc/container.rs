@@ -19,8 +19,13 @@ impl Contrainer {
         }
     }
 
+    pub(crate) fn get_db_access(&self) -> impl crate::db::DatabaseAccess {
+        crate::db::data_access_new()
+    }
+
     pub(crate) fn get_file_repository(&self) -> impl files::files_repository::FileRepository {
-        files::files_repository::file_repository_new(self.pool.clone())
+        let db_access = self.get_db_access();
+        files::files_repository::file_repository_new(self.pool.clone(), Arc::new(db_access))
     }
 
     pub(crate) fn get_path_manager(&self) -> impl files::paths_manager::PathManager {
@@ -39,6 +44,7 @@ impl Contrainer {
 
     pub(crate) fn get_user_repository(&self) -> impl user::user_repository::UserRepository {
         let path_manager = self.get_path_manager();
-        user_repository_new(self.pool.clone(), Arc::new(path_manager))
+        let db_access = self.get_db_access();
+        user_repository_new(self.pool.clone(), Arc::new(path_manager), Arc::new(db_access))
     }
 }

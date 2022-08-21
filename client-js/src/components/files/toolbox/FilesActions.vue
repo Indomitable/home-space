@@ -28,6 +28,12 @@ async function onUploadFiles() {
     }
     await props.ctrl.refresh();
 }
+
+async function onDeleteSelectedNodes() {
+    for (const node of props.ctrl.selectedNodes.value) {
+        await fileActionService.deleteNode(node.id);
+    }
+}
 </script>
 <template>
     <ul class="file-actions">
@@ -42,7 +48,7 @@ async function onUploadFiles() {
                 </button>
             </li>
             <li>
-                <button class="icon-button ghost-button">
+                <button class="icon-button ghost-button" @click="onDeleteSelectedNodes">
                     <span class="icon-outlined">delete</span>
                     Delete
                 </button>

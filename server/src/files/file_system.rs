@@ -17,18 +17,16 @@ pub fn append_file(mut file: File, bytes: Bytes) -> Result<File> {
     Ok(f)
 }
 
-pub fn delete_file(path: PathBuf) -> Result<()> {
-    fs::remove_file(path)
-}
+// pub fn delete_file(path: PathBuf) -> Result<()> {
+//     fs::remove_file(path)
+// }
 
-pub fn delete_dir_recurse(path: PathBuf) -> Result<()> {
-    fs::remove_dir_all(path)
+pub fn delete_dir(path: &PathBuf) -> Result<()> {
+    fs::remove_dir(path)
 }
 
 pub fn move_file(source_path: &PathBuf, destination_path: &PathBuf) -> Result<()> {
-    let source_path = source_path.clone();
-    let destination_path = destination_path.clone();
-    fs::copy(&source_path, destination_path)?;
+    fs::copy(source_path, destination_path)?;
     fs::remove_file(source_path)?;
     Ok(())
 }
@@ -53,9 +51,10 @@ pub fn move_file(source_path: &PathBuf, destination_path: &PathBuf) -> Result<()
 //     })
 // }
 
-pub async fn execute_file_system_operation<TOutput>(operation: impl FnOnce() -> Result<TOutput> + Send + 'static) -> std::result::Result<TOutput, Box<dyn std::error::Error>>
+pub async fn execute_file_system_operation<TOutput>(operation: impl FnOnce() -> Result<TOutput> + Send + 'static) -> std::io::Result<TOutput>
 where TOutput: Send + 'static {
-    let res = web::block(operation).await??;
-    Ok(res)
+    web::block(operation)
+        .await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
 }
 

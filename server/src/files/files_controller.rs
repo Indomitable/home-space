@@ -1,18 +1,18 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use actix_web::HttpRequest;
 use actix_web::{web, Responder, Result, delete, get, put};
 use futures_util::TryStreamExt;
 
 use home_space_contracts::files::{CreateNode, CreateFolderRequest, NODE_TYPE_FILE, NODE_TYPE_FOLDER};
-use crate::files::trash_mover::TrashMover;
+use crate::files::db::file_node::FileNodeDto;
 use crate::files::versions_mover::VersionsMover;
 use crate::ioc::container::Contrainer;
 use crate::response::*;
 use crate::auth::AuthContext;
 use crate::sorting::Sorting;
 use super::paths_manager::PathManager;
-use super::{file_system::*};
-use super::files_repository::{FileRepository, FileNodeDto};
+use super::file_system::*;
+use super::files_repository::FileRepository;
 
 ///
 /// Method: GET 
@@ -67,7 +67,8 @@ pub async fn create_folder(provider: web::Data<Contrainer>, user: AuthContext, b
         filesystem_path: node_path.relative_path,
         mime_type: "inode/directory".to_owned(),
         modified_at: chrono::Utc::now(),
-        node_size: 0
+        node_size: 0,
+        node_version: 1,
     };
     match repo.add_node(file_node).await {
         Ok(node_id) => {
@@ -94,20 +95,20 @@ pub async fn create_folder(provider: web::Data<Contrainer>, user: AuthContext, b
 pub async fn delete_node(provider: web::Data<Contrainer>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
     let id = path.into_inner();
     let repo = provider.get_file_repository();
-    if let Ok(node) = repo.get_node(id, user.user_id).await {
-        if let Ok(_) = repo.move_to_trash(id, node.node_type, user.user_id).await {
-            // delete file from the file system only if it was deleted.
-            let trash_mover = provider.get_trash_mover(user.user_id);
-            if node.node_type == NODE_TYPE_FILE {
-                if execute_file_system_operation(move || trash_mover.move_file_to_trash(node.filesystem_path.into())).await.is_ok() {
-                    return no_content()
-                }
-            } else {
-                if execute_file_system_operation(move || trash_mover.move_dir_to_trash(node.filesystem_path.into())).await.is_ok() {
-                    return no_content()
-                }
-            }
-        }
+    let trash_mover = provider.get_trash_mover(user.user_id);
+    if let Ok(_) = repo.move_to_trash(id, user.user_id, trash_mover).await {
+        return no_content()
+        // // delete file from the file system only if it was deleted.
+        
+        // if node.node_type == NODE_TYPE_FILE {
+        //     if execute_file_system_operation(move || trash_mover.move_file_to_trash(node.filesystem_path.into())).await.is_ok() {
+        //         return no_content()
+        //     }
+        // } else {
+        //     if execute_file_system_operation(move || trash_mover.move_dir_to_trash(node.filesystem_path.into())).await.is_ok() {
+        //         return no_content()
+        //     }
+        // }
     }
     error_not_found()
 }
@@ -140,26 +141,14 @@ pub async fn upload_file(provider: web::Data<Contrainer>, request: HttpRequest, 
     let parent_id = read_int_header(&request, "X-PARENT-ID").expect("Request should have parent id");
     let repo = provider.get_file_repository();
 
-    let node = repo.get_node_by_name(parent_id, user_id, file_name.clone().into()).await;
+    let node = repo.find_node_by_name(parent_id, user_id, file_name.clone().into()).await;
     let path_manager = provider.get_path_manager();
     if let Ok(Some(node)) = node {
         let source_path = path_manager.get_top_save_folder(user_id).join(&node.filesystem_path);
         let versions_mover = provider.get_versions_mover(user_id);
         if let Ok(version_name) = versions_mover.move_to_versions(&source_path.to_path_buf()) {
             let written_bytes = write_request_to_file(&source_path.to_path_buf(), body).await?;
-
-            let file_node = FileNodeDto {
-                id: node.id,
-                user_id: user.user_id,
-                title: file_name,
-                parent_id: Some(parent_id),
-                node_type: NODE_TYPE_FILE,
-                filesystem_path: node.filesystem_path.to_owned(),
-                mime_type: "text/plain".to_owned(),
-                modified_at: chrono::Utc::now(),
-                node_size: written_bytes
-            };
-            if repo.update_node_version(&node, version_name, &file_node).await.is_ok() {
+            if repo.update_node(&node, version_name, "text/plain", written_bytes).await.is_ok() {
                 return created(CreateNode { id: node.id });
             }
         }
@@ -176,7 +165,8 @@ pub async fn upload_file(provider: web::Data<Contrainer>, request: HttpRequest, 
             filesystem_path: node_path.relative_path,
             mime_type: "text/plain".to_owned(),
             modified_at: chrono::Utc::now(),
-            node_size: written_bytes
+            node_size: written_bytes,
+            node_version: 1,
         };
         if let Ok(node_id) = repo.add_node(file_node).await {
             return created(CreateNode { id: node_id });

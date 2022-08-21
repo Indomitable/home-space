@@ -37,5 +37,9 @@
             - Cancel operation: Do nothing.
             - Choose which file to restore: Use case 3.1
 
-    
+4. User deletes item with multiple versions
+    - Active file and all its versions go to trash.
                 
+5. User restores file with missing parent(s):
+    - Option 1: Auto create all parent folders ?
+    - Option 2: Restore file with no parent (Orphan file) ?

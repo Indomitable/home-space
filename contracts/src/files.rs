@@ -12,6 +12,7 @@ pub struct DisplayFileNode {
     pub mime_type: String,
     pub modified_at: String,
     pub node_size: i64,
+    pub node_version: i32,
     pub is_favorite: bool
 }
 
@@ -23,7 +24,8 @@ pub struct FileNode {
     pub node_type: i16,
     pub mime_type: String,
     pub modified_at: String,
-    pub node_size: i64
+    pub node_size: i64,
+    pub node_version: i32,
 }
 
 

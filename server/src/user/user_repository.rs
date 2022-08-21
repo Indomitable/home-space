@@ -10,7 +10,7 @@ use scrypt::{
     Scrypt
 };
 
-use crate::{db::{query_one, DbResult}, files::paths_manager::PathManager};
+use crate::{db::{DbResult, DatabaseAccess}, files::paths_manager::PathManager};
 
 pub struct UserDto {
     pub id: i64,
@@ -32,13 +32,16 @@ pub(crate) trait UserRepository {
 pub(crate) struct UserRepositoryImpl {
     pool: Arc<Pool>,
     path_manager: Arc<dyn PathManager + Send + Sync>,
+    db: Arc<dyn DatabaseAccess + Send + Sync>,
 }
 
-pub(crate) fn user_repository_new<PM>(pool: Arc<Pool>, path_manager: Arc<PM>) -> impl UserRepository
-where PM: PathManager + Send + Sync + 'static {
+pub(crate) fn user_repository_new<PM, DA>(pool: Arc<Pool>, path_manager: Arc<PM>, db: Arc<DA>) -> impl UserRepository
+where PM: PathManager + Send + Sync + 'static, 
+      DA: DatabaseAccess + Send + Sync + 'static {
     UserRepositoryImpl {
         pool,
-        path_manager
+        path_manager,
+        db
     }
 }
 
@@ -49,7 +52,7 @@ impl UserRepository for UserRepositoryImpl {
         inner join authentication a on a.auth_password_id  = ap.id 
         inner join users u on u.id  = a.user_id 
         where u."name" = $1"#;
-        if let Ok(row) = query_one(&self.pool, sql, &[&user_name]).await {
+        if let Ok(row) = self.db.query_one(&self.pool, sql, &[&user_name]).await {
             let hash: String = row.get(0);
             return verify_hash(password,&hash).map_err(|e| ErrorVerifyPassword::PasswordHasError(e));
         }
@@ -58,7 +61,7 @@ impl UserRepository for UserRepositoryImpl {
 
     async fn fetch_user(&self, user_name: &str) -> DbResult<UserDto> {
         let sql = r#"select u.id, u."name" from users u where u."name" = $1"#;
-        let row = query_one(&self.pool, sql, &[&user_name]).await?;
+        let row = self.db.query_one(&self.pool, sql, &[&user_name]).await?;
         Ok(UserDto {
             id: row.get(0),
             name: user_name.to_owned()
@@ -88,8 +91,8 @@ impl UserRepositoryImpl {
         let insert_user_sql = "insert into users (name) values ($1) RETURNING id";
         let insert_password_sql = "insert into authentication_password (hash) values ($1) RETURNING id";
         let insert_auth_sql = "insert into authentication (user_id, auth_type_id, auth_password_id) values ($1, 1, $2)";
-        let insert_file_root = r#"insert into file_nodes (id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size)
-        values (0, $1, 'ROOT', null, 0, $2, 'inode/directory', $3, 0)"#;
+        let insert_file_root = r#"insert into file_nodes (id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size, node_version)
+        values (0, $1, 'ROOT', null, 0, $2, 'inode/directory', $3, 0, 1)"#;
     
         let row = transaction.query_one(insert_user_sql, &[&user_name]).await.map_err(|_| ErrorRegisterUser::InsertUserFailed)?;
         let user_id: i64 = row.get(0);
@@ -101,7 +104,7 @@ impl UserRepositoryImpl {
             .map_err(|_| ErrorRegisterUser::CreateFileNodeSequenceFailed)?;
         transaction.execute(insert_file_root, &[&user_id, &"/", &chrono::Utc::now()]).await.map_err(|_| ErrorRegisterUser::InsertFileRootFailed)?;
         if let Ok(1) = transaction.execute(insert_auth_sql, &[&user_id, &password_id]).await {
-            if let Ok(_) = &self.path_manager.init_user_fs(user_id) {
+            if let Ok(_) = self.path_manager.init_user_fs(user_id) {
                 return Ok(UserDto {
                     id: user_id,
                     name: user_name.to_owned()

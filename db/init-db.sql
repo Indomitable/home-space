@@ -55,6 +55,7 @@ create table file_nodes (
 	mime_type varchar not null,
 	modified_at timestamptz not null,
 	node_size bigint not null,
+	node_version int not null,
 	constraint pk_file_nodes primary key (id, user_id),
 	constraint fk_file_nodes foreign key (parent_id, user_id) references file_nodes(id, user_id)
 );
@@ -64,11 +65,11 @@ create index idx_file_nodes on file_nodes (user_id);
 create table file_versions (
 	id bigint not null,
 	user_id bigint not null,
-	version int not null,
-	filesystem_path varchar not null,	
+	node_version int not null,
 	created_at timestamptz not null,
 	node_size bigint not null,
-	constraint pk_file_versions primary key (id, user_id, version),
+	file_name varchar not null,
+	constraint pk_file_versions primary key (id, user_id, node_version),
 	constraint fk_file_versions foreign key (id, user_id) references file_nodes(id, user_id)
 );
 
@@ -82,12 +83,14 @@ create table trash_box (
 	node_type SMALLINT NOT NULL,	
 	filesystem_path varchar not null,
 	mime_type varchar not null,
-	deleted_at timestamp not null,
+	deleted_at timestamptz not null,
 	node_size bigint not null,
-	constraint pk_trash_box primary key (id, user_id)	
+	node_version int not null,
+	file_name varchar not null,
+	constraint pk_trash_box primary key (id, user_id, node_version)	
 );
 
-create index idx_trash_box on file_nodes (user_id);
+create index idx_trash_box on trash_box (user_id);
 
 CREATE TABLE public.favorite_nodes (
 	id int8 NOT NULL,

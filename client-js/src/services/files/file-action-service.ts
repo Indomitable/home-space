@@ -77,6 +77,11 @@ export class FileActionService {
         return response.id;
     }
 
+    async deleteNode(nodeId: number): Promise<void> {
+        const url = resolveApiUrl("files", "delete-node", nodeId);
+        await RequestBuilder.create(url).setMethod(HttpMethod.DELETE).enhance(this.userService).build().execute();
+    }
+
     private async downloadFile(file: FileNode): Promise<void> {
         const url = resolveApiUrl("files", "file", file.id);
         const blob = await RequestBuilder.create(url)

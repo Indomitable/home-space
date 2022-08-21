@@ -53,3 +53,10 @@ TODO:
     - [ ] Support of two factor authentications
       - [ ] 2FA Authentication apps
       - [ ] Passwordless login: WebAuthn using hardware tokens (YubiKey)
+
+### Mobile
+- [ ] Phone and Tablet layout. ( Responsive design )
+- [ ] Android native app
+    - [ ] File sync
+- [ ] iPhone native app
+    - [ ] File sync

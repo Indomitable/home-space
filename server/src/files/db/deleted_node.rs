@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use super::DbModel;
+use super::{DbModel, file_node::FileNodeDto};
 
 pub(crate) struct DeletedNodeDto {
     pub id: i64,
@@ -13,6 +13,24 @@ pub(crate) struct DeletedNodeDto {
     pub node_size: i64,
     pub node_version: i32,
     pub file_name: String,
+}
+
+impl DeletedNodeDto {
+    pub(crate) fn new(node: &FileNodeDto, file_name: &str) -> Self {
+        Self {
+            id: node.id,
+            user_id: node.user_id,
+            title: node.title.clone(),
+            parent_id: node.parent_id,
+            node_type: node.node_type,
+            filesystem_path: node.filesystem_path.clone(),
+            mime_type: node.mime_type.clone(),
+            deleted_at: chrono::Utc::now(),
+            node_size: node.node_size,
+            node_version: node.node_version,
+            file_name: file_name.to_owned(),
+        }
+    }
 }
 
 impl DbModel for DeletedNodeDto {

@@ -6,10 +6,11 @@ use deadpool_postgres::Pool;
 use futures_util::{pin_mut, TryStreamExt};
 use home_space_contracts::files::{ParentNode, DisplayFileNode};
 use log::error;
+use uuid::Uuid;
 
 use crate::{db::{DbResult, DatabaseAccess, TransactionalDataAccess}, sorting::Sorting, files::db::deleted_node::DeletedNodeDto};
 
-use super::{db::{file_node::FileNodeDto, DbModel, file_version::FileVersionDto}, trash_mover::TrashMover};
+use super::{db::{file_node::FileNodeDto, DbModel, file_version::FileVersionDto, deleted_node}, trash_mover::TrashMover};
 
 #[async_trait]
 pub(crate) trait FileRepository {
@@ -181,6 +182,9 @@ impl FileRepository for FileRepositoryImpl {
         let row_stream = self.db.query_raw(&self.pool, &get_nodes_sql, &[&user_id, &id]).await?;
         pin_mut!(row_stream);
 
+        // Get second connection for moving files while we read rows from the first.
+        let mut connection = self.db.create_connection(&self.pool).await?;
+
         while let Some(row) = row_stream.try_next()
             .await
             .map_err(|_| crate::db::DbError::Fetch("Error reading next row, while deleting nodes".to_owned()))? {
@@ -189,19 +193,21 @@ impl FileRepository for FileRepositoryImpl {
             if versions_count > 0 {
                 let _versions = self.get_file_versions(file_node.id, user_id).await?;
             }
-            let trash_file_name_future = trash_mover.move_node_to_trash(&file_node);
-            let trash_file_name_res = trash_file_name_future.await;
 
-            match trash_file_name_res {
-                Ok(trash_file_name) => {
-                    if let Err(err) = self.try_move_file_node_to_trash(&file_node, &trash_file_name).await {
-                        // Catch case if can not move record from file_nodes -> trash box to restore file.                        
-                        error!("Unable to move file to trash table. [Error: {:?}]", err);
-                        todo!("trash_mover.restore_node_from_trash(&file_node).await.unwrap();");
+            // start new db transaction to move rows
+            let transaction = connection.create_transaction().await?;
+            let trash_file_name = Uuid::new_v4().as_hyphenated().to_string();
+            match self.try_move_file_node_to_trash(&transaction, &file_node, &trash_file_name).await {
+                Ok(_) => {
+                    let deleted_node = DeletedNodeDto::new(&file_node, &trash_file_name);
+                    let move_file_future = trash_mover.move_node_to_trash(&deleted_node);
+                    match move_file_future.await {
+                        Ok(_) => { transaction.commit().await?; },
+                        Err(_) => { transaction.rollback().await?; }
                     }
-                }
-                Err(e) => {
-                    error!("Unable to delete node: {}. [Error: {:?}]", file_node.filesystem_path, e);
+                },
+                Err(_) => {
+                    transaction.rollback().await?;
                 }
             }
         }
@@ -257,17 +263,17 @@ impl FileRepository for FileRepositoryImpl {
 }
 
 impl FileRepositoryImpl {
-    async fn try_move_file_node_to_trash(&self, file_node: &FileNodeDto, trash_file_name: &str) -> DbResult<()> {
-        let mut connection = self.db.create_connection(&self.pool).await?;
-        let transaction = connection.create_transaction().await?;
-        match self.try_move_file_node_to_trash_tran(&transaction, file_node, trash_file_name).await {
-            Ok(_) => transaction.commit().await?,
-            Err(_) => transaction.rollback().await?,
-        };
-        Ok(())
-    }
+    // async fn try_move_file_node_to_trash(&self, file_node: &FileNodeDto, trash_file_name: &str) -> DbResult<()> {
+    //     let mut connection = self.db.create_connection(&self.pool).await?;
+    //     let transaction = connection.create_transaction().await?;
+    //     match self.try_move_file_node_to_trash_tran(&transaction, file_node, trash_file_name).await {
+    //         Ok(_) => transaction.commit().await?,
+    //         Err(_) => transaction.rollback().await?,
+    //     };
+    //     Ok(())
+    // }
 
-    async fn try_move_file_node_to_trash_tran<'a>(&self, transaction: &TransactionalDataAccess<'a>, file_node: &FileNodeDto, trash_file_name: &str) -> DbResult<()> {
+    async fn try_move_file_node_to_trash(&self, transaction: &TransactionalDataAccess<'_>, file_node: &FileNodeDto, trash_file_name: &str) -> DbResult<()> {
         let insert_to_trash_sql = 
         format!(r#"INSERT INTO trash_box ({}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#, DeletedNodeDto::column_list());
 

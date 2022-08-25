@@ -1,11 +1,11 @@
 <script setup lang="ts">
-export interface BreadcrumbItemProps {
+interface BreadcrumbItemProps {
     id: number;
     icon?: string;
     title: string;
 }
 
-export interface BreadcrumbItemEvents {
+interface BreadcrumbItemEvents {
     (event: "breadcrumb-clicked", id: number): void;
 }
 

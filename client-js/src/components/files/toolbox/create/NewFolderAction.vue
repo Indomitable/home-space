@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 
-export interface NewFolderActionEmit {
+interface NewFolderActionEmit {
     (event: "create-folder", name: string): void;
 }
 

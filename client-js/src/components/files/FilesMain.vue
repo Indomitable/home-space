@@ -9,7 +9,7 @@ import BreadcrumbsFileNav from "./breadcrumbs/BreadcrumbsFileNav.vue";
 import NodeList from "./list/NodeList.vue";
 import { NodeListController } from "./list/node-list-controller";
 
-export interface FilesMainProps {
+interface FilesMainProps {
     parentId: number;
 }
 

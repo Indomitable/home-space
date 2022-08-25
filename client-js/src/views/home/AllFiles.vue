@@ -5,7 +5,7 @@ import { provideFileServices } from "@/di/files.provide";
 
 import FilesMain from "@/components/files/FilesMain.vue";
 
-export interface AllFilesProps {
+interface AllFilesProps {
     parent: string; // we pass parent from url and router always pass it as string
 }
 

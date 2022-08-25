@@ -4,7 +4,7 @@ import { inject } from "vue";
 import { useRouter } from "vue-router";
 import BreadcrumbItem from "./BreadcrumbItem.vue";
 
-export interface BreadcrumbsFileNavProps {
+interface BreadcrumbsFileNavProps {
     parentId: number;
 }
 const props = defineProps<BreadcrumbsFileNavProps>();

@@ -2,12 +2,12 @@
 import { SortDirection, type Sorting } from "@/models/sorting";
 import SelectAction from "./actions/SelectAction.vue";
 
-export interface NodeListHeaderProps {
+interface NodeListHeaderProps {
     isAllRowsSelected: boolean;
     sorting: Sorting;
 }
 
-export interface NodeListHeaderEvents {
+interface NodeListHeaderEvents {
     (event: "select-all-toggled", selected: boolean): void;
     (event: "sort-changed", sorting: Sorting): void;
 }

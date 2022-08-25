@@ -1,9 +1,9 @@
 <script setup lang="ts">
-export interface FavoriteActionProps {
+interface FavoriteActionProps {
     isFavorite: boolean;
 }
 
-export interface FavoriteActionEvents {
+interface FavoriteActionEvents {
     (event: "favorite-toggled", isFavorite: boolean): void;
 }
 

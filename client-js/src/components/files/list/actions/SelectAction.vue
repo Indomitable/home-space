@@ -1,9 +1,9 @@
 <script setup lang="ts">
-export interface SelectActionProps {
+interface SelectActionProps {
     isSelected: boolean;
 }
 
-export interface SelectActionEvents {
+interface SelectActionEvents {
     (event: "selection-toggled", selected: boolean): void;
 }
 

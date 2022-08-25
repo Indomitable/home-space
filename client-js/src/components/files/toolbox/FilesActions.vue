@@ -7,7 +7,7 @@ import { fileSystemServiceInjectionToken } from "@/services/files/file-system-se
 import type { NodeListController } from "../list/node-list-controller";
 import FilesActionCreate from "./create/FilesActionCreate.vue";
 
-export interface FileActionsProps {
+interface FileActionsProps {
     parentId: number;
     ctrl: NodeListController;
 }

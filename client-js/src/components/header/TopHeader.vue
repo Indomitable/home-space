@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import LogoutButton from "./LogoutButton.vue";
-export interface HeaderProps {
+interface HeaderProps {
     userName: string;
 }
 

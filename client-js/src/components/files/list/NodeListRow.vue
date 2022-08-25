@@ -7,12 +7,12 @@ import SelectAction from "./actions/SelectAction.vue";
 import FavoriteAction from "./actions/FavoriteAction.vue";
 import type { NodeState } from "./node-list-controller";
 
-export interface NodeListRowProps {
+interface NodeListRowProps {
     node: FileNode;
     state: NodeState;
 }
 
-export interface NodeListRowEvent {
+interface NodeListRowEvent {
     (event: "node-selection-toggled", node: FileNode, selected: boolean): void;
     (event: "node-favorite-toggled", node: FileNode, favorite: boolean): void;
     (event: "node-title-click", node: FileNode): void;

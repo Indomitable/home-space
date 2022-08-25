@@ -4,7 +4,7 @@ import NodeListRow from "./NodeListRow.vue";
 
 import type { NodeListController } from "@/components/files/list/node-list-controller";
 
-export interface NodeListProps {
+interface NodeListProps {
     controller: NodeListController;
 }
 

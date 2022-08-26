@@ -61,6 +61,7 @@ create table file_nodes (
 );
 
 create index idx_file_nodes on file_nodes (user_id);
+create index idx_file_nodes_paths on file_nodes (user_id, filesystem_path);
 
 create table file_versions (
 	id bigint not null,

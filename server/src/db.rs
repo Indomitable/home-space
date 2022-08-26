@@ -187,6 +187,32 @@ pub(crate) struct TransactionalDataAccess<'a> {
 
 // #[async_trait]
 impl<'a> TransactionalDataAccess<'a> {
+    pub(crate) async fn query_one(&self, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<deadpool_postgres::tokio_postgres::Row> {
+        let statement = self.transaction.prepare(query).await.map_err(|er| DbError::PrepareSql(er.to_string()))?;
+        return match self.transaction.query_one(&statement, params).await {
+            Ok(row) => {
+                Ok(row)
+            },
+            Err(error) => {
+                log::error!("Can not query single row! [Error={}]", error);
+                Err(DbError::Execute(error.to_string()))
+            }
+        }
+    }
+
+    pub(crate) async fn query_opt(&self, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<Option<deadpool_postgres::tokio_postgres::Row>> {
+        let statement = self.transaction.prepare(query).await.map_err(|er| DbError::PrepareSql(er.to_string()))?;
+        return match self.transaction.query_opt(&statement, params).await {
+            Ok(row) => {
+                Ok(row)
+            },
+            Err(error) => {
+                log::error!("Can not query optional single row! [Error={}]", error);
+                Err(DbError::Execute(error.to_string()))
+            }
+        }
+    }
+
     pub(crate) async fn execute(&self, query: &str, params: &[&(dyn ToSql + Sync)]) -> DbResult<u64> {
         let statement = self.transaction.prepare(query).await.map_err(|er| DbError::PrepareSql(er.to_string()))?;
         return match self.transaction.execute(&statement, params).await {

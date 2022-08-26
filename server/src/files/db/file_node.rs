@@ -1,5 +1,7 @@
+use std::path::PathBuf;
 use super::DbModel;
 
+#[derive(Debug, Clone)]
 pub(crate) struct FileNodeDto {
     pub id: i64,
     pub user_id: i64,
@@ -31,5 +33,28 @@ impl DbModel for FileNodeDto {
 
     fn column_list() -> &'static str {
         "id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size, node_version"
+    }
+}
+
+impl FileNodeDto {
+    pub(crate) fn copy(other: &FileNodeDto, parent_node: &FileNodeDto) -> Self {
+        let path = PathBuf::from(&parent_node.filesystem_path)
+            .join(&other.title)
+            .to_str()
+            .expect("Node title should be utf-8")
+            .to_owned();
+        Self {
+            id: 0, // Set it to zero we don't know what will be.
+            user_id: other.user_id,
+            title: other.title.clone(),
+            parent_id: Some(parent_node.id),
+            node_type: other.node_type,
+            filesystem_path: path,
+            mime_type: other.mime_type.clone(),
+            modified_at: other.modified_at,
+            node_size: other.node_size,
+            node_version: 1, // Loose the version history when copy. It will remain on the original file.
+            // TODO: copy the versions in future.
+        }
     }
 }

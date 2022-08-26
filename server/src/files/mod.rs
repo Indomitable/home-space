@@ -1,14 +1,16 @@
 use actix_web::web;
 
 pub(crate) mod paths_manager;
-pub(crate) mod trash_mover;
-pub(crate) mod versions_mover;
 pub(crate) mod file_system;
 pub(crate) mod files_repository;
 
 mod files_controller;
 mod favorites_controller;
 pub(crate) mod db;
+pub(crate) mod search;
+pub(crate) mod copy_service;
+pub(crate) mod version_service;
+pub(crate) mod service_result;
 
 pub fn init_routes<T, F>(auth_middleware: actix_web_httpauth::middleware::HttpAuthentication<actix_web_httpauth::extractors::bearer::BearerAuth, T>) -> impl FnOnce(&mut web::ServiceConfig) -> ()
 where T: Fn(actix_web::dev::ServiceRequest, actix_web_httpauth::extractors::bearer::BearerAuth) -> F + 'static,

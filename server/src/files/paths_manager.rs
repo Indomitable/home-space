@@ -11,11 +11,12 @@ pub trait PathManager {
     fn path_to_string(&self, path: &PathBuf) -> String;
 }
 
-pub struct PathManagerImpl {
-}
+pub(crate) struct PathManagerImpl {}
 
-pub fn path_manager_new() -> impl PathManager {
-    PathManagerImpl {}
+impl PathManagerImpl {
+    pub(crate) fn new() -> Self {
+        Self {}
+    }
 }
 
 const SYSTEM_DIR: &'static str = ".system";

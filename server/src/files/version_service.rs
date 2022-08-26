@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use async_trait::async_trait;
 use deadpool_postgres::Pool;
 use uuid::Uuid;
@@ -18,16 +19,16 @@ pub(crate) trait VersionService {
 
 pub(crate) struct VersionServiceImpl {
     user_id: i64,
-    pool: std::sync::Arc<Pool>,
-    db: Box<dyn DatabaseAccess + Send + Sync>,
-    file_system: Box<dyn FileSystemManager + Send + Sync>,
+    pool: Arc<Pool>,
+    db: Arc<dyn DatabaseAccess + Send + Sync>,
+    file_system: Arc<dyn FileSystemManager + Send + Sync>,
 }
 
 impl VersionServiceImpl {
     pub(crate) fn new(user_id: i64,
-                      pool: std::sync::Arc<Pool>,
-                      db: Box<dyn DatabaseAccess + Send + Sync>,
-                      file_system: Box<dyn FileSystemManager + Send + Sync>) -> Self {
+                      pool: Arc<Pool>,
+                      db: Arc<dyn DatabaseAccess + Send + Sync>,
+                      file_system: Arc<dyn FileSystemManager + Send + Sync>) -> Self {
         Self {
             user_id,
             pool,

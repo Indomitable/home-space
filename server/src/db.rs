@@ -39,10 +39,12 @@ pub(crate) trait DatabaseAccess {
     async fn create_connection(&self, pool: &Pool) -> DbResult<Box<dyn DbConnection + Send>>;
 }
 
-struct DatabaseAccessImpl {}
+pub(crate) struct DatabaseAccessImpl {}
 
-pub(crate) fn data_access_new() -> impl DatabaseAccess {
-    DatabaseAccessImpl {}
+impl DatabaseAccessImpl {
+    pub(crate) fn new() -> Self {
+        Self {}
+    }
 }
 
 #[async_trait]

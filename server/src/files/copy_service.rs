@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use async_trait::async_trait;
 use async_recursion::async_recursion;
 use deadpool_postgres::Pool;
@@ -11,26 +12,26 @@ use crate::files::service_result::{ServiceError, ServiceResult};
 use crate::files::version_service::VersionService;
 
 #[async_trait]
-trait CopyService {
+pub(crate) trait CopyService {
     async fn copy_node(&self, source_node_id: i64, destination_parent_id: i64) -> ServiceResult<()>;
 }
 
 pub(crate) struct CopyServiceImpl {
     user_id: i64,
-    pool: std::sync::Arc<Pool>,
-    db: Box<dyn DatabaseAccess + Send + Sync>,
-    file_repository: Box<dyn FileRepository + Send + Sync>,
-    file_system: Box<dyn FileSystemManager + Send + Sync>,
-    version_service: Box<dyn VersionService + Send + Sync>,
+    pool: Arc<Pool>,
+    db: Arc<dyn DatabaseAccess + Send + Sync>,
+    file_repository: Arc<dyn FileRepository + Send + Sync>,
+    file_system: Arc<dyn FileSystemManager + Send + Sync>,
+    version_service: Arc<dyn VersionService + Send + Sync>,
 }
 
 impl CopyServiceImpl {
     pub(crate) fn new(user_id: i64,
-                      pool: std::sync::Arc<Pool>,
-                      db: Box<dyn DatabaseAccess + Send + Sync>,
-                      file_repository: Box<dyn FileRepository + Send + Sync>,
-                      file_system: Box<dyn FileSystemManager + Send + Sync>,
-                      version_service: Box<dyn VersionService + Send + Sync>) -> Self {
+                      pool: Arc<Pool>,
+                      db: Arc<dyn DatabaseAccess + Send + Sync>,
+                      file_repository: Arc<dyn FileRepository + Send + Sync>,
+                      file_system: Arc<dyn FileSystemManager + Send + Sync>,
+                      version_service: Arc<dyn VersionService + Send + Sync>) -> Self {
         Self {
             user_id,
             pool,

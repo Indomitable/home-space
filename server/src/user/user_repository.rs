@@ -35,13 +35,15 @@ pub(crate) struct UserRepositoryImpl {
     db: Arc<dyn DatabaseAccess + Send + Sync>,
 }
 
-pub(crate) fn user_repository_new<PM, DA>(pool: Arc<Pool>, path_manager: Arc<PM>, db: Arc<DA>) -> impl UserRepository
-where PM: PathManager + Send + Sync + 'static, 
-      DA: DatabaseAccess + Send + Sync + 'static {
-    UserRepositoryImpl {
-        pool,
-        path_manager,
-        db
+impl UserRepositoryImpl {
+    pub(crate) fn new(pool: Arc<Pool>,
+                      path_manager: Arc<dyn PathManager + Send + Sync>,
+                      db: Arc<dyn DatabaseAccess + Send + Sync>) -> Self {
+        Self {
+            pool,
+            path_manager,
+            db
+        }
     }
 }
 

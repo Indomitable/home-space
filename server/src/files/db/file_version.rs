@@ -1,5 +1,4 @@
-#![allow(dead_code)]
-
+use crate::files::db::file_node::FileNodeDto;
 use super::DbModel;
 
 pub(crate) struct FileVersionDto {
@@ -25,5 +24,18 @@ impl DbModel for FileVersionDto {
 
     fn column_list() -> &'static str {
         "id, user_id, node_version, created_at, node_size, file_name"
+    }
+}
+
+impl FileVersionDto {
+    pub(crate) fn from(node: &FileNodeDto, file_name: &str) -> Self {
+        Self {
+            id: node.id,
+            user_id: node.user_id,
+            node_version: node.node_version,
+            created_at: chrono::Utc::now(),
+            node_size: node.node_size,
+            file_name: file_name.to_owned(),
+        }
     }
 }

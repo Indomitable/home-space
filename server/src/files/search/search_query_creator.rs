@@ -15,7 +15,7 @@ impl SearchQueryCreator for SearchQueryCreatorImpl {
     fn get_sql_query<'model>(&self, user_id: i64, model: &'model SearchModel) -> (String, Vec<Box<dyn ToSql + 'model>>) {
         let (w, p) = self.build_where_statement(user_id, model, "fn");
         let sql = format!("select {} from file_nodes fn where {}",
-            FileNodeDto::column_list(), w);
+            FileNodeDto::column_list("fn"), w);
         (sql, p)
     }
 }

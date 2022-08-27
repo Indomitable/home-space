@@ -7,5 +7,5 @@ pub(crate) mod deleted_node;
 pub(super) trait DbModel {
     fn read_node(row: &Row) -> Self;
 
-    fn column_list() -> &'static str;
+    fn column_list(table_alias: &str) -> String;
 }

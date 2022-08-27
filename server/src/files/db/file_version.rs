@@ -22,8 +22,13 @@ impl DbModel for FileVersionDto {
         }
     }
 
-    fn column_list() -> &'static str {
-        "id, user_id, node_version, created_at, node_size, file_name"
+    fn column_list(table_alias: &str) -> String {
+        format!(r#"{table_alias}.id,
+        {table_alias}.user_id,
+        {table_alias}.node_version,
+        {table_alias}.created_at,
+        {table_alias}.node_size,
+        {table_alias}.file_name"#, table_alias=table_alias)
     }
 }
 

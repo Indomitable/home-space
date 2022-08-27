@@ -41,7 +41,7 @@ impl VersionService {
 
     pub(crate) async fn file_versions(&self, id: i64) -> ServiceResult<Vec<FileVersionDto>> {
         let sql = format!(r#"select {} from file_versions fv where fn.user_id = $1 and fv.id = $2 order by fn.node_version desc"#,
-                          FileVersionDto::column_list());
+                          FileVersionDto::column_list("fv"));
         let versions = self.db.query(&sql, &[&self.user_id, &id])
             .await?
             .iter()
@@ -51,8 +51,8 @@ impl VersionService {
     }
 
     async fn insert_version_node(&self, file_version: &FileVersionDto) -> ServiceResult<()> {
-        let sql = format!("insert into file_versions ({}) values ($1, $2, $3, $4, $5, $5);", FileVersionDto::column_list());
-        self.db.execute(&sql, &[
+        let sql = "insert into file_versions (id, user_id, node_version, created_at, node_size, file_name) values ($1, $2, $3, $4, $5, $6);";
+        self.db.execute(sql, &[
             &file_version.id,
             &file_version.user_id,
             &file_version.node_version,

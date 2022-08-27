@@ -28,7 +28,7 @@ impl FileRepository {
     from file_nodes fn
     left join favorite_nodes ffn on fn.id = ffn.id and fn.user_id = ffn.user_id  
     where fn.user_id = $1 and fn.parent_id = $2
-    order by node_type"#, FileNodeDto::column_list());
+    order by node_type"#, FileNodeDto::column_list("fn"));
         let sorted_sql = format!("{}, {}", sql, sorting.build_order_by());
         return match self.db.query(&sorted_sql, &[&self.user_id, &parent_id]).await {
             Ok(rows) => {
@@ -46,14 +46,14 @@ impl FileRepository {
     }
 
     pub(crate) async fn get_node(&self, id: i64) -> DbResult<FileNodeDto> {
-        let sql = format!(r#"select {} from file_nodes where user_id = $1 and id = $2"#, FileNodeDto::column_list());
+        let sql = format!(r#"select {} from file_nodes fn where user_id = $1 and id = $2"#, FileNodeDto::column_list("fn"));
         let row = self.db.query_one(&sql, &[&self.user_id, &id]).await?;
         let node = FileNodeDto::read_node(&row);
         Ok(node)
     }
 
     pub(crate) async fn get_node_by_path(&self, path: &str) -> DbResult<Option<FileNodeDto>> {
-        let sql = format!(r#"select {} from file_nodes where user_id = $1 and filesystem_path = $2"#, FileNodeDto::column_list());
+        let sql = format!(r#"select {} from file_nodes fn where user_id = $1 and filesystem_path = $2"#, FileNodeDto::column_list("fn"));
         let node =
             self.db.query_opt(&sql, &[&self.user_id, &path])
                 .await?
@@ -64,7 +64,7 @@ impl FileRepository {
     pub(crate) async fn get_node_by_title(&self, parent_id: i64, title: &str) -> DbResult<Option<FileNodeDto>> {
         let sql = format!(r#"select {}
             from file_nodes fn
-            where fn.user_id = $1 and fn.parent_id = $2 and fn.title = $3"#, FileNodeDto::column_list());
+            where fn.user_id = $1 and fn.parent_id = $2 and fn.title = $3"#, FileNodeDto::column_list("fn"));
 
         let node = self.db.query_opt(&sql, &[&self.user_id, &parent_id, &title])
             .await?
@@ -95,8 +95,9 @@ impl FileRepository {
             node_version,
             ..
         } = file_node;
-        let sql = format!(r#"insert into file_nodes ({}) values (nextval('{}'), $1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id"#, 
-            FileNodeDto::column_list(), get_file_node_id_sequence(self.user_id));
+        let sql = format!(r#"insert into file_nodes (id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size, node_version)
+        values (nextval('{}'), $1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id"#,
+            get_file_node_id_sequence(self.user_id));
         let row = self.db.query_one(&sql, &[user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size, node_version]).await?;
         let node_id: i64 = row.get(0);
         Ok(node_id)
@@ -145,16 +146,16 @@ impl FileRepository {
             select n.*, lev-1 as lev from file_nodes n
             INNER JOIN breadcrumbs_query p ON p.parent_id = n.id
         )
-        select {} from breadcrumbs_query
+        select {} from breadcrumbs_query fn
         order by lev
-        "#, FileNodeDto::column_list());
+        "#, FileNodeDto::column_list("fn"));
         let rows = self.db.query(&sql, &[&self.user_id, &id]).await?;
         let nodes = rows.iter().map(FileNodeDto::read_node).collect();
         Ok(nodes)
     }
 
     pub(crate) async fn get_child_nodes(&self, parent_id: i64) -> DbResult<Vec<FileNodeDto>> {
-        let sql = format!("select {} from file_nodes where user_id = $1 and parent_id = $2", FileNodeDto::column_list());
+        let sql = format!("select {} from file_nodes fn where user_id = $1 and parent_id = $2", FileNodeDto::column_list("fn"));
         let rows = self.db.query(&sql, &[&self.user_id, &parent_id]).await?;
         let nodes = rows.iter().map(FileNodeDto::read_node).collect();
         Ok(nodes)
@@ -169,9 +170,9 @@ impl FileRepository {
             select n1.*, lvl + 1 as lvl from file_nodes n1
             INNER JOIN breadcrumbs_query p ON p.id = n1.parent_id
         )
-        select {} from breadcrumbs_query
+        select {} from breadcrumbs_query fn
         order by lev
-        "#, FileNodeDto::column_list());
+        "#, FileNodeDto::column_list("fn"));
         let rows = self.db.query(&sql, &[&self.user_id, &parent_id]).await?;
         let nodes = rows.iter().map(FileNodeDto::read_node).collect();
         Ok(nodes)

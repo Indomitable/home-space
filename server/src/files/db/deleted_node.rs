@@ -50,7 +50,17 @@ impl DbModel for DeletedNodeDto {
         }
     }
 
-    fn column_list() -> &'static str {
-        "id, user_id, title, parent_id, node_type, filesystem_path, mime_type, deleted_at, node_size, node_version, file_name"
+    fn column_list(table_alias: &str) -> String {
+        format!(r#"{table_alias}.id,
+        {table_alias}.user_id,
+        {table_alias}.title,
+        {table_alias}.parent_id,
+        {table_alias}.node_type,
+        {table_alias}.filesystem_path,
+        {table_alias}.mime_type,
+        {table_alias}.deleted_at,
+        {table_alias}.node_size,
+        {table_alias}.node_version,
+        {table_alias}.file_name"#, table_alias=table_alias)
     }
 }

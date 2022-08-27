@@ -233,34 +233,6 @@ impl FileRepository {
     //     todo!();
     // }
 
-    /// Make file node favorite
-    pub(crate) async fn set_favorite(&self, id: i64) -> DbResult<u64> {
-        let insert_favorite_sql = r#"INSERT INTO favorite_nodes (id, user_id) VALUES($1, $2)"#;
-        match self.db.execute(insert_favorite_sql, &[&id, &self.user_id]).await {
-            Ok(affected) => {
-                Ok(affected)
-            },
-            Err(err) => {
-                error!("{:?}", err);
-                Err(err)
-            },
-        }
-    }
-
-    /// Unset file not as favorite
-    pub(crate) async fn unset_favorite(&self, id: i64) -> DbResult<u64> {
-        let delete_favorite_sql = r#"DELETE FROM favorite_nodes where user_id = $1 and id = $2"#;
-        match self.db.execute(delete_favorite_sql, &[&self.user_id, &id]).await {
-            Ok(affected) => {
-                Ok(affected)
-            },
-            Err(err) => {
-                error!("{:?}", err);
-                Err(err)
-            },
-        }
-    }
-
     // async fn move_file_node_to_trash(&self, transaction: &TransactionalDataAccess<'_>, file_node: &FileNodeDto, trash_file_name: &str) -> DbResult<()> {
     //     let insert_to_trash_sql =
     //     format!(r#"INSERT INTO trash_box ({}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#, DeletedNodeDto::column_list());

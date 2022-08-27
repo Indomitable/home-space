@@ -56,4 +56,9 @@ impl Contrainer {
         let file_repository = Arc::new(FileRepository::new(user_id, &db, &file_system));
         NodeProvideService::new(user_id, &file_repository, &path_manager)
     }
+
+    pub(crate) fn get_favorites_service(&self, user_id: i64) -> FavoritesService {
+        let db = Rc::new(DatabaseAccess::new(&self.pool));
+        FavoritesService::new(user_id, &db)
+    }
 }

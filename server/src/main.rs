@@ -51,7 +51,7 @@ async fn main() -> std::io::Result<()> {
 
             if is_prod {
                 app = app
-                .service(Files::new("/", "client-js/dist")
+                .service(Files::new("/", "client/dist")
                     .index_file("index.html")
                 );                
             }
@@ -76,7 +76,7 @@ async fn main() -> std::io::Result<()> {
 }
 
 async fn get_index() -> actix_files::NamedFile {
-    let path = Path::new("client-js/dist/index.html");
+    let path = Path::new("client/dist/index.html");
     actix_files::NamedFile::open(path).unwrap()
 }
 

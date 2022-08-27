@@ -42,4 +42,4 @@
                 
 5. User restores file with missing parent(s):
     - Option 1: Auto create all parent folders ?
-    - Option 2: Restore file with no parent (Orphan file) ?
+    - Option 2: Restore file with no parent (Orphan file) ? - Current implementation.

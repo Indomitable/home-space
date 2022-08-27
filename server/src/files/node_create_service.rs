@@ -103,7 +103,7 @@ impl NodeCreateService {
 
     async fn get_path(&self, parent_id: i64, name: &str) -> ServiceResult<NodePaths> {
         let top_path = self.path_manager.get_top_save_folder(self.user_id);
-        return if parent_id == 0 {
+        if parent_id == 0 {
             Ok(NodePaths {
                 absolute_path: self.path_manager.path_to_string(&top_path.join(name)),
                 relative_path: name.to_owned()

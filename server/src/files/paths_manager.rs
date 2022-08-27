@@ -1,4 +1,5 @@
 use std::{path::PathBuf, fs};
+use std::path::Path;
 
 use crate::config::get_files_location;
 
@@ -16,21 +17,21 @@ impl PathManager {
     pub(crate) fn get_top_save_folder(&self, user_id: i64) -> PathBuf {
         let files_location = get_files_location();
         let root: PathBuf = files_location.into();
-        return root.join(user_id.to_string());
+        root.join(user_id.to_string())
     }
 
     pub(crate) fn get_trash_dir(&self, user_id: i64) -> PathBuf {
         let save_dir: PathBuf = self.get_top_save_folder(user_id);
-        return save_dir.join(SYSTEM_DIR).join(TRASH_DIR);
+        save_dir.join(SYSTEM_DIR).join(TRASH_DIR)
     }
 
     pub(crate) fn get_version_dir(&self, user_id: i64) -> PathBuf {
         let save_dir: PathBuf = self.get_top_save_folder(user_id);
-        return save_dir.join(SYSTEM_DIR).join(VERSION_DIR);
+        save_dir.join(SYSTEM_DIR).join(VERSION_DIR)
     }
 
-    pub(crate) fn path_to_string(&self, path: &PathBuf) -> String {
-        path.into_os_string().into_string().expect("Path should be in UTF-8 format")
+    pub(crate) fn path_to_string(&self, path: &Path) -> String {
+        path.to_str().expect("Path should be in UTF-8 format").to_owned()
     }
 
     pub(crate) fn init_user_fs(&self, user_id: i64) -> std::io::Result<()>  {

@@ -2,24 +2,20 @@ use std::sync::Arc;
 use log::error;
 
 use crate::{db::{DbResult, DatabaseAccess}, sorting::Sorting};
-use crate::files::file_system::FileSystemManager;
 
 use super::{db::{file_node::FileNodeDto, DbModel}};
 
 pub(crate) struct FileRepository {
     user_id: i64,
-    db: Arc<DatabaseAccess>,
-    fs: Arc<FileSystemManager>,
+    db: Arc<DatabaseAccess>
 }
 
 impl FileRepository {
     pub(crate) fn new(user_id: i64,
-                      db: &Arc<DatabaseAccess>,
-                      fs: &Arc<FileSystemManager>) -> Self {
+                      db: &Arc<DatabaseAccess>) -> Self {
         Self {
             user_id,
             db: Arc::clone(db),
-            fs: Arc::clone(fs),
         }
     }
 
@@ -153,15 +149,15 @@ impl FileRepository {
         order by lev
         "#, FileNodeDto::column_list());
         let rows = self.db.query(&sql, &[&self.user_id, &id]).await?;
-        let nodes = rows.iter().map(|r| FileNodeDto::read_node(r)).collect();
-        return Ok(nodes);
+        let nodes = rows.iter().map(FileNodeDto::read_node).collect();
+        Ok(nodes)
     }
 
     pub(crate) async fn get_child_nodes(&self, parent_id: i64) -> DbResult<Vec<FileNodeDto>> {
         let sql = format!("select {} from file_nodes where user_id = $1 and parent_id = $2", FileNodeDto::column_list());
         let rows = self.db.query(&sql, &[&self.user_id, &parent_id]).await?;
-        let nodes = rows.iter().map(|r| FileNodeDto::read_node(r)).collect();
-        return Ok(nodes);
+        let nodes = rows.iter().map(FileNodeDto::read_node).collect();
+        Ok(nodes)
     }
 
     pub(crate) async fn get_decedent_nodes(&self, parent_id: i64) -> DbResult<Vec<FileNodeDto>> {
@@ -177,8 +173,8 @@ impl FileRepository {
         order by lev
         "#, FileNodeDto::column_list());
         let rows = self.db.query(&sql, &[&self.user_id, &parent_id]).await?;
-        let nodes = rows.iter().map(|r| FileNodeDto::read_node(r)).collect();
-        return Ok(nodes);
+        let nodes = rows.iter().map(FileNodeDto::read_node).collect();
+        Ok(nodes)
     }
 
     // async fn move_to_trash(&self, id: i64) -> DbResult<()> {

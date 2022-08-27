@@ -111,7 +111,6 @@ pub async fn create_folder(provider: web::Data<Contrainer>, user: AuthContext, b
 ///
 #[put("/upload-file")]
 pub async fn upload_file(provider: web::Data<Contrainer>, request: HttpRequest, user: AuthContext, body: web::Payload) -> Result<impl Responder> {
-    let user_id = user.user_id;
     let file_name = read_string_header(&request, "X-FILE-NAME").expect("Request should have File name present");
     let parent_id = read_int_header(&request, "X-PARENT-ID").expect("Request should have parent id");
     let node_create = provider.get_node_create_service(user.user_id);

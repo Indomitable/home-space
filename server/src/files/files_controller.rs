@@ -3,11 +3,9 @@ use actix_web::{web, Responder, Result, get, put};
 use log::error;
 
 use home_space_contracts::files::{CreateNode, CreateFolderRequest};
-use serde::Deserialize;
 use crate::ioc::container::Contrainer;
 use crate::response::*;
 use crate::auth::AuthContext;
-use crate::files::search::SearchModel;
 use crate::sorting::Sorting;
 
 ///
@@ -21,10 +19,13 @@ pub(crate) async fn get_nodes(provider: web::Data<Contrainer>, path: web::Path<i
     let parent_id = path.into_inner();
     let sorting: Sorting = query.into_inner();
     let service = provider.get_node_provide_service(user.user_id);
-    if let Ok(nodes) = service.list_nodes(parent_id, &sorting).await {
-        return Ok(web::Json(nodes));
+    match service.list_nodes(parent_id, &sorting).await {
+        Ok(nodes) =>Ok(web::Json(nodes)),
+        Err(e) => {
+            error!("Error has occurred while list nodes: {:?}", e);
+            error_internal_server_error()
+        }
     }
-    error_internal_server_error()
 }
 
 ///
@@ -34,10 +35,14 @@ pub(crate) async fn get_nodes(provider: web::Data<Contrainer>, path: web::Path<i
 pub async fn get_file(provider: web::Data<Contrainer>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
     let id = path.into_inner();
     let service = provider.get_node_provide_service(user.user_id);
-    if let Ok(file) = service.get_file(id).await {
-        return Ok(file)
+    match service.get_file(id).await {
+        Ok(file) => Ok(file),
+        Err(e) => {
+            error!("Error has occurred while getting file: {:?}", e);
+            error_not_found() // file not found
+        }
     }
-    error_not_found() // file not found
+
 }
 
 ///
@@ -51,7 +56,8 @@ pub async fn create_folder(provider: web::Data<Contrainer>, user: AuthContext, b
         Ok(id) => {
             created(CreateNode { id })
         }
-        Err(_) => {
+        Err(e) => {
+            error!("Error has occurred while creating folder: {:?}", e);
             error_internal_server_error()
         }
     }
@@ -113,7 +119,8 @@ pub async fn upload_file(provider: web::Data<Contrainer>, request: HttpRequest, 
         Ok(id) => {
             created(CreateNode { id })
         }
-        Err(_) => {
+        Err(e) => {
+            error!("Error has occurred while uploading file: {:?}", e);
             error_internal_server_error()
         }
     }
@@ -147,33 +154,33 @@ pub async fn get_parents(provider: web::Data<Contrainer>, path: web::Path<i64>, 
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct TitleQueryString {
-    title: String,
-}
-
-#[get("/node-by-name/{parent_id}")]
-pub async fn get_node_by_name(provider: web::Data<Contrainer>, path: web::Path<i64>, query: web::Query<TitleQueryString>, user: AuthContext )-> Result<impl Responder>  {
-    let parent_id = path.into_inner();
-    let repo = provider.get_file_repository(user.user_id);
-    let search_query = SearchModel {
-        parent_id: Some(parent_id),
-        title: Some(query.title.clone()),
-        node_type: None,
-        mime_type: None,
-        from_date: None,
-        to_date: None,
-        from_size: None,
-        to_size: None
-    };
-    match repo.search_nodes(&search_query).await {
-        Ok(nodes) => json(nodes.iter().map(|n| 1).collect::<Vec::<i32>>()),
-        Err(e) => {
-            log::error!("Error finding node. [Error: {:?}]", e);
-            error_internal_server_error()
-        }
-    }
-}
-
+// #[derive(Debug, Deserialize)]
+// pub struct TitleQueryString {
+//     title: String,
+// }
+//
+// #[get("/node-by-name/{parent_id}")]
+// pub async fn get_node_by_name(provider: web::Data<Contrainer>, path: web::Path<i64>, query: web::Query<TitleQueryString>, user: AuthContext )-> Result<impl Responder>  {
+//     let parent_id = path.into_inner();
+//     let repo = provider.get_file_repository(user.user_id);
+//     let search_query = SearchModel {
+//         parent_id: Some(parent_id),
+//         title: Some(query.title.clone()),
+//         node_type: None,
+//         mime_type: None,
+//         from_date: None,
+//         to_date: None,
+//         from_size: None,
+//         to_size: None
+//     };
+//     match repo.search_nodes(&search_query).await {
+//         Ok(nodes) => json(nodes.iter().map(|n| 1).collect::<Vec::<i32>>()),
+//         Err(e) => {
+//             log::error!("Error finding node. [Error: {:?}]", e);
+//             error_internal_server_error()
+//         }
+//     }
+// }
+//
 
 

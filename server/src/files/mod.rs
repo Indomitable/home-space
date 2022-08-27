@@ -25,7 +25,7 @@ where T: Fn(actix_web::dev::ServiceRequest, actix_web_httpauth::extractors::bear
                 .service(files_controller::get_file)
                 .service(files_controller::create_folder)
                 .service(files_controller::upload_file)
-                .service(files_controller::delete_node)
+                // .service(files_controller::delete_node)
                 .service(files_controller::get_parents)
                 .service(favorites_controller::favorite)
                 // .service(files_controller::move_node)

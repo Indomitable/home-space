@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
-use async_trait::async_trait;
-use deadpool_postgres::{Pool, Transaction};
+use std::cell::RefCell;
+use std::rc::Rc;
 use scrypt::{
     password_hash::{
         rand_core::OsRng,
@@ -11,6 +9,7 @@ use scrypt::{
 };
 
 use crate::{db::{DbResult, DatabaseAccess}, files::paths_manager::PathManager};
+use crate::db::TransactionalDataAccess;
 
 pub struct UserDto {
     pub id: i64,
@@ -22,57 +21,43 @@ pub enum ErrorVerifyPassword {
     PasswordHasError(scrypt::password_hash::Error)
 }
 
-#[async_trait] 
-pub(crate) trait UserRepository {
-    async fn verify_password(&self, user_name: &str, password: &str) -> Result<(), ErrorVerifyPassword>;
-    async fn fetch_user(&self, user_name: &str) -> DbResult<UserDto>;
-    async fn register_user(&self, user_name: &str, password: &str) -> Result<UserDto, ErrorRegisterUser>;
+pub(crate) struct UserRepository {
+    path_manager: Rc<PathManager>,
+    db: Rc<RefCell<DatabaseAccess>>,
 }
 
-pub(crate) struct UserRepositoryImpl {
-    pool: Arc<Pool>,
-    path_manager: Arc<dyn PathManager + Send + Sync>,
-    db: Arc<dyn DatabaseAccess + Send + Sync>,
-}
-
-impl UserRepositoryImpl {
-    pub(crate) fn new(pool: Arc<Pool>,
-                      path_manager: Arc<dyn PathManager + Send + Sync>,
-                      db: Arc<dyn DatabaseAccess + Send + Sync>) -> Self {
+impl UserRepository {
+    pub(crate) fn new(path_manager: &Rc<PathManager>, db: &Rc<RefCell<DatabaseAccess>>) -> Self {
         Self {
-            pool,
-            path_manager,
-            db
+            path_manager: Rc::clone(path_manager),
+            db: Rc::clone(db),
         }
     }
-}
 
-#[async_trait] 
-impl UserRepository for UserRepositoryImpl {
-    async fn verify_password(&self, user_name: &str, password: &str) -> Result<(), ErrorVerifyPassword> {
+    pub(crate) async fn verify_password(&self, user_name: &str, password: &str) -> Result<(), ErrorVerifyPassword> {
         let sql = r#"select ap.hash from authentication_password ap
         inner join authentication a on a.auth_password_id  = ap.id 
         inner join users u on u.id  = a.user_id 
         where u."name" = $1"#;
-        if let Ok(row) = self.db.query_one(&self.pool, sql, &[&user_name]).await {
+        if let Ok(row) = self.db.borrow().query_one(sql, &[&user_name]).await {
             let hash: String = row.get(0);
             return verify_hash(password,&hash).map_err(|e| ErrorVerifyPassword::PasswordHasError(e));
         }
         Err(ErrorVerifyPassword::UserNotFound)
     }
 
-    async fn fetch_user(&self, user_name: &str) -> DbResult<UserDto> {
+    pub(crate) async fn fetch_user(&self, user_name: &str) -> DbResult<UserDto> {
         let sql = r#"select u.id, u."name" from users u where u."name" = $1"#;
-        let row = self.db.query_one(&self.pool, sql, &[&user_name]).await?;
+        let row = self.db.borrow().query_one(sql, &[&user_name]).await?;
         Ok(UserDto {
             id: row.get(0),
             name: user_name.to_owned()
         })
     }
 
-    async fn register_user(&self, user_name: &str, password: &str) -> Result<UserDto, ErrorRegisterUser> {
-        let connection = &mut self.pool.get().await.map_err(|_| ErrorRegisterUser::RegistrationFailed)?;
-        let transaction = connection.transaction().await.map_err(|_| ErrorRegisterUser::RegistrationFailed)?;
+    pub(crate) async fn register_user(&mut self, user_name: &str, password: &str) -> Result<UserDto, ErrorRegisterUser> {
+        let mut connection = self.db.borrow_mut().create_db_connection().await.map_err(|_| ErrorRegisterUser::RegistrationFailed)?;
+        let transaction = connection.create_transaction().await.map_err(|_| ErrorRegisterUser::RegistrationFailed)?;
         
         match self.initialize_user(&transaction, user_name, password).await {
             Ok(user) => {
@@ -86,10 +71,8 @@ impl UserRepository for UserRepositoryImpl {
             }
         }
     }
-}
 
-impl UserRepositoryImpl {
-    async fn initialize_user(&self, transaction: &Transaction<'_>, user_name: &str, password: &str) -> Result<UserDto, ErrorRegisterUser> {
+    async fn initialize_user(&self, transaction: &TransactionalDataAccess<'_>, user_name: &str, password: &str) -> Result<UserDto, ErrorRegisterUser> {
         let insert_user_sql = "insert into users (name) values ($1) RETURNING id";
         let insert_password_sql = "insert into authentication_password (hash) values ($1) RETURNING id";
         let insert_auth_sql = "insert into authentication (user_id, auth_type_id, auth_password_id) values ($1, 1, $2)";

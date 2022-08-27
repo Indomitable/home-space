@@ -1,10 +1,16 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use deadpool_postgres::Pool;
 
-use crate::db::{DatabaseAccessImpl, new_pool};
+use crate::db::{DatabaseAccess, new_pool};
 use crate::files;
-use crate::user;
+use crate::files::copy_service::CopyService;
+use crate::files::files_repository::FileRepository;
+use crate::files::node_create_service::NodeCreateService;
+use crate::files::version_service::VersionService;
+use crate::user::user_repository::UserRepository;
 
 pub struct Contrainer {
     pool: Arc<Pool>,
@@ -18,37 +24,27 @@ impl Contrainer {
         }
     }
 
-    pub(crate) fn copy_service(&self, user_id: i64) -> impl files::copy_service::CopyService {
-        let db = Arc::new(DatabaseAccessImpl::new());
-        let path_manager = files::paths_manager::PathManagerImpl::new();
-        let fs = Arc::new(files::file_system::FileSystemManagerImpl::new(user_id, path_manager));
-        let repo = Arc::new(
-            files::files_repository::FileRepositoryImpl::new(
-                user_id,
-                self.pool.clone(),
-                db.clone(),
-                fs.clone()
-            ));
-        let version_service = Arc::new(
-            files::version_service::VersionServiceImpl::new(
-                user_id,
-                self.pool.clone(),
-                db.clone(),
-                fs.clone()
-            ));
-        files::copy_service::CopyServiceImpl::new(
-            user_id,
-            self.pool.clone(),
-            db.clone(),
-            repo.clone(),
-            fs.clone(),
-            version_service
-        )
+    pub(crate) fn copy_service(&self, user_id: i64) -> files::copy_service::CopyService {
+        let db = Arc::new(DatabaseAccess::new(&self.pool));
+        let path_manager = Arc::new(files::paths_manager::PathManager::new());
+        let file_system = Arc::new(files::file_system::FileSystemManager::new(user_id, &path_manager));
+        let file_repository = Arc::new(FileRepository::new(user_id, &db, &file_system));
+        let version_service = Arc::new(VersionService::new(user_id, &db, &file_system));
+        CopyService::new(user_id, &db, &file_repository, &file_system, &version_service)
     }
 
-    pub(crate) fn get_user_repository(&self) -> impl user::user_repository::UserRepository {
-        let db = Arc::new(DatabaseAccessImpl::new());
-        let path_manager = Arc::new(files::paths_manager::PathManagerImpl::new());
-        user::user_repository::UserRepositoryImpl::new(self.pool.clone(), path_manager, db)
+    pub(crate) fn get_user_repository(&self) -> UserRepository {
+        let db = Rc::new(RefCell::new(DatabaseAccess::new(&self.pool)));
+        let path_manager = Rc::new(files::paths_manager::PathManager::new());
+        UserRepository::new(&path_manager, &db)
+    }
+
+    pub(crate) fn get_node_create_service(&self, user_id: i64) -> NodeCreateService {
+        let db = Arc::new(DatabaseAccess::new(&self.pool));
+        let path_manager = Arc::new(files::paths_manager::PathManager::new());
+        let file_system = Arc::new(files::file_system::FileSystemManager::new(user_id, &path_manager));
+        let file_repository = Arc::new(FileRepository::new(user_id, &db, &file_system));
+        let version_service = Arc::new(VersionService::new(user_id, &db, &file_system));
+        NodeCreateService::new(user_id, &path_manager, &file_repository, &file_system, &version_service)
     }
 }

@@ -1,6 +1,4 @@
 use std::sync::Arc;
-
-use home_space_contracts::files::DisplayFileNode;
 use log::error;
 
 use crate::{db::{DbResult, DatabaseAccess}, sorting::Sorting};
@@ -25,10 +23,8 @@ impl FileRepository {
         }
     }
 
-    pub(crate) async fn get_file_list(&self, parent_id: i64, sorting: &Sorting) -> DbResult<Vec<DisplayFileNode>> {
-        let sql = r#"select fn.id, fn.title, 
-        fn.parent_id, fn.node_type, fn.mime_type,
-        fn.modified_at, fn.node_size, fn.node_version,
+    pub(crate) async fn get_file_list(&self, parent_id: i64, sorting: &Sorting) -> DbResult<Vec<(FileNodeDto, bool)>> {
+        let sql = format!(r#"select {},
         case 
             when ffn.id is null then false
             else true
@@ -36,21 +32,14 @@ impl FileRepository {
     from file_nodes fn
     left join favorite_nodes ffn on fn.id = ffn.id and fn.user_id = ffn.user_id  
     where fn.user_id = $1 and fn.parent_id = $2
-    order by node_type"#;
+    order by node_type"#, FileNodeDto::column_list());
         let sorted_sql = format!("{}, {}", sql, sorting.build_order_by());
         return match self.db.query(&sorted_sql, &[&self.user_id, &parent_id]).await {
             Ok(rows) => {
-                let nodes = rows.iter().map(|row| DisplayFileNode {
-                    id: row.get(0),
-                    title: row.get(1),
-                    parent_id: row.get(2),
-                    node_type: row.get(3),
-                    mime_type: row.get(4),
-                    modified_at: row.get::<usize, chrono::DateTime<chrono::Utc>>(5).to_rfc3339(),
-                    node_size: row.get(6),
-                    node_version: row.get(7),
-                    is_favorite: row.get(8)
-                }).collect();
+                let nodes = rows
+                    .iter()
+                    .map(|row| (FileNodeDto::read_node(row), row.get(10)))
+                    .collect();
                 Ok(nodes)
             },
             Err(err) => {

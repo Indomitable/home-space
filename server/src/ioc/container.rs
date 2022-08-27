@@ -9,6 +9,7 @@ use crate::files;
 use crate::files::copy_service::CopyService;
 use crate::files::files_repository::FileRepository;
 use crate::files::node_create_service::NodeCreateService;
+use crate::files::node_provide_service::NodeProvideService;
 use crate::files::version_service::VersionService;
 use crate::user::user_repository::UserRepository;
 
@@ -24,7 +25,7 @@ impl Contrainer {
         }
     }
 
-    pub(crate) fn copy_service(&self, user_id: i64) -> files::copy_service::CopyService {
+    pub(crate) fn copy_service(&self, user_id: i64) -> CopyService {
         let db = Arc::new(DatabaseAccess::new(&self.pool));
         let path_manager = Arc::new(files::paths_manager::PathManager::new());
         let file_system = Arc::new(files::file_system::FileSystemManager::new(user_id, &path_manager));
@@ -46,5 +47,13 @@ impl Contrainer {
         let file_repository = Arc::new(FileRepository::new(user_id, &db, &file_system));
         let version_service = Arc::new(VersionService::new(user_id, &db, &file_system));
         NodeCreateService::new(user_id, &path_manager, &file_repository, &file_system, &version_service)
+    }
+
+    pub(crate) fn get_node_provide_service(&self, user_id: i64) -> NodeProvideService {
+        let db = Arc::new(DatabaseAccess::new(&self.pool));
+        let path_manager = Arc::new(files::paths_manager::PathManager::new());
+        let file_system = Arc::new(files::file_system::FileSystemManager::new(user_id, &path_manager));
+        let file_repository = Arc::new(FileRepository::new(user_id, &db, &file_system));
+        NodeProvideService::new(user_id, &file_repository, &path_manager)
     }
 }

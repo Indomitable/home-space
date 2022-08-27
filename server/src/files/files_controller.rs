@@ -1,18 +1,14 @@
-use std::path::PathBuf;
 use actix_web::HttpRequest;
-use actix_web::{web, Responder, Result, delete, get, put};
-use futures_util::TryStreamExt;
+use actix_web::{web, Responder, Result, get, put};
+use log::error;
 
-use home_space_contracts::files::{CreateNode, CreateFolderRequest, NODE_TYPE_FILE, NODE_TYPE_FOLDER};
-use crate::files::db::file_node::FileNodeDto;
-use crate::files::versions_mover::VersionsMover;
+use home_space_contracts::files::{CreateNode, CreateFolderRequest};
+use serde::Deserialize;
 use crate::ioc::container::Contrainer;
 use crate::response::*;
 use crate::auth::AuthContext;
+use crate::files::search::SearchModel;
 use crate::sorting::Sorting;
-use super::paths_manager::PathManager;
-use super::file_system::*;
-use super::files_repository::FileRepository;
 
 ///
 /// Method: GET 
@@ -24,8 +20,8 @@ use super::files_repository::FileRepository;
 pub(crate) async fn get_nodes(provider: web::Data<Contrainer>, path: web::Path<i64>, query: web::Query<Sorting>, user: AuthContext) -> Result<impl Responder> {
     let parent_id = path.into_inner();
     let sorting: Sorting = query.into_inner();
-    let repo = provider.get_file_repository();
-    if let Ok(nodes) = repo.get_file_list(parent_id, user.user_id, &sorting).await {
+    let service = provider.get_node_provide_service(user.user_id);
+    if let Ok(nodes) = service.list_nodes(parent_id, &sorting).await {
         return Ok(web::Json(nodes));
     }
     error_internal_server_error()
@@ -37,14 +33,9 @@ pub(crate) async fn get_nodes(provider: web::Data<Contrainer>, path: web::Path<i
 #[get("/file/{id}")]
 pub async fn get_file(provider: web::Data<Contrainer>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
     let id = path.into_inner();
-    let repo = provider.get_file_repository();
-    if let Ok(node) = repo.get_node(id, user.user_id).await {
-        if node.node_type == NODE_TYPE_FILE {
-            let path_manager = provider.get_path_manager();
-            let file_path = path_manager.get_top_save_folder(user.user_id).join(node.filesystem_path);
-            let file = actix_files::NamedFile::open_async(file_path).await?;
-            return Ok(file);
-        }
+    let service = provider.get_node_provide_service(user.user_id);
+    if let Ok(file) = service.get_file(id).await {
+        return Ok(file)
     }
     error_not_found() // file not found
 }
@@ -55,63 +46,41 @@ pub async fn get_file(provider: web::Data<Contrainer>, path: web::Path<i64>, use
 #[put("/create-folder")]
 pub async fn create_folder(provider: web::Data<Contrainer>, user: AuthContext, body: web::Json<CreateFolderRequest>) -> Result<impl Responder> {
     let CreateFolderRequest { parent_id, name } = body.into_inner();
-    let repo = provider.get_file_repository();
-    let path_manager = provider.get_path_manager();
-    let node_path = get_path(&repo, &path_manager, parent_id, user.user_id, &name).await;
-    let file_node = FileNodeDto {
-        id: 0,
-        user_id: user.user_id,
-        title: name,
-        parent_id: Some(parent_id),
-        node_type: NODE_TYPE_FOLDER,
-        filesystem_path: node_path.relative_path,
-        mime_type: "inode/directory".to_owned(),
-        modified_at: chrono::Utc::now(),
-        node_size: 0,
-        node_version: 1,
-    };
-    match repo.add_node(file_node).await {
-        Ok(node_id) => {
-            match execute_file_system_operation(move || create_dir(node_path.absolute_path)).await {
-                Ok(_) => return created(CreateNode { id: node_id }),
-                _ => {
-                    // When there is a problem creating folder delete created node.                    
-                    let _ = repo.permanent_delete(node_id, user.user_id).await;
-                }
-            }
-        },
-        _ => {
-            log::error!("Error creating folder");
+    let service = provider.get_node_create_service(user.user_id);
+    match service.create_folder_node(parent_id, &name).await {
+        Ok(id) => {
+            created(CreateNode { id })
+        }
+        Err(_) => {
+            error_internal_server_error()
         }
     }
-    error_internal_server_error()
 }
 
 ///
 /// Method: DELETE
 /// `/api/files/delete_node/{id}` delete node - if folder delete all contents
 /// 
-#[delete("/delete-node/{id}")]
-pub async fn delete_node(provider: web::Data<Contrainer>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
-    let id = path.into_inner();
-    let repo = provider.get_file_repository();
-    let trash_mover = provider.get_trash_mover(user.user_id);
-    if let Ok(_) = repo.move_to_trash(id, user.user_id, trash_mover).await {
-        return no_content()
-        // // delete file from the file system only if it was deleted.
-        
-        // if node.node_type == NODE_TYPE_FILE {
-        //     if execute_file_system_operation(move || trash_mover.move_file_to_trash(node.filesystem_path.into())).await.is_ok() {
-        //         return no_content()
-        //     }
-        // } else {
-        //     if execute_file_system_operation(move || trash_mover.move_dir_to_trash(node.filesystem_path.into())).await.is_ok() {
-        //         return no_content()
-        //     }
-        // }
-    }
-    error_not_found()
-}
+// #[delete("/delete-node/{id}")]
+// pub async fn delete_node(provider: web::Data<Contrainer>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
+//     let id = path.into_inner();
+//     let repo = provider.get_file_repository(user.user_id);
+//     if let Ok(_) = repo.move_to_trash(id).await {
+//         return no_content()
+//         // // delete file from the file system only if it was deleted.
+//
+//         // if node.node_type == NODE_TYPE_FILE {
+//         //     if execute_file_system_operation(move || trash_mover.move_file_to_trash(node.filesystem_path.into())).await.is_ok() {
+//         //         return no_content()
+//         //     }
+//         // } else {
+//         //     if execute_file_system_operation(move || trash_mover.move_dir_to_trash(node.filesystem_path.into())).await.is_ok() {
+//         //         return no_content()
+//         //     }
+//         // }
+//     }
+//     error_not_found()
+// }
 
 
 // #[post("/move_node/{id}/{parent_id}")]
@@ -139,92 +108,72 @@ pub async fn upload_file(provider: web::Data<Contrainer>, request: HttpRequest, 
     let user_id = user.user_id;
     let file_name = read_string_header(&request, "X-FILE-NAME").expect("Request should have File name present");
     let parent_id = read_int_header(&request, "X-PARENT-ID").expect("Request should have parent id");
-    let repo = provider.get_file_repository();
-
-    let node = repo.find_node_by_name(parent_id, user_id, file_name.clone().into()).await;
-    let path_manager = provider.get_path_manager();
-    if let Ok(Some(node)) = node {
-        let source_path = path_manager.get_top_save_folder(user_id).join(&node.filesystem_path);
-        let versions_mover = provider.get_versions_mover(user_id);
-        if let Ok(version_name) = versions_mover.move_to_versions(&source_path.to_path_buf()) {
-            let written_bytes = write_request_to_file(&source_path.to_path_buf(), body).await?;
-            if repo.update_node(&node, version_name, "text/plain", written_bytes).await.is_ok() {
-                return created(CreateNode { id: node.id });
-            }
+    let node_create = provider.get_node_create_service(user.user_id);
+    match node_create.create_file_node(parent_id, file_name, body).await {
+        Ok(id) => {
+            created(CreateNode { id })
         }
-    } else {
-        let node_path = get_path(&repo, &path_manager, parent_id, user_id, &file_name).await;
-        let written_bytes = write_request_to_file(&node_path.absolute_path, body).await?;
-
-        let file_node = FileNodeDto {
-            id: 0,
-            user_id: user.user_id,
-            title: file_name,
-            parent_id: Some(parent_id),
-            node_type: NODE_TYPE_FILE,
-            filesystem_path: node_path.relative_path,
-            mime_type: "text/plain".to_owned(),
-            modified_at: chrono::Utc::now(),
-            node_size: written_bytes,
-            node_version: 1,
-        };
-        if let Ok(node_id) = repo.add_node(file_node).await {
-            return created(CreateNode { id: node_id });
+        Err(_) => {
+            error_internal_server_error()
         }
     }
-    error_bad_request()
 }
 
-async fn write_request_to_file(output: &PathBuf, mut body: web::Payload) -> std::result::Result<i64, Box<dyn std::error::Error>> {
-    let mut size = 0_i64;
-    {
-        let output = output.clone();
-        let mut f = execute_file_system_operation(move || create_file(output)).await?;
-        while let Some(chunk) = body.try_next().await? {
-            size = size + chunk.len() as i64;
-            f = execute_file_system_operation(move || append_file(f, chunk)).await?;
-        }
-    }
-    return Ok(size);
-}
+// async fn write_request_to_file(output: &PathBuf, mut body: web::Payload) -> std::result::Result<i64, Box<dyn std::error::Error>> {
+//     let mut size = 0_i64;
+//     {
+//         let output = output.clone();
+//         let mut f = execute_file_system_operation(move || create_file(output)).await?;
+//         while let Some(chunk) = body.try_next().await? {
+//             size = size + chunk.len() as i64;
+//             f = execute_file_system_operation(move || append_file(f, chunk)).await?;
+//         }
+//     }
+//     Ok(size)
+// }
 
 #[get("/parents/{parent_id}")]
 pub async fn get_parents(provider: web::Data<Contrainer>, path: web::Path<i64>, user: AuthContext )-> Result<impl Responder>  {
     let parent_id = path.into_inner();
-    if parent_id == 0 {
-        return json(Vec::new());
-    } else {
-        let repo = provider.get_file_repository();
-        match repo.get_parent_nodes(parent_id, user.user_id).await {
-            Ok(nodes) => json(nodes),
-            Err(e) => {
-                log::error!("Error getting parents: {:?}", e);
-                error_internal_server_error()
-            }
+    let service = provider.get_node_provide_service(user.user_id);
+    match service.get_parent_nodes(parent_id).await {
+        Ok(parents) => {
+            json(parents)
         }
-        
-    }
-}
-
-struct NodePaths {
-    absolute_path: PathBuf,
-    relative_path: String,
-}
-
-async fn get_path<R, PM>(repo: &R, path_manager: &PM, parent_id: i64, user_id: i64, name: &str) -> NodePaths
-where R: FileRepository,
-      PM: PathManager {
-    let top_path = path_manager.get_top_save_folder(user_id);
-    return if parent_id == 0 {        
-        NodePaths {
-            absolute_path: top_path.join(name),
-            relative_path: name.to_owned()
-        }
-    } else {
-        let node = repo.get_node(parent_id, user_id).await.unwrap();
-        NodePaths {
-            absolute_path: top_path.join(&node.filesystem_path).join(name),
-            relative_path: PathBuf::from(&node.filesystem_path).join(name).to_str().unwrap().to_owned()
+        Err(e) => {
+            error!("Error has occurred while getting parents: {:?}", e);
+            error_internal_server_error()
         }
     }
 }
+
+#[derive(Debug, Deserialize)]
+pub struct TitleQueryString {
+    title: String,
+}
+
+#[get("/node-by-name/{parent_id}")]
+pub async fn get_node_by_name(provider: web::Data<Contrainer>, path: web::Path<i64>, query: web::Query<TitleQueryString>, user: AuthContext )-> Result<impl Responder>  {
+    let parent_id = path.into_inner();
+    let repo = provider.get_file_repository(user.user_id);
+    let search_query = SearchModel {
+        parent_id: Some(parent_id),
+        title: Some(query.title.clone()),
+        node_type: None,
+        mime_type: None,
+        from_date: None,
+        to_date: None,
+        from_size: None,
+        to_size: None
+    };
+    match repo.search_nodes(&search_query).await {
+        Ok(nodes) => json(nodes.iter().map(|n| 1).collect::<Vec::<i32>>()),
+        Err(e) => {
+            log::error!("Error finding node. [Error: {:?}]", e);
+            error_internal_server_error()
+        }
+    }
+}
+
+
+

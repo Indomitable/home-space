@@ -1,11 +1,13 @@
 use std::fs::File;
+use std::path::PathBuf;
 use std::sync::Arc;
 use actix_files::NamedFile;
 use home_space_contracts::files::{DisplayFileNode, NODE_TYPE_FILE, NODE_TYPE_FOLDER, ParentNode};
 use crate::files::db::file_node::FileNodeDto;
+use crate::files::file_system::execute_file_system_operation;
 use crate::files::files_repository::FileRepository;
 use crate::files::paths_manager::PathManager;
-use crate::files::service_result::{ServiceError, ServiceResult};
+use crate::files::service_result::ServiceResult;
 use crate::sorting::Sorting;
 
 pub(crate) struct NodeProvideService {
@@ -71,7 +73,7 @@ impl NodeProvideService {
 
     async fn get_file(&self, node: &FileNodeDto) -> ServiceResult<NamedFile> {
         let absolute_path = self.path_manager.get_absolute_path(&node);
-        let file = NamedFile::open_async(absolute_path).await?;
+        let file = NamedFile::open(absolute_path)?;
         Ok(file)
     }
 
@@ -86,19 +88,24 @@ impl NodeProvideService {
 
     async fn get_multiple_nodes(&self, ids: Vec<i64>) -> ServiceResult<NamedFile> {
         let temp_location = self.path_manager.get_temp_file(self.user_id);
-        let f = File::create(&temp_location)?;
-        let mut builder = tar::Builder::new(f);
-        for id in ids {
-            let node = self.file_repository.get_node(id).await?;
-            let absolute_path = self.path_manager.get_absolute_path(&node);
-            if node.node_type == NODE_TYPE_FILE {
-                builder.append_path_with_name(absolute_path, &node.title)?;
-            } else {
-                builder.append_dir_all(&node.title, absolute_path)?;
+        let zip_items = self.file_repository.get_nodes(&ids)
+            .await?
+            .iter()
+            .map(|node| (node.title.clone(), node.node_type, self.path_manager.get_absolute_path(&node)))
+            .collect::<Vec<(String, i16, PathBuf)>>();
+        let named_file = execute_file_system_operation(move || {
+            let f = File::create(&temp_location)?;
+            let mut builder = tar::Builder::new(f);
+            for item in zip_items {
+                if item.1 == NODE_TYPE_FILE {
+                    builder.append_path_with_name(&item.2, &item.0)?;
+                } else {
+                    builder.append_dir_all(&item.0, &item.2)?;
+                }
             }
-        }
-        builder.finish()?;
-        let named_file = NamedFile::from_file(File::open(&temp_location)?, "archive.tar")?;
+            builder.finish()?;
+            NamedFile::from_file(File::open(&temp_location)?, "archive.tar")
+        }).await?;
         Ok(named_file)
     }
 
@@ -107,12 +114,15 @@ impl NodeProvideService {
         // Create a tar archive in a temp folder and return file.
         // We need to clean files after downloading them.
         let temp_location = self.path_manager.get_temp_file(self.user_id);
-        let f = File::create(&temp_location)?;
-        let mut builder = tar::Builder::new(f);
         let absolute_path = self.path_manager.get_absolute_path(node);
-        builder.append_dir_all(&node.title, &absolute_path)?;
-        builder.finish()?;
-        let named_file = NamedFile::from_file(File::open(&temp_location)?, format!("{}.tar", node.title))?;
+        let title = node.title.clone();
+        let named_file = execute_file_system_operation(move|| {
+            let f = File::create(&temp_location)?;
+            let mut builder = tar::Builder::new(f);
+            builder.append_dir_all(&title, &absolute_path)?;
+            builder.finish()?;
+            NamedFile::from_file(File::open(&temp_location)?, format!("{}.tar", title))
+        }).await?;
         Ok(named_file)
     }
 }

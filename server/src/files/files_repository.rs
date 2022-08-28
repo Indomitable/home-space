@@ -52,6 +52,16 @@ impl FileRepository {
         Ok(node)
     }
 
+    pub(crate) async fn get_nodes(&self, node_ids: &Vec<i64>) -> DbResult<Vec<FileNodeDto>> {
+        let sql = format!(r#"select {} from file_nodes fn where user_id = $1 and id = ANY($2)"#, FileNodeDto::column_list("fn"));
+        let nodes = self.db.query(&sql, &[&self.user_id, &node_ids])
+            .await?
+            .iter()
+            .map(FileNodeDto::read_node)
+            .collect();
+        Ok(nodes)
+    }
+
     pub(crate) async fn get_node_by_path(&self, path: &str) -> DbResult<Option<FileNodeDto>> {
         let sql = format!(r#"select {} from file_nodes fn where user_id = $1 and filesystem_path = $2"#, FileNodeDto::column_list("fn"));
         let node =

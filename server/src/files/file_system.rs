@@ -7,7 +7,7 @@ use futures_util::{Stream, TryStreamExt};
 
 use super::paths_manager::PathManager;
 
-async fn execute_file_system_operation<TOutput>(operation: impl FnOnce() -> Result<TOutput> + Send + 'static) -> Result<TOutput>
+pub(crate) async fn execute_file_system_operation<TOutput>(operation: impl FnOnce() -> Result<TOutput> + Send + 'static) -> Result<TOutput>
 where TOutput: Send + 'static {
     web::block(operation)
         .await

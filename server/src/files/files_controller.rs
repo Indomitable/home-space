@@ -31,7 +31,7 @@ pub(crate) async fn get_nodes(provider: web::Data<Contrainer>, path: web::Path<i
 ///
 /// Downloads file with id.
 /// 
-#[get("/download")]
+// #[get("/download")]
 pub async fn get_file(provider: web::Data<Contrainer>, request: HttpRequest, user: AuthContext) -> Result<impl Responder> {
     let node_ids = request
         .query_string()

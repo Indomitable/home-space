@@ -3,7 +3,7 @@ import type { Router } from "vue-router";
 
 import { HttpMethod, RequestBuilder } from "@/api/request-builder";
 import { resolveApiUrl } from "@/api/url-resolver";
-import { NodeType, type FileNode } from "@/models/file-node";
+import { type FileNode, NodeType } from "@/models/file-node";
 import type { Sorting } from "@/models/sorting";
 
 import type { UserService } from "../user/user-service";
@@ -30,7 +30,7 @@ export class FileActionService {
         if (node.nodeType === NodeType.Folder) {
             await this.navigateFolder(router, node.id);
         } else {
-            await this.downloadFile(node);
+            await this.downloadNodes([node]);
         }
     }
 
@@ -82,14 +82,24 @@ export class FileActionService {
         await RequestBuilder.create(url).setMethod(HttpMethod.DELETE).enhance(this.userService).build().execute();
     }
 
-    private async downloadFile(file: FileNode): Promise<void> {
-        const url = resolveApiUrl("files", "file", file.id);
-        const blob = await RequestBuilder.create(url)
+    async downloadNodes(nodes: FileNode[]): Promise<void> {
+        function getSaveFileName(): string {
+            if (nodes.length === 1) {
+                const node = nodes[0];
+                return node.nodeType === NodeType.File ? node.title : `${node.title}.tar`;
+            }
+            return "archive.tar";
+        }
+
+        const url = resolveApiUrl("files", "download");
+        const query = new URLSearchParams(nodes.map(n => ["id", "" + n.id]));
+        const blob = await RequestBuilder.create(`${url}?${query.toString()}`)
             .setMethod(HttpMethod.GET)
             .enhance(this.userService)
             .build("blob")
             .execute();
-        await this.fileSystem.saveFile(blob, file.title, []);
+        const saveFileName = getSaveFileName();
+        await this.fileSystem.saveFile(blob, saveFileName, []);
     }
 }
 

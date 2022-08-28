@@ -7,50 +7,6 @@ use futures_util::{Stream, TryStreamExt};
 
 use super::paths_manager::PathManager;
 
-pub fn create_file(path: PathBuf) -> Result<File> {
-    let f = File::create(path)?;
-    Ok(f)
-}
-
-pub fn create_dir(path: PathBuf) -> Result<()> {
-    fs::create_dir(path)
-}
-
-pub fn append_file(mut file: File, bytes: Bytes) -> Result<File> {
-    let f = file.write_all(&bytes).map(|_| file)?;
-    Ok(f)
-}
-
-// pub fn delete_file(path: PathBuf) -> Result<()> {
-//     fs::remove_file(path)
-// }
-
-pub fn delete_dir(path: &PathBuf) -> Result<()> {
-    fs::remove_dir(path)
-}
-
-/// Moves file or empty folder to new location
-pub fn move_node(source_path: &Path, destination_path: &Path) -> Result<()> {
-    if source_path.is_file() {
-        fs::copy(source_path, destination_path)?;
-        fs::remove_file(source_path)?;
-    } else {
-        fs::create_dir(destination_path)?;
-        fs::remove_dir(source_path)?;
-    }
-    Ok(())
-}
-
-/// Copies file or empty folder to new location
-pub fn copy_node(source_path: &Path, destination_path: &Path) -> Result<()> {
-    if source_path.is_file() {
-        fs::copy(source_path, destination_path)?;
-    } else {
-        fs::create_dir(destination_path)?;
-    }
-    Ok(())
-}
-
 async fn execute_file_system_operation<TOutput>(operation: impl FnOnce() -> Result<TOutput> + Send + 'static) -> Result<TOutput>
 where TOutput: Send + 'static {
     web::block(operation)
@@ -84,13 +40,35 @@ impl FileSystemManager {
         Ok(())
     }
 
+    /// Remove folder
+    pub(crate) async fn remove_dir(&self, path: &str) -> Result<()> {
+        let path = self.user_root_dir.join(path);
+        execute_file_system_operation(move || fs::remove_dir(&path)).await?;
+        Ok(())
+    }
+
     ///
     /// Copy node in another parent.
     /// Paths are relative to the user root.
-    pub(crate) async fn copy_node_to_destination(&self, source_path: &str, destination_path: &str) -> Result<()> {
+    pub(crate) async fn copy_file_to_destination(&self, source_path: &str, destination_path: &str) -> Result<()> {
         let source = self.user_root_dir.join(source_path);
         let destination = self.user_root_dir.join(destination_path);
-        execute_file_system_operation(move || copy_node(&source, &destination)).await?;
+
+        execute_file_system_operation(move || fs::copy(&source, &destination)).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn move_file_to_destination(&self, source_path: &str, destination_path: &str) -> Result<()> {
+        let source = self.user_root_dir.join(source_path);
+        let destination = self.user_root_dir.join(destination_path);
+
+        fn move_file(source_path: &Path, destination_path: &Path) -> Result<()> {
+            fs::copy(source_path, destination_path)?;
+            fs::remove_file(source_path)?;
+            Ok(())
+        }
+
+        execute_file_system_operation(move || move_file(&source, &destination)).await?;
         Ok(())
     }
 
@@ -107,10 +85,20 @@ impl FileSystemManager {
         where TStream: Stream<Item=std::result::Result<Bytes, TError>> + Unpin {
         let mut size = 0_usize;
         {
+            fn create_file(path: PathBuf) -> Result<File> {
+                let f = File::create(path)?;
+                Ok(f)
+            }
+
+            fn append_file(mut file: File, bytes: Bytes) -> Result<File> {
+                let f = file.write_all(&bytes).map(|_| file)?;
+                Ok(f)
+            }
+
             let output = output.clone();
             let mut f = execute_file_system_operation(move || create_file(output)).await?;
             while let Ok(Some(chunk)) = stream.try_next().await {
-                size = size + chunk.len();
+                size += chunk.len();
                 f = execute_file_system_operation(move || append_file(f, chunk)).await?;
             }
         }

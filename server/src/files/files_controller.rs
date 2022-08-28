@@ -31,18 +31,22 @@ pub(crate) async fn get_nodes(provider: web::Data<Contrainer>, path: web::Path<i
 ///
 /// Downloads file with id.
 /// 
-#[get("/file/{id}")]
-pub async fn get_file(provider: web::Data<Contrainer>, path: web::Path<i64>, user: AuthContext) -> Result<impl Responder> {
-    let id = path.into_inner();
+#[get("/download")]
+pub async fn get_file(provider: web::Data<Contrainer>, request: HttpRequest, user: AuthContext) -> Result<impl Responder> {
+    let node_ids = request
+        .query_string()
+        .split('&')
+        .map(|s|
+            s.split('=').last().unwrap().parse::<i64>().unwrap()
+        ).collect();
     let service = provider.get_node_provide_service(user.user_id);
-    match service.get_file(id).await {
+    match service.download_nodes(node_ids).await {
         Ok(file) => Ok(file),
         Err(e) => {
             error!("Error has occurred while getting file: {:?}", e);
             error_not_found() // file not found
         }
     }
-
 }
 
 ///

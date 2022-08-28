@@ -44,7 +44,8 @@ TODO:
 - [ ] External locations: Ability to attach external folder
     - [ ] Readonly mode: View and download files in it.
     - [ ] Edit mode: Copy/Move/Rename files
-    - [ ] Moves files between managed and external locations.
+    - [ ] Move files between managed and external locations.
+- [ ] Process indication. Upload/Copy/Move file indicator. How should we use websocket to upload file and show progress? 
 
 ### Security
 - [ ] Move JWT to HTTP only, SameSite and Secure cookie: This will give ability to open files in the browser with direct links.

@@ -34,6 +34,10 @@ async function onDeleteSelectedNodes() {
         await fileActionService.deleteNode(node.id);
     }
 }
+
+async function onDownloadSelectedNodes() {
+    await fileActionService.downloadNodes(props.ctrl.selectedNodes.value);
+}
 </script>
 <template>
     <ul class="file-actions">
@@ -42,7 +46,7 @@ async function onDeleteSelectedNodes() {
         </li>
         <template v-if="ctrl.selectedNodes.value.length > 0">
             <li>
-                <button class="icon-button ghost-button">
+                <button class="icon-button ghost-button" @click="onDownloadSelectedNodes">
                     <span class="icon-outlined">file_download</span>
                     Download
                 </button>

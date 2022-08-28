@@ -1,6 +1,8 @@
+use std::fs::File;
 use std::sync::Arc;
 use actix_files::NamedFile;
-use home_space_contracts::files::{DisplayFileNode, NODE_TYPE_FOLDER, ParentNode};
+use home_space_contracts::files::{DisplayFileNode, NODE_TYPE_FILE, NODE_TYPE_FOLDER, ParentNode};
+use crate::files::db::file_node::FileNodeDto;
 use crate::files::files_repository::FileRepository;
 use crate::files::paths_manager::PathManager;
 use crate::files::service_result::{ServiceError, ServiceResult};
@@ -42,14 +44,13 @@ impl NodeProvideService {
         Ok(nodes)
     }
 
-    pub(crate) async fn get_file(&self, id: i64) -> ServiceResult<NamedFile> {
-        let node = self.file_repository.get_node(id).await?;
-        if node.node_type == NODE_TYPE_FOLDER {
-            return Err(ServiceError::new("NodeProvideService", "Can get only file nodes"));
+    pub(crate) async fn download_nodes(&self, ids: Vec<i64>) -> ServiceResult<NamedFile> {
+        if ids.len() == 1 {
+            let id = *ids.get(0).unwrap();
+            self.get_single_node(id).await
+        } else {
+            self.get_multiple_nodes(ids).await
         }
-        let absolute_path = self.path_manager.get_top_save_folder(self.user_id).join(node.filesystem_path);
-        let file = NamedFile::open_async(absolute_path).await?;
-        Ok(file)
     }
 
     pub(crate) async fn get_parent_nodes(&self, id: i64) -> ServiceResult<Vec<ParentNode>> {
@@ -66,5 +67,52 @@ impl NodeProvideService {
             })
             .collect();
         Ok(nodes)
+    }
+
+    async fn get_file(&self, node: &FileNodeDto) -> ServiceResult<NamedFile> {
+        let absolute_path = self.path_manager.get_absolute_path(&node);
+        let file = NamedFile::open_async(absolute_path).await?;
+        Ok(file)
+    }
+
+    async fn get_single_node(&self, id: i64) -> ServiceResult<NamedFile> {
+        let node = self.file_repository.get_node(id).await?;
+        if node.node_type == NODE_TYPE_FOLDER {
+            self.get_folder(&node).await
+        } else {
+            self.get_file(&node).await
+        }
+    }
+
+    async fn get_multiple_nodes(&self, ids: Vec<i64>) -> ServiceResult<NamedFile> {
+        let temp_location = self.path_manager.get_temp_file(self.user_id);
+        let f = File::create(&temp_location)?;
+        let mut builder = tar::Builder::new(f);
+        for id in ids {
+            let node = self.file_repository.get_node(id).await?;
+            let absolute_path = self.path_manager.get_absolute_path(&node);
+            if node.node_type == NODE_TYPE_FILE {
+                builder.append_path_with_name(absolute_path, &node.title)?;
+            } else {
+                builder.append_dir_all(&node.title, absolute_path)?;
+            }
+        }
+        builder.finish()?;
+        let named_file = NamedFile::from_file(File::open(&temp_location)?, "archive.tar")?;
+        Ok(named_file)
+    }
+
+    async fn get_folder(&self, node: &FileNodeDto) -> ServiceResult<NamedFile> {
+        // Since the folder can be bigger and the memory can be limited.
+        // Create a tar archive in a temp folder and return file.
+        // We need to clean files after downloading them.
+        let temp_location = self.path_manager.get_temp_file(self.user_id);
+        let f = File::create(&temp_location)?;
+        let mut builder = tar::Builder::new(f);
+        let absolute_path = self.path_manager.get_absolute_path(node);
+        builder.append_dir_all(&node.title, &absolute_path)?;
+        builder.finish()?;
+        let named_file = NamedFile::from_file(File::open(&temp_location)?, format!("{}.tar", node.title))?;
+        Ok(named_file)
     }
 }

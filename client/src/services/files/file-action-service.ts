@@ -9,7 +9,7 @@ import type { Sorting } from "@/models/sorting";
 import type { UserService } from "../user/user-service";
 import type { FileSystemService } from "./file-system-service";
 import type { FileLoadService } from "./files-load-service";
-import { UploadFileRequestEnchancer } from "./upload-file-request-enchancer";
+import { UploadFileRequestEnhancer } from "./upload-file-request-enhancer";
 
 export class FileActionService {
     constructor(
@@ -70,7 +70,7 @@ export class FileActionService {
         const response = await RequestBuilder.create(url)
             .setMethod(HttpMethod.PUT)
             .enhance(this.userService)
-            .enhance(new UploadFileRequestEnchancer(parentId, file.name))
+            .enhance(new UploadFileRequestEnhancer(parentId, file.name))
             .setBody(file)
             .build<FileNodeDto>()
             .execute();

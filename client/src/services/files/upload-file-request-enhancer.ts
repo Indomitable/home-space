@@ -1,6 +1,6 @@
 import type { RequestInitVisitor } from "@/api/request-init-visitor";
 
-export class UploadFileRequestEnchancer implements RequestInitVisitor {
+export class UploadFileRequestEnhancer implements RequestInitVisitor {
     constructor(private parentId: number, private fileName: string) {}
     visit(requestInit: RequestInit): void {
         const headers = requestInit.headers as Record<string, string>;

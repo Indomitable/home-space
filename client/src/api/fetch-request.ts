@@ -7,7 +7,7 @@ export interface ServerError extends Error {
 export class FetchRequest<TResponse> {
     constructor(
         private endpoint: string,
-        private expectedFormat: XMLHttpRequestResponseType,
+        private expectedFormat: XMLHttpRequestResponseType | "stream",
         private requestInit: RequestInit
     ) {}
 
@@ -34,6 +34,12 @@ export class FetchRequest<TResponse> {
             case "text":
             case "document": {
                 return response.text() as unknown as Promise<TResponse>;
+            }
+            case "stream": {
+                return Promise.resolve({
+                    stream: response.body,
+                    length: +(response.headers.get("content-length") || "0"),
+                }) as unknown as Promise<TResponse>;
             }
             default: {
                 return undefined as unknown as TResponse;

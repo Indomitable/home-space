@@ -93,13 +93,15 @@ export class FileActionService {
 
         const url = resolveApiUrl("files", "download");
         const query = new URLSearchParams(nodes.map(n => ["id", "" + n.id]));
-        const blob = await RequestBuilder.create(`${url}?${query.toString()}`)
+        const data = await RequestBuilder.create(`${url}?${query.toString()}`)
             .setMethod(HttpMethod.GET)
             .enhance(this.userService)
-            .build("blob")
+            .build("stream")
             .execute();
         const saveFileName = getSaveFileName();
-        await this.fileSystem.saveFile(blob, saveFileName, []);
+        if (data.stream != null) {
+            await this.fileSystem.saveFileStream({ stream: data.stream, length: data.length }, saveFileName, []);
+        }
     }
 }
 

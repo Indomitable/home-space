@@ -48,8 +48,9 @@ export class RequestBuilder {
     build(expectedResponseType: "arraybuffer"): FetchRequest<ArrayBuffer>;
     build(expectedResponseType: "text"): FetchRequest<string>;
     build(expectedResponseType: "document"): FetchRequest<string>;
+    build(expectedResponseType: "stream"): FetchRequest<{ stream: ReadableStream<Uint8Array> | null; length: number }>;
     build(expectedResponseType: ""): FetchRequest<void>;
-    build(expectedResponseType: XMLHttpRequestResponseType = "json"): FetchRequest<unknown> {
+    build(expectedResponseType: XMLHttpRequestResponseType | "stream" = "json"): FetchRequest<unknown> {
         if (expectedResponseType === "json") {
             (this.requestInit.headers as Record<string, string>).accept = MimeTypes.Json;
         }

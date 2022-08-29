@@ -34,6 +34,61 @@ export class FileSystemService {
         }
     }
 
+    async saveFileStream(
+        data: { stream: ReadableStream<Uint8Array>; length: number },
+        suggestedName: string,
+        acceptTypes: FilePickerAcceptType[]
+    ): Promise<void> {
+        const { showSaveFilePicker } = window;
+        if (typeof showSaveFilePicker === "undefined") {
+            // Firefox doesn't support showSaveFilePicker, so we need to put file in memory first
+            // This is not optimal for bigger files can be too slow.
+            let blob: Blob | undefined;
+            let chunks: Uint8Array[] | null = [];
+            // We can read chunks in array or using WritableStream
+            // Writable Stream is fun :)
+            const writableStream = new WritableStream({
+                write: chunk => {
+                    chunks!.push(chunk);
+                },
+                close: () => {
+                    blob = new Blob(chunks!);
+                },
+            });
+            await data.stream.pipeTo(writableStream);
+            if (blob) {
+                const downloadLink = document.createElement("a");
+                const url = window.URL.createObjectURL(blob);
+                downloadLink.href = url;
+                downloadLink.download = suggestedName;
+                downloadLink.click();
+                window.URL.revokeObjectURL(url);
+                chunks = null;
+            }
+        }
+        const options: SaveFilePickerOptions = {
+            types: acceptTypes,
+            excludeAcceptAllOption: false,
+            suggestedName,
+        };
+
+        const handle = await showSaveFilePicker(options);
+        const writable = await handle.createWritable();
+        await data.stream.pipeTo(writable);
+        // We can add download progress using following code, for now use pipeTo
+        // const reader = data.stream.getReader();
+        // const writer = writable.getWriter();
+        // let bytesWritten = 0;
+        // for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+        //     if (data.length > 0) {
+        //         bytesWritten += chunk.value.length;
+        //         console.debug(`Write ${bytesWritten} bytes of ${data.length} bytes`);
+        //     }
+        //     await writer.write(chunk.value);
+        // }
+        // await writer.close();
+    }
+
     async *loadFiles(acceptTypes: FilePickerAcceptType[]): AsyncGenerator<File> {
         const { showOpenFilePicker } = window;
         if (typeof showOpenFilePicker === "undefined") {

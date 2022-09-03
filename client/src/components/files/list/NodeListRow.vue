@@ -50,7 +50,8 @@ function onNodeTitleClick() {
             <span class="icon-filled file-item-menu node-row-action">more_vert</span>
         </div>
         <div class="node-row__node-size">{{ nodeSize }}</div>
-        <div class="node-row__modified_at">{{ node.modifiedAt.toLocaleString() }}</div>
+        <div class="node-row__modified_at">{{ node.modifiedAtDisplay }}</div>
+        <div class="node-row__version">{{ node.nodeVersion }}</div>
     </div>
 </template>
 
@@ -124,6 +125,9 @@ function onNodeTitleClick() {
 }
 
 .node-row__modified_at {
+    text-align: center;
+}
+.node-row__version {
     text-align: center;
 }
 </style>

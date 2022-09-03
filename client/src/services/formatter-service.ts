@@ -27,6 +27,11 @@ export class FormatterService {
             return `${sizeBytes} byte(s)`;
         }
     }
+
+    formatDate(date: Date) {
+        const formatter = Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "medium" });
+        return formatter.format(date);
+    }
 }
 
 export const formatterServiceInjectionToken: InjectionKey<FormatterService> = Symbol("FormatterService");

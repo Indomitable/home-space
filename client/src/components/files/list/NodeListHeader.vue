@@ -66,6 +66,9 @@ function onColumnNameClick(name: string) {
         >
             <span>Last Modified</span>
         </div>
+        <div class="node-list-header__title">
+            <span>Version</span>
+        </div>
     </div>
 </template>
 

@@ -16,6 +16,7 @@ interface FileNodeDto {
     mime_type: string;
     modified_at: string;
     node_size: number;
+    node_version: number;
     is_favorite: boolean;
 }
 
@@ -48,8 +49,10 @@ export class FileLoadService {
             nodeType: node.node_type === 0 ? NodeType.Folder : NodeType.File,
             mimeType: node.mime_type,
             modifiedAt: new Date(node.modified_at),
+            modifiedAtDisplay: this.formatter.formatDate(new Date(node.modified_at)),
             nodeSize: node.node_size,
             nodeSizeHuman: this.formatter.formatSize(node.node_size),
+            nodeVersion: node.node_version,
             isFavorite: node.is_favorite,
         };
     }

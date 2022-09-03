@@ -22,15 +22,15 @@ const login = async (userName: string, password: string) => {
 </script>
 
 <template>
-    <div class="login-dialog">
-        <input class="input" type="text" v-model="userName" />
-        <input class="input" type="password" v-model="password" />
+    <form class="login-dialog">
+        <input class="input" type="text" v-model="userName" autocomplete="username" />
+        <input class="input" type="password" v-model="password" autocomplete="current-password" />
         <span v-if="!!loginError">{{ loginError }}</span>
         <div class="login-actions">
-            <button class="button login-button" v-on:click="login(userName, password)">Login</button>
-            <button class="button register-button">Register</button>
+            <button class="button login-button" v-on:click="login(userName, password)" type="button">Login</button>
+            <button class="button register-button" type="button">Register</button>
         </div>
-    </div>
+    </form>
 </template>
 
 <style scoped>

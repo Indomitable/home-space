@@ -23,7 +23,7 @@ function uploadFiles() {
 }
 </script>
 <template>
-    <button class="file-action-create ghost-button" v-on:click="listVisible = !listVisible">
+    <button class="file-action-create ghost-button" v-on:click="listVisible = !listVisible" :class="$attrs.class">
         <span class="icon-outlined">note_add</span>
         <span>Create</span>
         <span class="icon-filled">arrow_drop_down</span>

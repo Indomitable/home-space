@@ -4,11 +4,16 @@
 }
 
 .button {
-    background: #30333d;        
-    color: #c0bdbd;
+    background: var(--button-background-color);
+    color: var(--button-font-color);
     border: none;
     outline: none;
     cursor: pointer;
+    padding: 8px 20px;
+}
+
+.button[disabled] {
+    opacity: 0.6;
 }
 
 .ghost-button {

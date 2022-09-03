@@ -1,4 +1,4 @@
-import { reactive, computed, type ComputedRef, ref, type Ref } from "vue";
+import { computed, type ComputedRef, reactive, ref, type Ref } from "vue";
 import type { Router } from "vue-router";
 
 import type { FileNode } from "@/models/file-node";
@@ -48,7 +48,6 @@ export class NodeListController {
     toggleAllNodeSelection(selected: boolean) {
         for (const node of this.nodes.value) {
             this.nodesState[node.id].selected = selected;
-            this.nodesState[node.id].rename = false;
         }
     }
 
@@ -61,8 +60,7 @@ export class NodeListController {
     }
 
     async load(sorting: Sorting) {
-        const nodes = await this.fileActionService.loadNodes(this.parentId, sorting);
-        this.nodes.value = nodes;
+        this.nodes.value = await this.fileActionService.loadNodes(this.parentId, sorting);
         this.sorting.value = sorting;
         for (const node of this.nodes.value) {
             if (!(node.id in this.nodesState)) {
@@ -70,14 +68,12 @@ export class NodeListController {
                     selected: false,
                     rename: false,
                 };
-            } else {
-                this.nodesState[node.id].rename = false;
             }
         }
     }
 
     async refresh() {
-        await this.load(this.sorting.value); // reload with same sorting 
+        await this.load(this.sorting.value); // reload with same sorting
     }
 
     async toggleNodeFavorite(node: FileNode, favorite: boolean): Promise<void> {

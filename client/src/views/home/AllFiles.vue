@@ -4,6 +4,7 @@ import { inject, provide } from "vue";
 import { provideFileServices } from "@/di/files.provide";
 
 import FilesMain from "@/components/files/FilesMain.vue";
+import NodeClipboard from "@/components/files/clipboard/NodeClipboard.vue";
 
 interface AllFilesProps {
     parent: string; // we pass parent from url and router always pass it as string
@@ -20,4 +21,5 @@ provide("parent-id", parentId);
     <suspense>
         <files-main :parent-id="+props.parent" />
     </suspense>
+    <node-clipboard />
 </template>

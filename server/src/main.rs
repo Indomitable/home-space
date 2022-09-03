@@ -15,6 +15,7 @@ mod user;
 mod files;
 mod sorting;
 mod ioc;
+mod websocket;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -40,6 +41,7 @@ async fn main() -> std::io::Result<()> {
                 Cors::default()
                     .allowed_origin("http://127.0.0.1:5173")
                     .allowed_origin("http://localhost:7070")
+                    .allowed_origin("https://www.piesocket.com")
                     .allow_any_header()
                     .allow_any_method()
                 ))
@@ -47,6 +49,9 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/api")
                     .configure(user::init_routes)
                     .configure(files::init_routes(auth_middleware))
+            )
+            .service(
+                web::scope("/ws").configure(websocket::init_routes)
             );
 
             if is_prod {

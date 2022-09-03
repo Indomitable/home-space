@@ -10,6 +10,7 @@ import type { UserService } from "../user/user-service";
 import type { FileSystemService } from "./file-system-service";
 import type { FileLoadService } from "./files-load-service";
 import { UploadFileRequestEnhancer } from "./upload-file-request-enhancer";
+import type { ClipboardOperation } from "./clipboard-service";
 
 export class FileActionService {
     constructor(
@@ -102,6 +103,19 @@ export class FileActionService {
         if (data.stream != null) {
             await this.fileSystem.saveFileStream({ stream: data.stream, length: data.length }, saveFileName, []);
         }
+    }
+
+    async pasteNodes(nodes: FileNode[], operation: ClipboardOperation, destination: number): Promise<void> {
+        const url = resolveApiUrl("files", "paste", destination);
+        await RequestBuilder.create(url)
+            .setMethod(HttpMethod.POST)
+            .enhance(this.userService)
+            .setJsonBody({
+                nodes: nodes.map(n => n.id),
+                operation,
+            })
+            .build("")
+            .execute();
     }
 }
 

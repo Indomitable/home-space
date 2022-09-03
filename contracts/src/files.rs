@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 pub const NODE_TYPE_FOLDER: i16 = 0;
 pub const NODE_TYPE_FILE: i16 = 1;
 
-#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DisplayFileNode {
     pub id: i64,
     pub title: String,
@@ -16,7 +16,13 @@ pub struct DisplayFileNode {
     pub is_favorite: bool
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
+impl PartialEq for DisplayFileNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct FileNode {
     pub id: i64,
     pub title: String,
@@ -28,20 +34,46 @@ pub struct FileNode {
     pub node_version: i32,
 }
 
+impl PartialEq for FileNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
 
-#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ParentNode {
     pub id: i64,
     pub title: String,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
-pub struct CreateNode {
+impl PartialEq for ParentNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CreateNodeResponse {
     pub id: i64
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+impl PartialEq for CreateNodeResponse {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+#[derive(Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub struct CreateFolderRequest {
     pub parent_id: i64,
     pub name: String
+}
+
+pub const PASTE_OPERATION_MOVE: i16 = 1;
+pub const PASTE_OPERATION_COPY: i16 = 2;
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PasteNodesRequest {
+    pub nodes: Vec<i64>,
+    pub operation: i16,
 }

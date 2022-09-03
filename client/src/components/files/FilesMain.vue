@@ -4,10 +4,10 @@ import { useRouter } from "vue-router";
 
 import { fileActionServiceInjectionToken } from "@/services/files/file-action-service";
 
-import FileActions from "./toolbox/FilesActions.vue";
 import BreadcrumbsFileNav from "./breadcrumbs/BreadcrumbsFileNav.vue";
 import NodeList from "./list/NodeList.vue";
 import { NodeListController } from "./list/node-list-controller";
+import FileActions from "./toolbox/FilesActions.vue";
 
 interface FilesMainProps {
     parentId: number;

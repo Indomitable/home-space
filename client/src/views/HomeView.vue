@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { inject } from "vue";
+
 import { userServiceInjectionToken } from "@/services/user/user-service";
 import TopHeader from "@/components/header/TopHeader.vue";
 import LeftNavigation from "@/components/navigation/LeftNavigation.vue";
-import { inject } from "vue";
 
 const userService = inject(userServiceInjectionToken)!;
 const loggedUser = userService.getLoggedUser();

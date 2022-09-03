@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-import { NodeType, type FileNode } from "@/models/file-node";
+import { type FileNode, NodeType } from "@/models/file-node";
 
 import SelectAction from "./actions/SelectAction.vue";
 import FavoriteAction from "./actions/FavoriteAction.vue";
@@ -72,6 +72,14 @@ function onNodeTitleClick() {
         .node-row-action {
             visibility: visible;
         }
+    }
+}
+
+.node-row--clipboard {
+    > .node-row__title,
+    > .node-row__node-size,
+    > .node-row__modified_at {
+        opacity: 0.4;
     }
 }
 

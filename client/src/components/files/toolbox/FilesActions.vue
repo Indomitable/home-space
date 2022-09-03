@@ -3,9 +3,11 @@ import { inject } from "vue";
 
 import { fileActionServiceInjectionToken } from "@/services/files/file-action-service";
 import { fileSystemServiceInjectionToken } from "@/services/files/file-system-service";
+import { ClipboardOperation } from "@/services/files/clipboard-service";
 
 import type { NodeListController } from "../list/node-list-controller";
 import FilesActionCreate from "./create/FilesActionCreate.vue";
+import CopyAction from "./copy/CopyAction.vue";
 
 interface FileActionsProps {
     parentId: number;
@@ -41,50 +43,47 @@ async function onDownloadSelectedNodes() {
 </script>
 <template>
     <ul class="file-actions">
-        <li class="file-actions-create-container">
-            <files-action-create @create-folder="onCreateFolder" @upload-files="onUploadFiles" />
+        <li class="file-actions-item file-actions-create-container">
+            <files-action-create
+                class="file-actions-button"
+                @create-folder="onCreateFolder"
+                @upload-files="onUploadFiles"
+            />
         </li>
         <template v-if="ctrl.selectedNodes.value.length > 0">
-            <li>
-                <button class="icon-button ghost-button" @click="onDownloadSelectedNodes">
+            <li class="file-actions-item">
+                <button class="file-actions-button icon-button ghost-button" @click="onDownloadSelectedNodes">
                     <span class="icon-outlined">file_download</span>
                     Download
                 </button>
             </li>
-            <li>
-                <button class="icon-button ghost-button" @click="onDeleteSelectedNodes">
+            <li class="file-actions-item">
+                <button class="file-actions-button icon-button ghost-button" @click="onDeleteSelectedNodes">
                     <span class="icon-outlined">delete</span>
                     Delete
                 </button>
             </li>
-            <li>
-                <button class="icon-button ghost-button">
-                    <span class="icon-outlined">drive_file_move</span>
-                    Move to
-                </button>
+            <li class="file-actions-item">
+                <copy-action
+                    class="file-actions-button"
+                    :ctrl="ctrl"
+                    :operation="ClipboardOperation.Cut"
+                    :selected-nodes="ctrl.selectedNodes"
+                />
             </li>
-            <li>
-                <button class="icon-button ghost-button">
-                    <span class="icon-outlined">file_copy</span>
-                    Copy to
-                </button>
-            </li>
-        </template>
-        <template v-if="ctrl.selectedNodes.value.length === 1">
-            <li>
-                <button
-                    class="icon-button ghost-button"
-                    @click="() => ctrl.toggleNodeRename(ctrl.selectedNodes.value[0], true)"
-                >
-                    <span class="icon-outlined">drive_file_rename_outline</span>
-                    Rename
-                </button>
+            <li class="file-actions-item">
+                <copy-action
+                    class="file-actions-button"
+                    :ctrl="ctrl"
+                    :operation="ClipboardOperation.Copy"
+                    :selected-nodes="ctrl.selectedNodes"
+                />
             </li>
         </template>
     </ul>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss">
 .file-actions {
     height: 50px;
     display: flex;
@@ -93,10 +92,10 @@ async function onDownloadSelectedNodes() {
     padding: 0 10px;
     border-bottom: 1px solid var(--border-color);
 
-    > li {
+    > .file-actions-item {
         width: 120px;
 
-        > button {
+        > .file-actions-button {
             margin: 0 auto;
             font-size: 15px;
         }

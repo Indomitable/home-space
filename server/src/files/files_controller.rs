@@ -1,11 +1,12 @@
 use actix_web::HttpRequest;
-use actix_web::{web, Responder, Result, get, put};
+use actix_web::{web, Responder, Result, get, put, post};
 use log::error;
 
-use home_space_contracts::files::{CreateNode, CreateFolderRequest};
+use home_space_contracts::files::{CreateNodeResponse, CreateFolderRequest, PasteNodesRequest, PASTE_OPERATION_COPY};
 use crate::ioc::container::Contrainer;
 use crate::response::*;
 use crate::auth::AuthContext;
+use crate::files::service_result::ServiceResult;
 use crate::sorting::Sorting;
 
 ///
@@ -58,7 +59,7 @@ pub async fn create_folder(provider: web::Data<Contrainer>, user: AuthContext, b
     let service = provider.get_node_create_service(user.user_id);
     match service.create_folder_node(parent_id, &name).await {
         Ok(id) => {
-            created(CreateNode { id })
+            created(CreateNodeResponse { id })
         }
         Err(e) => {
             error!("Error has occurred while creating folder: {:?}", e);
@@ -93,19 +94,19 @@ pub async fn create_folder(provider: web::Data<Contrainer>, user: AuthContext, b
 // }
 
 
-// #[post("/move_node/{id}/{parent_id}")]
-// pub async fn move_node(request: HttpRequest, provider: web::Data<Contrainer>, path: web::Path<i64>, user: web::Query<User>) -> Result<impl Responder> {
-//     todo!("Implement move node");
-//     // let id = path.into_inner();
-//     no_content()
-// }
-
-// #[post("/copy_node/{id}/{parent_id}")]
-// pub async fn copy_node(request: HttpRequest, provider: web::Data<Contrainer>, path: web::Path<i64>, user: web::Query<User>) -> Result<impl Responder> {
-//     todo!("Implement copy node");
-//     // let id = path.into_inner();
-//     created()
-// }
+#[post("/paste/{parent_id}")]
+pub async fn paste_nodes(provider: web::Data<Contrainer>, path: web::Path<i64>, body: web::Json<PasteNodesRequest>, user: AuthContext) -> Result<impl Responder> {
+    let parent_id = path.into_inner();
+    let node_move_service = provider.get_node_move_service(user.user_id);
+    let body = body.into_inner();
+    match node_move_service.move_nodes(body.nodes, parent_id, body.operation == PASTE_OPERATION_COPY).await {
+        Ok(_) => ok(),
+        Err(e) => {
+            error!("Error has occurred while pasting files: {:?}", e);
+            error_internal_server_error()
+        }
+    }
+}
 
 ///
 /// Method: PUT 
@@ -120,7 +121,7 @@ pub async fn upload_file(provider: web::Data<Contrainer>, request: HttpRequest, 
     let node_create = provider.get_node_create_service(user.user_id);
     match node_create.create_file_node(parent_id, file_name, body).await {
         Ok(id) => {
-            created(CreateNode { id })
+            created(CreateNodeResponse { id })
         }
         Err(e) => {
             error!("Error has occurred while uploading file: {:?}", e);

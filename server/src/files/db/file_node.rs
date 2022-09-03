@@ -47,7 +47,7 @@ impl DbModel for FileNodeDto {
 
 impl FileNodeDto {
     pub(crate) fn copy(other: &FileNodeDto, parent_node: &FileNodeDto) -> Self {
-        let path = PathBuf::from(&parent_node.filesystem_path)
+        let path = PathBuf::from(&parent_node.filesystem_path.trim_start_matches('/'))
             .join(&other.title)
             .to_str()
             .expect("Node title should be utf-8")

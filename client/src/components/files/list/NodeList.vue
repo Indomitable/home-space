@@ -1,14 +1,18 @@
 <script setup lang="ts">
+import { inject } from "vue";
+
+import { clipboardServiceInjectionToken } from "@/services/files/clipboard-service";
+
+import type { NodeListController } from "./node-list-controller";
 import NodeListHeader from "./NodeListHeader.vue";
 import NodeListRow from "./NodeListRow.vue";
-
-import type { NodeListController } from "@/components/files/list/node-list-controller";
 
 interface NodeListProps {
     controller: NodeListController;
 }
 
 defineProps<NodeListProps>();
+const clipboardService = inject(clipboardServiceInjectionToken)!;
 </script>
 
 <template>
@@ -24,6 +28,7 @@ defineProps<NodeListProps>();
             :key="node.id"
             :node="node"
             :state="controller.nodesState[node.id]"
+            :class="{ 'node-row--clipboard': !!clipboardService.itemsIndex[node.id] }"
             @node-selection-toggled="(node, selected) => controller.toggleNodeSelection(node, selected)"
             @node-favorite-toggled="(node, favorite) => controller.toggleNodeFavorite(node, favorite)"
             @node-title-click="node => controller.nodeTitleClicked(node)"

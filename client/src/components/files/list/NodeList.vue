@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { inject } from "vue";
+import { inject, ref } from "vue";
 
 import { clipboardServiceInjectionToken } from "@/services/files/clipboard-service";
+
+import NodeDropDown from "../dropdown/NodeDropDown.vue";
 
 import type { NodeListController } from "./node-list-controller";
 import NodeListHeader from "./NodeListHeader.vue";
 import NodeListRow from "./NodeListRow.vue";
+import type { FileNode } from "@/models/file-node";
 
 interface NodeListProps {
     controller: NodeListController;
@@ -13,6 +16,19 @@ interface NodeListProps {
 
 defineProps<NodeListProps>();
 const clipboardService = inject(clipboardServiceInjectionToken)!;
+
+const nodeMenuRef = ref<FileNode | null>(null);
+const nodeMenuTarget = ref<DOMRect | null>(null);
+function onNodeMenuClick(node: FileNode, targetPosition: DOMRect): void {
+    if (nodeMenuRef.value && node.id === nodeMenuRef.value.id) {
+        // when same click
+        nodeMenuRef.value = null;
+    } else {
+        // different or not set.
+        nodeMenuRef.value = node;
+        nodeMenuTarget.value = targetPosition;
+    }
+}
 </script>
 
 <template>
@@ -32,6 +48,16 @@ const clipboardService = inject(clipboardServiceInjectionToken)!;
             @node-selection-toggled="(node, selected) => controller.toggleNodeSelection(node, selected)"
             @node-favorite-toggled="(node, favorite) => controller.toggleNodeFavorite(node, favorite)"
             @node-title-click="node => controller.nodeTitleClicked(node)"
+            @node-menu-click="onNodeMenuClick"
+            @node-rename-cancel="node => controller.toggleNodeRename(node, false)"
+            @node-rename="(node, name) => controller.renameNode(node, name)"
+        />
+        <node-drop-down
+            v-if="!!nodeMenuRef"
+            :node="nodeMenuRef"
+            :target-position="nodeMenuTarget"
+            :controller="controller"
+            @dropdown-close="nodeMenuRef = null"
         />
     </div>
 </template>

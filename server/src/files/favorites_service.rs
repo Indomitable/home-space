@@ -1,6 +1,6 @@
 use std::rc::Rc;
 use crate::db::DatabaseAccess;
-use crate::files::service_result::ServiceResult;
+use crate::results::service_result::ServiceResult;
 
 pub(crate) struct FavoritesService {
     user_id: i64,

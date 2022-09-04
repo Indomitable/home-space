@@ -7,7 +7,7 @@ use crate::files::db::file_node::FileNodeDto;
 use crate::files::file_system::execute_file_system_operation;
 use crate::files::files_repository::FileRepository;
 use crate::files::paths_manager::PathManager;
-use crate::files::service_result::ServiceResult;
+use crate::results::service_result::ServiceResult;
 use crate::sorting::Sorting;
 
 pub(crate) struct NodeProvideService {

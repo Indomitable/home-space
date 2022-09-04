@@ -54,7 +54,7 @@ impl Contrainer {
         let file_system = Arc::new(files::file_system::FileSystemManager::new(user_id, &path_manager));
         let file_repository = Arc::new(FileRepository::new(user_id, &db));
         let version_service = Arc::new(VersionService::new(user_id, &db, &file_system));
-        NodeMoveService::new(user_id, &db, &file_repository, &file_system, &version_service)
+        NodeMoveService::new(user_id, &db, &file_repository, &file_system, &version_service, &path_manager)
     }
 
     pub(crate) fn get_favorites_service(&self, user_id: i64) -> FavoritesService {

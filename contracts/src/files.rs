@@ -77,3 +77,9 @@ pub struct PasteNodesRequest {
     pub nodes: Vec<i64>,
     pub operation: i16,
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct RenameNodeRequest {
+    pub node_id: i64,
+    pub name: String,
+}

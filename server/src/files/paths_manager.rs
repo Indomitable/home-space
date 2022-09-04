@@ -43,12 +43,17 @@ impl PathManager {
         self.get_temp_dir(user_id).join(file_name)
     }
 
-    pub(crate) fn path_to_string(&self, path: &Path) -> String {
-        path.to_str().expect("Path should be in UTF-8 format").to_owned()
+    pub(crate) fn path_to_string<P: AsRef<Path>>(&self, path: P) -> String {
+        path.as_ref().to_str().expect("Path should be in UTF-8 format").to_owned()
     }
 
     pub(crate) fn get_absolute_path(&self, node: &FileNodeDto) -> PathBuf {
         self.get_top_save_folder(node.user_id).join(&node.filesystem_path)
+    }
+
+    pub(crate) fn rename(&self, node: &FileNodeDto, name: &str) -> String {
+        let new_path = PathBuf::from(&node.filesystem_path).with_file_name(name);
+        self.path_to_string(new_path)
     }
 
     pub(crate) fn init_user_fs(&self, user_id: i64) -> std::io::Result<()>  {

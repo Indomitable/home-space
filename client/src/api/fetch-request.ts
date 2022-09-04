@@ -1,3 +1,5 @@
+// noinspection ES6MissingAwait
+
 import { MimeTypes } from "./mime-types";
 
 export interface ServerError extends Error {
@@ -17,8 +19,7 @@ export class FetchRequest<TResponse> {
         if (response.ok) {
             return this.handleOkResponse(response);
         }
-        const error = await this.readError(response);
-        throw error;
+        throw await this.readError(response);
     }
 
     private async handleOkResponse(response: Response): Promise<TResponse> {
@@ -60,7 +61,7 @@ export class FetchRequest<TResponse> {
         return {
             code: response.status,
             name: response.statusText,
-            message: body || "Unknwon error has occured, please check logs!",
+            message: body || "Unknown error has occurred, please check logs!",
         };
     }
 

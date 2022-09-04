@@ -19,7 +19,7 @@ function nodeIcon(node: FileNode): string {
 </script>
 
 <template>
-    <Teleport to="body" v-if="clipboardService.hasItems.value">
+    <Teleport  to="body" v-if="clipboardService.hasItems.value">
         <div class="clipboard-container">
             <div class="clipboard-container-title">
                 {{
@@ -61,6 +61,7 @@ function nodeIcon(node: FileNode): string {
     height: 300px;
     display: flex;
     flex-direction: column;
+    z-index: var(--z-index-clipboard);
 }
 
 .clipboard-container-title {

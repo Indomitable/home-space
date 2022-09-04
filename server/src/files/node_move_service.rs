@@ -5,8 +5,9 @@ use crate::db::DatabaseAccess;
 use crate::files::db::file_node::FileNodeDto;
 use crate::files::file_system::FileSystemManager;
 use crate::files::files_repository::FileRepository;
-use crate::files::service_result::{ServiceError, ServiceResult};
+use crate::files::paths_manager::PathManager;
 use crate::files::version_service::VersionService;
+use crate::results::service_result::{ServiceError, ServiceResult};
 
 pub(crate) struct NodeMoveService {
     user_id: i64,
@@ -14,6 +15,7 @@ pub(crate) struct NodeMoveService {
     file_repository: Arc<FileRepository>,
     file_system: Arc<FileSystemManager>,
     version_service: Arc<VersionService>,
+    path_manager: Arc<PathManager>
 }
 
 impl NodeMoveService {
@@ -21,13 +23,15 @@ impl NodeMoveService {
                       db: &Arc<DatabaseAccess>,
                       file_repository: &Arc<FileRepository>,
                       file_system: &Arc<FileSystemManager>,
-                      version_service: &Arc<VersionService>,) -> Self {
+                      version_service: &Arc<VersionService>,
+                      path_manager: &Arc<PathManager>) -> Self {
         Self {
             user_id,
             db: Arc::clone(db),
             file_repository: Arc::clone(file_repository),
             file_system: Arc::clone(file_system),
-            version_service: Arc::clone(version_service)
+            version_service: Arc::clone(version_service),
+            path_manager: Arc::clone(path_manager),
         }
     }
 
@@ -38,6 +42,21 @@ impl NodeMoveService {
             self.move_node(&node, &destination_parent_node, keep_old_node).await?;
         }
         Ok(())
+    }
+
+    /// Rename is like moving so it is located in the move service
+    pub(crate) async fn rename_node(&self, node_id: i64, name: String) -> ServiceResult<()> {
+        let node = self.file_repository.get_node(node_id).await?;
+        let destination_path = self.path_manager.rename(&node, &name);
+        let same_title_node = self.file_repository.get_node_by_title(node.parent_id.expect("Node should have parent"), &name).await?;
+        match same_title_node {
+            Some(_) => Err(ServiceError::new_user("Rename error", "File or folder with same name exists!")),
+            None => {
+                self.file_repository.rename_node(&node, &destination_path, &name).await?;
+                self.do_file_operation(&node.filesystem_path, &destination_path, false).await?;
+                Ok(())
+            }
+        }
     }
 
     async fn move_node(&self, source_node: &FileNodeDto, destination_parent: &FileNodeDto, keep_old_node: bool) -> ServiceResult<()> {

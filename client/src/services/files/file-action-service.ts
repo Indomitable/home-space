@@ -117,6 +117,19 @@ export class FileActionService {
             .build("")
             .execute();
     }
+
+    async renameNode(node: FileNode, name: string): Promise<void> {
+        const url = resolveApiUrl("files", "rename");
+        await RequestBuilder.create(url)
+            .setMethod(HttpMethod.POST)
+            .enhance(this.userService)
+            .setJsonBody({
+                node_id: node.id,
+                name: name,
+            })
+            .build("")
+            .execute();
+    }
 }
 
 export const fileActionServiceInjectionToken: InjectionKey<FileActionService> = Symbol("FileActionService");

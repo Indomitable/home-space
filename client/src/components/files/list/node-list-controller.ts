@@ -55,6 +55,12 @@ export class NodeListController {
         this.nodesState[node.id].rename = rename;
     }
 
+    async renameNode(node: FileNode, name: string) {
+        this.toggleNodeRename(node, false);
+        await this.fileActionService.renameNode(node, name);
+        await this.refresh();
+    }
+
     async nodeTitleClicked(node: FileNode): Promise<void> {
         await this.fileActionService.open(node, this.router);
     }

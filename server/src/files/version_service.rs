@@ -6,7 +6,7 @@ use crate::files::db::DbModel;
 use crate::files::db::file_node::FileNodeDto;
 use crate::files::db::file_version::FileVersionDto;
 use crate::files::file_system::FileSystemManager;
-use crate::files::service_result::{ServiceError, ServiceResult};
+use crate::results::service_result::{ServiceError, ServiceResult};
 
 pub(crate) struct VersionService {
     user_id: i64,

@@ -10,6 +10,7 @@ use crate::config::{init_config, get_host_url, get_listen_address, ssl_private_k
 mod config;
 mod db;
 mod response;
+mod results;
 mod auth;
 mod user;
 mod files;

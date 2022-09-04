@@ -6,7 +6,9 @@ pub(crate) type ServiceResult<T> = Result<T, ServiceError>;
 pub(crate) enum ServiceError {
     DbError(DbError),
     IOError(std::io::Error),
-    Other(String, String)
+    // Error that should be show to the user.
+    UserError(String, String),
+    Other(String, String),
 }
 
 impl From<DbError> for ServiceError {
@@ -24,5 +26,9 @@ impl From<std::io::Error> for ServiceError {
 impl ServiceError {
     pub(crate) fn new(service_name: &str, message: &str) -> Self {
         ServiceError::Other(service_name.to_string(), message.to_string())
+    }
+
+    pub(crate) fn new_user(title: &str, message: &str) -> Self {
+        ServiceError::UserError(title.to_string(), message.to_string())
     }
 }

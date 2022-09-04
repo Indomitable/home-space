@@ -188,127 +188,14 @@ impl FileRepository {
         Ok(nodes)
     }
 
-    // async fn move_to_trash(&self, id: i64) -> DbResult<()> {
-    //     let get_nodes_sql = format!(r#"
-    //     WITH RECURSIVE breadcrumbs_query AS (
-    //         select n0.*, 0 as lvl from file_nodes n0
-    //         where user_id = $1 and id = $2
-    //         UNION ALL
-    //         select n1.*, lvl + 1 as lvl from file_nodes n1
-    //         INNER JOIN breadcrumbs_query p ON p.id = n1.parent_id
-    //     )
-    //     select {}, lvl,
-    //           (select count(1) from file_versions fv where fv.id  = b.id and fv.user_id = b.user_id) versions
-    //     from breadcrumbs_query b
-    //     order by lvl desc
-    //     "#, FileNodeDto::column_list());
-    //
-    //     let row_stream = self.db.query_raw(&self.pool, &get_nodes_sql, &[&self.user_id, &id]).await?;
-    //     pin_mut!(row_stream);
-    //
-    //     // Get second connection for moving files while we read rows from the first.
-    //     let mut connection = self.db.create_connection(&self.pool).await?;
-    //
-    //     while let Some(row) = row_stream.try_next()
-    //         .await
-    //         .map_err(|_| crate::db::DbError::Fetch("Error reading next row, while deleting nodes".to_owned()))? {
-    //         let file_node = FileNodeDto::read_node(&row);
-    //         let versions_count: i64 = row.get(11);
-    //         if versions_count > 0 {
-    //         }
-    //
-    //         // start new db transaction to move rows
-    //         let transaction = connection.create_transaction().await?;
-    //         let trash_file_name = Uuid::new_v4().as_hyphenated().to_string();
-    //         match self.move_file_node_to_trash(&transaction, &file_node, &trash_file_name).await {
-    //             Ok(_) => {
-    //                 let move_file_future = self.fs.move_node_to_trash(Path::new(&file_node.filesystem_path), &trash_file_name);
-    //                 match move_file_future.await {
-    //                     Ok(_) => { transaction.commit().await?; },
-    //                     Err(_) => { transaction.rollback().await?; }
-    //                 }
-    //             },
-    //             Err(_) => {
-    //                 transaction.rollback().await?;
-    //             }
-    //         }
-    //     }
-    //     Ok(())
-    // }
-    //
-    // async fn restore_from_trash(&self, id: i64) -> DbResult<()> {
-    //     todo!();
-    // }
-
-    // async fn move_file_node_to_trash(&self, transaction: &TransactionalDataAccess<'_>, file_node: &FileNodeDto, trash_file_name: &str) -> DbResult<()> {
-    //     let insert_to_trash_sql =
-    //     format!(r#"INSERT INTO trash_box ({}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#, DeletedNodeDto::column_list());
-    //
-    //     let delete_sql = "delete from file_nodes fn where fn.user_id = $1 and fn.id = $2";
-    //     transaction.execute(&insert_to_trash_sql, &[
-    //         &file_node.id, &file_node.user_id, &file_node.title, &file_node.parent_id, &file_node.node_type,
-    //         &file_node.filesystem_path, &file_node.mime_type, &chrono::Utc::now(), &file_node.node_size,
-    //         &file_node.node_version, &trash_file_name
-    //     ]).await?;
-    //
-    //     transaction.execute(delete_sql, &[&file_node.user_id, &file_node.id]).await?;
-    //     Ok(())
-    // }
-
-    // async fn restore_file_node_from_trash(&self, transaction: &TransactionalDataAccess<'_>, deleted_node: &DeletedNodeDto) -> DbResult<()> {
-    //     let check_parent_node_sql = "select * from file_nodes fn where fn.user_id = $1 and fn.id = $2";
-    //     let parent_node = transaction.query_opt(check_parent_node_sql, &[&deleted_node.user_id, &deleted_node.parent_id]).await?;
-    //     todo!("Check for existing parent");
-    //     // match parent_node {
-    //     //     Some() => {
-    //     //     }
-    //     //     None => {
-    //     //         // We try to restore item but parent does not exists. We need to create the parent.
-    //     //
-    //     //     },
-    //     // }
-    //     Ok(())
-    // }
-
-    /*
-        Add node to a parent if node with same name exists add version.
-     */
-    // async fn add_file_node_to_folder(&self, transaction: &TransactionalDataAccess<'_>, parent_id: i64, file_node: &FileNodeDto) -> DbResult<()> {
-    //     let check_existing_node_sql = "select * from file_nodes fn where fn.user_id = $1 and fn.parent_id = $2 and title = $3";
-    //     match transaction.query_opt(check_existing_node_sql, &[&file_node.user_id, &parent_id, &file_node.title]).await? {
-    //         Some(found_node) => todo!("Create new version"),
-    //         None => {
-    //             let sql = format!(r#"insert into file_nodes ({}) values (nextval('{}'), $1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id"#,
-    //             FileNodeDto::column_list(), get_file_node_id_sequence(file_node.user_id));
-    //             let row = self.db.query_one(&sql, &[&file_node.user_id,
-    //                 &file_node.title,
-    //                 &file_node.parent_id,
-    //                 &file_node.node_type,
-    //                 &file_node.filesystem_path,
-    //                 &file_node.mime_type,
-    //                 &file_node.modified_at,
-    //                 &file_node.node_size,
-    //                 &file_node.node_version
-    //             ]).await?;
-    //         },
-    //     }
-    //     Ok(())
-    // }
-
-    /*
-        Move node to another parent if node with same name exists add version.
-     */
-    // async fn change_node_parent(&self, transaction: &TransactionalDataAccess<'_>, parent: &FileNodeDto, node: &FileNodeDto) -> DbResult<()> {
-    //     let check_existing_node_sql = "select * from file_nodes fn where fn.user_id = $1 and fn.parent_id = $2 and title = $3";
-    //     match transaction.query_opt(check_existing_node_sql, &[&node.user_id, &parent.id, &node.title]).await? {
-    //         Some(found_node) => todo!("Create new version"),
-    //         None => {
-    //             let update_parent_sql = r#"update file_nodes fn set fn.parent_id = $3 where fn.user_id = $1 and fn.id = $2"#;
-    //             let row = transaction.execute(&update_parent_sql, &[&parent.id]).await?;
-    //         },
-    //     }
-    //     Ok(())
-    // }
+    pub(crate) async fn rename_node(&self, node: &FileNodeDto, path: &str, title: &str) -> DbResult<()> {
+        let update_sql = r#"update file_nodes
+        set filesystem_path = $3,
+            title = $4
+        where user_id = $1 and id = $2"#;
+        self.db.execute(update_sql, &[&node.user_id, &node.id, &path, &title]).await?;
+        Ok(())
+    }
 }
 
 fn get_file_node_id_sequence(user_id: i64) -> String {

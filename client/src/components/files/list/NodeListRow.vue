@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watchEffect } from "vue";
 
 import { type FileNode, NodeType } from "@/models/file-node";
 
@@ -16,6 +16,9 @@ interface NodeListRowEvent {
     (event: "node-selection-toggled", node: FileNode, selected: boolean): void;
     (event: "node-favorite-toggled", node: FileNode, favorite: boolean): void;
     (event: "node-title-click", node: FileNode): void;
+    (event: "node-menu-click", node: FileNode, targetPosition: DOMRect): void;
+    (event: "node-rename-cancel", node: FileNode): void;
+    (event: "node-rename", node: FileNode, newName: string): void;
 }
 
 const props = defineProps<NodeListRowProps>();
@@ -35,6 +38,30 @@ function onNodeFavoriteToggled(favorite: boolean) {
 function onNodeTitleClick() {
     emits("node-title-click", props.node);
 }
+function onNodeMenuClick(event: MouseEvent) {
+    const target = event.target! as HTMLElement;
+    const targetPosition = target.getBoundingClientRect();
+    emits("node-menu-click", props.node, targetPosition);
+}
+
+const renameInput = ref<HTMLInputElement | null>(null);
+watchEffect(
+    () => {
+        if (renameInput.value) {
+            renameInput.value.focus();
+        }
+    },
+    { flush: "post" }
+);
+function onNodeRename(event: KeyboardEvent) {
+    const input = event.target as HTMLInputElement;
+    if (event.key === "Enter") {
+        emits("node-rename", props.node, input.value);
+    }
+    if (event.key === "Escape") {
+        emits("node-rename-cancel", props.node);
+    }
+}
 </script>
 
 <template>
@@ -45,9 +72,17 @@ function onNodeTitleClick() {
         </div>
         <div class="node-row__title">
             <span class="icon-filled">{{ nodeIcon }}</span>
-            <input class="input node-row__title__name-input" type="text" v-if="state.rename" :value="node.title" />
+            <input
+                class="input node-row__title__name-input"
+                type="text"
+                v-if="state.rename"
+                :value="node.title"
+                @blur="$emit('node-rename-cancel', node)"
+                @keyup="onNodeRename"
+                ref="renameInput"
+            />
             <span class="node-row__title__name" @click="onNodeTitleClick" v-else>{{ node.title }}</span>
-            <span class="icon-filled file-item-menu node-row-action">more_vert</span>
+            <span class="icon-filled file-item-menu node-row-action" @click="onNodeMenuClick">more_vert</span>
         </div>
         <div class="node-row__node-size">{{ nodeSize }}</div>
         <div class="node-row__modified_at">{{ node.modifiedAtDisplay }}</div>

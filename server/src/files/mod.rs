@@ -10,7 +10,6 @@ pub(crate) mod db;
 pub(crate) mod search;
 pub(crate) mod node_move_service;
 pub(crate) mod version_service;
-pub(crate) mod service_result;
 pub(crate) mod node_create_service;
 pub(crate) mod node_provide_service;
 pub(crate) mod favorites_service;
@@ -27,7 +26,7 @@ where T: Fn(actix_web::dev::ServiceRequest, actix_web_httpauth::extractors::bear
                 .service(files_controller::create_folder)
                 .service(files_controller::upload_file)
                 .service(files_controller::paste_nodes)
-                // .service(files_controller::delete_node)
+                .service(files_controller::rename_node)
                 .service(files_controller::get_parents)
                 .service(favorites_controller::favorite)
         );

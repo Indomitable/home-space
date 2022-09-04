@@ -2,11 +2,11 @@ use actix_web::HttpRequest;
 use actix_web::{web, Responder, Result, get, put, post};
 use log::error;
 
-use home_space_contracts::files::{CreateNodeResponse, CreateFolderRequest, PasteNodesRequest, PASTE_OPERATION_COPY};
+use home_space_contracts::files::{CreateNodeResponse, CreateFolderRequest, PasteNodesRequest, PASTE_OPERATION_COPY, RenameNodeRequest};
 use crate::ioc::container::Contrainer;
 use crate::response::*;
 use crate::auth::AuthContext;
-use crate::files::service_result::ServiceResult;
+use crate::results::service_result::ServiceError;
 use crate::sorting::Sorting;
 
 ///
@@ -130,18 +130,26 @@ pub async fn upload_file(provider: web::Data<Contrainer>, request: HttpRequest, 
     }
 }
 
-// async fn write_request_to_file(output: &PathBuf, mut body: web::Payload) -> std::result::Result<i64, Box<dyn std::error::Error>> {
-//     let mut size = 0_i64;
-//     {
-//         let output = output.clone();
-//         let mut f = execute_file_system_operation(move || create_file(output)).await?;
-//         while let Some(chunk) = body.try_next().await? {
-//             size = size + chunk.len() as i64;
-//             f = execute_file_system_operation(move || append_file(f, chunk)).await?;
-//         }
-//     }
-//     Ok(size)
-// }
+///
+/// Method: POST
+/// `/api/files/upload-file/0` upload file in top folder
+/// `/api/files/upload-file/{parent_id}` parent_id > 0 upload file in sub folder
+/// Creates a new file or if file exits it creates a new version of it.
+///
+#[post("/rename")]
+pub async fn rename_node(provider: web::Data<Contrainer>, request: HttpRequest, user: AuthContext, body: web::Json<RenameNodeRequest>) -> Result<impl Responder> {
+    let request = body.into_inner();
+    let service = provider.get_node_move_service(user.user_id);
+    match service.rename_node(request.node_id, request.name).await {
+        Ok(id) => {
+            ok()
+        }
+        Err(e) => {
+            error!("Error has occurred while renaming node: {:?}", e);
+            server_error(e)     
+        }
+    }
+}
 
 #[get("/parents/{parent_id}")]
 pub async fn get_parents(provider: web::Data<Contrainer>, path: web::Path<i64>, user: AuthContext )-> Result<impl Responder>  {

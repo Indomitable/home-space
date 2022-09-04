@@ -3,9 +3,4 @@
 members = [
     "server",
     "contracts",
-    # "client"
-]
-
-exclude = [
-    "client"
 ]

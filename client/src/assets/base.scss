@@ -1,0 +1,43 @@
+@media (prefers-color-scheme: dark) {
+}
+
+* {
+  box-sizing: border-box;
+}
+
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 400;
+  src: url(@/assets/fonts/Inter-Regular.woff2) format('woff2'),
+       url(@/assets/fonts/Inter-Regular.woff) format('woff');
+}
+
+html, body {
+  padding: 0;
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family: Inter, sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  height: 100%;
+}
+
+main {
+  min-height: 100%;
+  color: var(--primary-font-color);
+  background: var(--background-color);
+}
+
+ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}

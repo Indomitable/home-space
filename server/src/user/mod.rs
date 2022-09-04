@@ -1,5 +1,5 @@
 mod user_controller;
-mod user_repository;
+pub(crate) mod user_repository;
 pub mod token;
 
 use actix_web::web;

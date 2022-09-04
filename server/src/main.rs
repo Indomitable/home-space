@@ -4,25 +4,26 @@ use openssl::ssl::{SslAcceptor, SslMethod, SslFiletype};
 use std::path::Path;
 use actix_web::{web, App, HttpServer, middleware::Condition};
 
-use db::new_pool;
-
 use crate::auth::request_validator;
 use crate::config::{init_config, get_host_url, get_listen_address, ssl_private_key, ssl_chain_key, ssl_listen_address};
 
 mod config;
 mod db;
 mod response;
+mod results;
 mod auth;
 mod user;
 mod files;
+mod sorting;
+mod ioc;
+mod websocket;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     init_config();
     init_logger();
-    let pool = new_pool();
-    // Wrap the pool to web::Data which uses Arc and can be shared between the threads
-    let db_manager = web::Data::new(pool);
+    let container = ioc::container::Contrainer::new();
+    let container_data = web::Data::new(container);
 
     log::info!("Listen on: {}", get_host_url());
     if config::is_ssl_enabled() {
@@ -36,11 +37,12 @@ async fn main() -> std::io::Result<()> {
         let is_prod = !config::is_prod();
 
         let mut app = App::new()
-            .app_data(db_manager.clone())
+            .app_data(container_data.clone())
             .wrap(Condition::new(is_prod,
                 Cors::default()
                     .allowed_origin("http://127.0.0.1:5173")
                     .allowed_origin("http://localhost:7070")
+                    .allowed_origin("https://www.piesocket.com")
                     .allow_any_header()
                     .allow_any_method()
                 ))
@@ -48,11 +50,14 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/api")
                     .configure(user::init_routes)
                     .configure(files::init_routes(auth_middleware))
+            )
+            .service(
+                web::scope("/ws").configure(websocket::init_routes)
             );
 
             if is_prod {
                 app = app
-                .service(Files::new("/", "client-js/dist")
+                .service(Files::new("/", "client/dist")
                     .index_file("index.html")
                 );                
             }
@@ -77,7 +82,7 @@ async fn main() -> std::io::Result<()> {
 }
 
 async fn get_index() -> actix_files::NamedFile {
-    let path = Path::new("client-js/dist/index.html");
+    let path = Path::new("client/dist/index.html");
     actix_files::NamedFile::open(path).unwrap()
 }
 

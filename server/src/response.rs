@@ -2,6 +2,7 @@
 
 use actix_web::{HttpResponse, web, Responder, HttpRequest};
 use serde::Serialize;
+use crate::results::service_result::ServiceError;
 
 // Successful codes 2XX
 
@@ -33,6 +34,24 @@ pub fn no_content() -> Result<HttpResponse, actix_web::Error> {
 }
 
 // Failed codes >= 300
+
+pub(crate) fn server_error(error: ServiceError) -> Result<HttpResponse, actix_web::Error>  {
+    #[derive(Serialize)]
+    struct UserError {
+        title: String,
+        message: String,
+    }
+    match error {
+        ServiceError::UserError(title, message) => {
+            let body = serde_json::to_string(&UserError { title, message }).unwrap();
+            let response = HttpResponse::BadRequest()
+                .content_type("application/json")
+                .body(body);
+            Ok(response)
+        },
+        _ => error_internal_server_error()
+    }
+}
 
 /// 400 BAD_REQUEST
 pub fn error_bad_request<T>() -> Result<T, actix_web::Error> {

@@ -1,15 +1,15 @@
 TODO:
 
-### Current:
+### File operations:
 - [ ] Rewrite current frontend in VueJs: The initial frontend was in Yew using Rust but developing is quite slow. Using VueJS makes FE developing faster.
   - [x] Create folder
   - [x] Upload file
   - [ ] Drag and drop file in the list view.
-  - [ ] Copy files
-  - [ ] Move files
+  - [x] Copy files
+  - [x] Move files
   - [ ] Delete files
-  - [ ] Rename files
-  - [ ] Context menu
+  - [x] Rename files
+  - [x] Context menu
   - [ ] Folder size
   - [ ] Account register
 

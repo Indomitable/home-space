@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { inject } from "vue";
 import { ClipboardOperation, clipboardServiceInjectionToken } from "@/services/files/clipboard-service";
-import { FileNode, NodeType } from "@/models/file-node";
+import { type FileNode, NodeType } from "@/models/file-node";
 
 const clipboardService = inject(clipboardServiceInjectionToken)!;
 const parentId = inject("parent-id") as number;
@@ -19,7 +19,7 @@ function nodeIcon(node: FileNode): string {
 </script>
 
 <template>
-    <Teleport  to="body" v-if="clipboardService.hasItems.value">
+    <Teleport to="body" v-if="clipboardService.hasItems.value">
         <div class="clipboard-container">
             <div class="clipboard-container-title">
                 {{

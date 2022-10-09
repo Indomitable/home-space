@@ -2,7 +2,7 @@
 import { computed, inject, watchEffect } from "vue";
 import type { FileNode } from "@/models/file-node";
 import { ClipboardOperation, clipboardServiceInjectionToken } from "@/services/files/clipboard-service";
-import { NodeListController } from "@/components/files/list/node-list-controller";
+import type { NodeListController } from "@/components/files/list/node-list-controller";
 
 interface NodeDropDownProps {
     node: FileNode;

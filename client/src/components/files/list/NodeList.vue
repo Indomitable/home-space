@@ -18,7 +18,7 @@ defineProps<NodeListProps>();
 const clipboardService = inject(clipboardServiceInjectionToken)!;
 
 const nodeMenuRef = ref<FileNode | null>(null);
-const nodeMenuTarget = ref<DOMRect | null>(null);
+const nodeMenuTarget = ref<DOMRect>({} as DOMRect);
 function onNodeMenuClick(node: FileNode, targetPosition: DOMRect): void {
     if (nodeMenuRef.value && node.id === nodeMenuRef.value.id) {
         // when same click

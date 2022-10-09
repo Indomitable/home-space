@@ -1,3 +1,6 @@
 out/
 target/
 home-space
+.idea/
+*.log
+

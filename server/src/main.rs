@@ -42,7 +42,6 @@ async fn main() -> std::io::Result<()> {
                 Cors::default()
                     .allowed_origin("http://127.0.0.1:5173")
                     .allowed_origin("http://localhost:7070")
-                    .allowed_origin("https://www.piesocket.com")
                     .allow_any_header()
                     .allow_any_method()
                 ))

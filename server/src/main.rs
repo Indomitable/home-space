@@ -17,6 +17,7 @@ mod files;
 mod sorting;
 mod ioc;
 mod websocket;
+mod webdav;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -42,6 +43,8 @@ async fn main() -> std::io::Result<()> {
                 Cors::default()
                     .allowed_origin("http://127.0.0.1:5173")
                     .allowed_origin("http://localhost:7070")
+                    .allowed_origin("webdav://localhost:7070")
+                    .allowed_origin("webdav://127.0.0.1:7070")
                     .allowed_origin("https://www.piesocket.com")
                     .allow_any_header()
                     .allow_any_method()
@@ -53,6 +56,9 @@ async fn main() -> std::io::Result<()> {
             )
             .service(
                 web::scope("/ws").configure(websocket::init_routes)
+            )
+            .service(
+                web::resource("/webdav/{tail:.*}").route(web::route().to(webdav::handle))
             );
 
             if is_prod {

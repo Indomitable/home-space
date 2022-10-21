@@ -3,6 +3,7 @@ using HomeSpace.Infrastructure.Configuration;
 using HomeSpace.Security.Configuration;
 using HomeSpace.Security.Jwt;
 using HomeSpace.Security.Password;
+using HomeSpace.Security.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,6 +17,7 @@ public static class ServiceBuilder
     {
         serviceCollection.AddJwtAuthentication(configuration);
         serviceCollection.AddPasswordHashing();
+        serviceCollection.AddSingleton<IAuthenticationService, AuthenticationService>();
         return serviceCollection;
     }
     

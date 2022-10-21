@@ -1,4 +1,6 @@
+using HomeSpace.Api;
 using HomeSpace.Database;
+using HomeSpace.Files;
 using HomeSpace.Infrastructure.Configuration;
 using HomeSpace.Infrastructure.Logging;
 using HomeSpace.Security;
@@ -18,28 +20,29 @@ try
     builder.Services
         .AddEndpointsApiExplorer()
         .AddSwaggerGen()
-        .AddHomeSpaceSecurity(configuration)
-        .AddHomeSpaceDb();
+        .AddHomeSpaceDb()
+        .AddHomeSpaceFiles()
+        .AddHomeSpaceSecurity(configuration);
 
     var app = builder.Build();
-
-    // Configure the HTTP request pipeline.
-    //if (app.Environment.IsDevelopment())
-    {
-        app.UseSwagger();
-        app.UseSwaggerUI();
-    }
+    app.EnableSwagger(configuration);
 
     if (app.Environment.IsProduction())
     {
         app.UseHsts();
+        app.UseDefaultFiles();
         app.UseStaticFiles();
     }
-
     app.UseHttpsRedirection();
+    app.UseRouting();
     app.UseAuthentication();
     app.UseAuthorization();
-    app.MapControllers();
+    app.UseEndpoints(routeBuilder =>
+    {
+        routeBuilder.MapControllers();
+    });
+    app.MapFallbackToFile("index.html");;
+    
     await app.RunAsync();
 }
 catch (Exception e)

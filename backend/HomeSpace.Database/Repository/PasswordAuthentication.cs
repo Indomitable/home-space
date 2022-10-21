@@ -18,16 +18,16 @@ public class PasswordAuthentication: IAuthenticationType
     public async Task<long> Add(IDbAccess dbAccess)
     {
         const string sql = "insert into authentication_password (hash, salt) values ($1, $2) RETURNING id";
-        var authId = await dbAccess.Scalar(sql,
+        var authId = await dbAccess.ExecuteScalar<long>(sql,
             new NpgsqlParameter<byte[]> { NpgsqlDbType = NpgsqlDbType.Bytea, Value = Hash },
             new NpgsqlParameter<byte[]> { NpgsqlDbType = NpgsqlDbType.Bytea, Value = Salt });
-        return (long)(authId ?? 0);
+        return authId;
     }
 
     public static async Task<IAuthenticationType> Create(IDbAccess dbAccess, long authId)
     {
         const string sql = "select hash, salt from authentication_password where id = $1";
-        return await dbAccess.ReadOne(sql, reader =>
+        return await dbAccess.QueryOne(sql, reader =>
         {
             var hash = reader.GetFieldValue<byte[]>(0);
             var salt = reader.GetFieldValue<byte[]>(1);

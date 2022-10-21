@@ -1,6 +1,5 @@
-using HomeSpace.Database.Model;
-using HomeSpace.Database.Repository;
-using HomeSpace.Security.Password;
+using HomeSpace.Api.Model.Auth;
+using HomeSpace.Security.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HomeSpace.Api.Controllers;
@@ -9,38 +8,34 @@ namespace HomeSpace.Api.Controllers;
 [Route("api/auth")]
 public class AuthController
 {
-    private readonly IPasswordHasher hasher;
-    private readonly IAuthenticationRepository repository;
+    private readonly IAuthenticationService authenticationService;
 
-    public AuthController(IPasswordHasher hasher, IAuthenticationRepository repository)
+    public AuthController(IAuthenticationService authenticationService)
     {
-        this.hasher = hasher;
-        this.repository = repository;
+        this.authenticationService = authenticationService;
     }
-    
+
     [HttpPost]
-    [Route("add-password")]
-    public async Task<IActionResult> AddPassword(long userId, string password)
+    [Route("login")]
+    public async Task<IActionResult> Login([FromBody]LoginRequest request)
     {
-        var hash = await hasher.HashPassword(password);
-        var authentication = new UserAuthentication
+        var (result, token) = await authenticationService.LoginUser(request.UserName, request.Password);
+        if (result == LoginUserResult.Success)
         {
-            UserId = userId,
-            Type = AuthenticationType.Password,
-            AuthenticationType = new PasswordAuthentication(hash.Password, hash.Salt)
-        };
-        await repository.AddAuthentication(authentication);
-        return new OkResult();
+            return new OkObjectResult(new LoginResponse(token));
+        }
+        return new UnauthorizedResult();
     }
     
     [HttpPost]
-    [Route("verify-password")]
-    public async Task<IActionResult> VerifyPassword(long userId, string password)
+    [Route("register")]
+    public async Task<IActionResult> Login([FromBody]RegisterRequest request)
     {
-        var auth = (PasswordAuthentication)await repository.GetAuthentication(userId, AuthenticationType.Password);
-        var hash = await hasher.VerifyHash(password, new PasswordHash(auth.Hash, auth.Salt));
-        return hash
-            ? new OkResult()
-            : new UnauthorizedResult();
+        var (result, token) = await authenticationService.RegisterUser(request.UserName, request.Password);
+        if (result == RegisterUserResult.Success)
+        {
+            return new OkObjectResult(new RegisterResponse(token));
+        }
+        return new UnauthorizedResult();
     }
 }

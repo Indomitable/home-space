@@ -1,6 +1,6 @@
+using System.Security.Cryptography;
 using System.Text;
 using Konscious.Security.Cryptography;
-using Microsoft.Extensions.Options;
 
 namespace HomeSpace.Security.Password;
 
@@ -21,10 +21,9 @@ internal sealed class PasswordHasher : IPasswordHasher
     
     public async Task<PasswordHash> HashPassword(string password)
     {
-        var buffer = new byte[64];
-        new Random().NextBytes(buffer);
-        var hash = await Hash(password, buffer);
-        return new PasswordHash(hash, buffer);
+        var salt = RandomNumberGenerator.GetBytes(64);
+        var hash = await Hash(password, salt);
+        return new PasswordHash(hash, salt);
     }
 
     public async Task<bool> VerifyHash(string password, PasswordHash hash)

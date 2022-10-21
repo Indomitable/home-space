@@ -12,7 +12,7 @@ public interface IPathsManager
     string UserTempDirectory(long userId);
 }
 
-public class PathsManager : IPathsManager
+internal sealed class PathsManager : IPathsManager
 {
     private const string SystemDir = ".system";
     private const string TrashDir = "trash";

@@ -6,58 +6,40 @@ namespace HomeSpace.Database;
 
 public interface IDbAccess
 {
-    Task Insert(string sql, params NpgsqlParameter[] parameters);
-    Task<object?> Scalar(string sql, params NpgsqlParameter[] parameters);
-    Task<T> ReadOne<T>(string sql, Func<NpgsqlDataReader, T> factory, params NpgsqlParameter[] parameters);
+    Task ExecuteNonQuery(string sql, params NpgsqlParameter[] parameters);
+    Task<T?> ExecuteScalar<T>(string sql, params NpgsqlParameter[] parameters);
+    Task<T> QueryOne<T>(string sql, Func<NpgsqlDataReader, T> factory, params NpgsqlParameter[] parameters);
 }
 
 internal sealed class DbAccess : IDbAccess
 {
-    private readonly string connectionString;
+    private readonly IDbCommandFactory commandFactory;
     
-    public DbAccess(DbConfiguration configuration)
+    public DbAccess(IDbCommandFactory commandFactory)
     {
-        connectionString = $"Host={configuration.Host};Database={configuration.Database};Username={configuration.UserName};Password={configuration.Password};Pooling=True";
+        this.commandFactory = commandFactory;
     }
 
-    public async Task Insert(string sql, params NpgsqlParameter[] parameters)
+    public async Task ExecuteNonQuery(string sql, params NpgsqlParameter[] parameters)
     {
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        foreach (var parameter in parameters)
-        {
-            command.Parameters.Add(parameter);
-        }
-        await command.ExecuteNonQueryAsync();
+        await using var command = await commandFactory.Create(sql);
+        command.AddParameters(parameters);
+        await command.ExecuteNonQuery();
     }
     
-    public async Task<object?> Scalar(string sql, params NpgsqlParameter[] parameters)
+    public async Task<T?> ExecuteScalar<T>(string sql, params NpgsqlParameter[] parameters)
     {
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        foreach (var parameter in parameters)
-        {
-            command.Parameters.Add(parameter);
-        }
-        return await command.ExecuteScalarAsync();
+        await using var command = await commandFactory.Create(sql);
+        command.AddParameters(parameters);
+        var result = await command.ExecuteScalar();
+        return result is T t ? t : default;
     }
 
-    public async Task<T> ReadOne<T>(string sql, Func<NpgsqlDataReader, T> factory, params NpgsqlParameter[] parameters)
+    public async Task<T> QueryOne<T>(string sql, Func<NpgsqlDataReader, T> factory, params NpgsqlParameter[] parameters)
     {
-        await using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        foreach (var parameter in parameters)
-        {
-            command.Parameters.Add(parameter);
-        }
-
-        await using var reader = command.ExecuteReader(CommandBehavior.SingleRow);
+        await using var command = await commandFactory.Create(sql);
+        command.AddParameters(parameters);
+        await using var reader = await command.ExecuteReader(CommandBehavior.SingleRow);
         await reader.ReadAsync();
         return factory(reader);
     }

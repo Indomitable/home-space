@@ -5,6 +5,8 @@
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="6.0.10" />
     </ItemGroup>
     <ItemGroup>
+      <ProjectReference Include="..\HomeSpace.Database\HomeSpace.Database.csproj" />
+      <ProjectReference Include="..\HomeSpace.Files\HomeSpace.Files.csproj" />
       <ProjectReference Include="..\HomeSpace.Infrastructure\HomeSpace.Infrastructure.csproj" />
     </ItemGroup>
 </Project>

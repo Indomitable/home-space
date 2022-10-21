@@ -6,7 +6,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace HomeSpace.Security.Jwt;
 
-internal interface IJwtService
+public interface IJwtService
 {
     string GenerateToken(params Claim[] claims);
     IReadOnlyList<Claim> GetTokenClaims(string token);
@@ -46,7 +46,7 @@ internal sealed class JwtService : IJwtService
         };
 
         var jwtSecurityTokenHandler = new JwtSecurityTokenHandler();
-        var securityToken = jwtSecurityTokenHandler.CreateToken(securityTokenDescriptor);
+        var securityToken = jwtSecurityTokenHandler.CreateJwtSecurityToken(securityTokenDescriptor);
         return jwtSecurityTokenHandler.WriteToken(securityToken);
     }
 

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <ItemGroup>
+        <PackageReference Include="Npgsql" Version="6.0.7" />
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\HomeSpace.Infrastructure\HomeSpace.Infrastructure.csproj" />
+    </ItemGroup>
+</Project>

@@ -1,0 +1,17 @@
+using HomeSpace.Database.Configuration;
+using HomeSpace.Database.Repository;
+using HomeSpace.Infrastructure.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace HomeSpace.Database;
+
+public static class ServiceBuilder
+{
+    public static IServiceCollection AddHomeSpaceDb(this IServiceCollection serviceCollection)
+    {
+        serviceCollection.AddConfiguration<DbConfiguration>("Storage:DB");
+        serviceCollection.AddSingleton<IDbAccess, DbAccess>();
+        serviceCollection.AddSingleton<IAuthenticationRepository, AuthenticationRepository>();
+        return serviceCollection;
+    }
+}

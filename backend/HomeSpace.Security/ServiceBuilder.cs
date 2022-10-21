@@ -18,6 +18,7 @@ public static class ServiceBuilder
         serviceCollection.AddJwtAuthentication(configuration);
         serviceCollection.AddPasswordHashing();
         serviceCollection.AddSingleton<IAuthenticationService, AuthenticationService>();
+        serviceCollection.AddScoped<ICurrentUserProvider, CurrentUserProvider>();
         return serviceCollection;
     }
     

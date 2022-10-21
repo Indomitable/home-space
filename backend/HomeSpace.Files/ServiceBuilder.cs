@@ -11,6 +11,7 @@ public static class ServiceBuilder
     {
         serviceCollection.AddConfiguration<FilesConfiguration>("Storage:Files");
         serviceCollection.AddSingleton<IPathsManager, PathsManager>();
+        serviceCollection.AddSingleton<IFilesManager, FilesManager>();
         return serviceCollection;
     }
 }

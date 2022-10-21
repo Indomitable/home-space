@@ -1,9 +1,13 @@
+using System.Net.Mime;
 using HomeSpace.Api;
 using HomeSpace.Database;
 using HomeSpace.Files;
 using HomeSpace.Infrastructure.Configuration;
+using HomeSpace.Infrastructure.Json;
 using HomeSpace.Infrastructure.Logging;
 using HomeSpace.Security;
+using Microsoft.AspNetCore.Mvc.ApplicationParts;
+using Microsoft.AspNetCore.Mvc.Formatters;
 using Serilog;
 
 var configuration = ConfigurationFactory.Create();
@@ -16,10 +20,17 @@ try
     var builder = WebApplication.CreateBuilder(args);
     builder.Host.UseSerilog(Log.Logger);
     builder.Configuration.AddConfig(configuration);
-    builder.Services.AddControllers();
+    builder.Services
+        .AddControllers()
+        .AddJsonOptions(options =>
+        {
+            JsonSerializer.Configure(options.JsonSerializerOptions);
+        });
     builder.Services
         .AddEndpointsApiExplorer()
-        .AddSwaggerGen()
+        .AddHttpContextAccessor()
+        .AddSwagger()
+        .AddServices()
         .AddHomeSpaceDb()
         .AddHomeSpaceFiles()
         .AddHomeSpaceSecurity(configuration);
@@ -32,16 +43,18 @@ try
         app.UseHsts();
         app.UseDefaultFiles();
         app.UseStaticFiles();
+        app.MapFallbackToFile("index.html");
     }
     app.UseHttpsRedirection();
     app.UseRouting();
     app.UseAuthentication();
     app.UseAuthorization();
+    app.HandleExceptions();
+    
     app.UseEndpoints(routeBuilder =>
     {
         routeBuilder.MapControllers();
     });
-    app.MapFallbackToFile("index.html");;
     
     await app.RunAsync();
 }

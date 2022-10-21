@@ -1,5 +1,4 @@
 using HomeSpace.Database.Model;
-using Npgsql;
 
 namespace HomeSpace.Database.Repository;
 
@@ -23,17 +22,17 @@ internal class AuthenticationRepository : IAuthenticationRepository
         var authId = await userAuthentication.AuthenticationType.Add(dbAccess);
         const string insertSql = "insert into authentication (user_id, auth_type_id, auth_id) values ($1, $2, $3)";
         await dbAccess.ExecuteNonQuery(insertSql,
-            new NpgsqlParameter<long> { Value = userAuthentication.UserId },
-            new NpgsqlParameter<short> { Value = (short)userAuthentication.Type },
-            new NpgsqlParameter<long> { Value = authId });
+            DbParameter.Create(userAuthentication.UserId),
+            DbParameter.Create((short)userAuthentication.Type),
+            DbParameter.Create(authId));
     }
     
     public async Task<IAuthenticationType?> GetAuthentication(long userId, AuthenticationType type)
     {
         const string selectSql = "select auth_id from authentication where user_id = $1 and auth_type_id = $2";
         var authId = await dbAccess.ExecuteScalar<long?>(selectSql,
-            new NpgsqlParameter<long> { Value = userId },
-            new NpgsqlParameter<short> { Value = (short)type });
+            DbParameter.Create(userId),
+            DbParameter.Create((short)type));
         if (!authId.HasValue)
         {
             return null;

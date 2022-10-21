@@ -67,9 +67,9 @@ internal sealed class AuthenticationService : IAuthenticationService
         var isValid = await passwordHasher.VerifyHash(password, new PasswordHash(pass.Hash, pass.Salt));
         if (isValid)
         {
-            var claims = new Claim(ClaimTypes.NameIdentifier, user.Id.ToString(CultureInfo.InvariantCulture),
-                ClaimValueTypes.Integer64);
-            var token = jwtService.GenerateToken(claims);
+            var token = jwtService.GenerateToken (
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64)
+            );
             return (LoginUserResult.Success, token);
         }
         return (LoginUserResult.WrongPassword, string.Empty);

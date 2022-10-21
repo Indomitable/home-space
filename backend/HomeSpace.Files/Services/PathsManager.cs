@@ -10,6 +10,8 @@ public interface IPathsManager
     string UserTrashDirectory(long userId);
     string UserVersionsDirectory(long userId);
     string UserTempDirectory(long userId);
+    string ResolveAbsolutePath(long userId, string relativePath);
+    (string Absolute, string Relative) ResolvePaths(long userId, string parentPath, string name);
 }
 
 internal sealed class PathsManager : IPathsManager
@@ -46,7 +48,16 @@ internal sealed class PathsManager : IPathsManager
     
     public string UserTempDirectory(long userId) =>
         Path.Join(UserSystemDirectory(userId), TempDir);
-    
+
+    public string ResolveAbsolutePath(long userId, string relativePath) =>
+        Path.Join(UserDirectory(userId), relativePath);
+
+    public (string Absolute, string Relative) ResolvePaths(long userId, string parentPath, string name)
+    {
+        var rootFolder = UserDirectory(userId);
+        return (Path.Join(rootFolder, parentPath, name), Path.Join(parentPath, name));
+    }
+
     private string UserSystemDirectory(long userId) =>
         Path.Join(UserDirectory(userId), SystemDir);
 }

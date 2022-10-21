@@ -1,3 +1,4 @@
+using System.Net.Mime;
 using HomeSpace.Api.Model.Auth;
 using HomeSpace.Security.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -17,7 +18,15 @@ public class AuthController
 
     [HttpPost]
     [Route("login")]
-    public async Task<IActionResult> Login([FromBody]LoginRequest request)
+    [Consumes(MediaTypeNames.Application.Json)]
+    public Task<IActionResult> Login([FromBody] LoginRequest request) => InternalLogin(request);
+
+    [HttpPost]
+    [Route("login-auth")]
+    [Consumes("application/x-www-form-urlencoded")]
+    public Task<IActionResult> LoginAuth([FromForm] LoginRequest request) => InternalLogin(request);
+
+    private async Task<IActionResult> InternalLogin(LoginRequest request)
     {
         var (result, token) = await authenticationService.LoginUser(request.UserName, request.Password);
         if (result == LoginUserResult.Success)

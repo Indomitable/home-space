@@ -1,6 +1,6 @@
+using System.Data.Common;
 using HomeSpace.Database.Model;
 using Microsoft.Extensions.Logging;
-using Npgsql;
 
 namespace HomeSpace.Database.Repository;
 
@@ -25,13 +25,13 @@ internal sealed class UserRepository : IUserRepository
     public async Task<User?> GetById(long userId)
     {
         const string sql = "select id, name from users where id = $1";
-        return await dbAccess.QueryOne(sql, User.FromReader, new NpgsqlParameter<long> { Value = userId });
+        return await dbAccess.QueryOne(sql, User.FromReader, DbParameter.Create(userId));
     }
 
     public async Task<User?> GetByName(string userName)
     {
         const string sql = "select id, name from users where name = $1";
-        return await dbAccess.QueryOne(sql, User.FromReader, new NpgsqlParameter<string> { Value = userName });
+        return await dbAccess.QueryOne(sql, User.FromReader, DbParameter.Create(userName));
     }
 
     public async Task<User?> CreateUser(string userName)
@@ -39,13 +39,13 @@ internal sealed class UserRepository : IUserRepository
         const string sql = "insert into users (name) values ($1) returning id";
         try
         {
-            var userId = await dbAccess.ExecuteScalar<long?>(sql, new NpgsqlParameter<string> { Value = userName });
+            var userId = await dbAccess.ExecuteScalar<long?>(sql, DbParameter.Create(userName));
             if (userId.HasValue)
             {
                 return new User { Id = userId.Value, Name = userName };
             }
         }
-        catch (PostgresException pe) when (pe.SqlState == "23505")
+        catch (DbException pe) when (pe.SqlState == "23505")
         {
             // unique_violation -> Same user name
             logger.LogError(pe, "User with same name already exists. [UserName: {userName}]", userName);

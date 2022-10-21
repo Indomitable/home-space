@@ -57,6 +57,11 @@ internal class DbCommand : IDisposable, IAsyncDisposable
             command.Parameters.Add(parameter);
         }
     }
+
+    public Task Prepare()
+    {
+        return command.PrepareAsync();
+    }
     
     public Task<int> ExecuteNonQuery()
     {

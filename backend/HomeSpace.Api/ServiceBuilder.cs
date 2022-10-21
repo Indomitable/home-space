@@ -1,10 +1,7 @@
 using HomeSpace.Api.Configuration;
 using HomeSpace.Api.Managers;
 using Microsoft.AspNetCore.Diagnostics;
-using Microsoft.OpenApi.Interfaces;
 using Microsoft.OpenApi.Models;
-using Swashbuckle.AspNetCore.Swagger;
-using Swashbuckle.AspNetCore.SwaggerUI;
 
 namespace HomeSpace.Api;
 
@@ -20,7 +17,6 @@ public static class ServiceBuilder
     {
         serviceCollection.AddSwaggerGen(options =>
         {
-            options.AddServer(new OpenApiServer { Url = "http://localhost:5261" });
             var securityScheme = new OpenApiSecurityScheme()
             {
                 Description = "JWT",
@@ -57,7 +53,13 @@ public static class ServiceBuilder
         var swaggerConfig = configuration.GetSection("Swagger").Get<SwaggerConfiguration>();
         if (swaggerConfig.Enable)
         {
-            app.UseSwagger();
+            app.UseSwagger(options =>
+            {
+                options.PreSerializeFilters.Add((swagger, httpReq) =>
+                {
+                    swagger.Servers = new List<OpenApiServer> { new() { Url = $"{httpReq.Scheme}://{httpReq.Host.Value}" } };
+                });
+            });
             app.UseSwaggerUI();
         }
     }

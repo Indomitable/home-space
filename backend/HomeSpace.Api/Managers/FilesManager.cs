@@ -62,8 +62,13 @@ sealed class FilesManager : IFilesManager
     {
         var user = currentUserProvider.RequireAuthorizedUser();
         var fileNode = await repository.GetNode(user.Id, id);
-        var content = filesManager.ReadFile(user.Id, fileNode.FileSystemPath);
-        return new GetFileResult(content, fileNode.Title);
+        var (stream, title) = fileNode.NodeType switch
+        {
+            NodeType.Folder => (filesManager.ZipFolder(user.Id, fileNode.FileSystemPath), string.Concat(fileNode.Title, ".zip")),
+            NodeType.File => (filesManager.ReadFile(user.Id, fileNode.FileSystemPath), fileNode.Title),
+            _ => throw new ArgumentOutOfRangeException()
+        };
+        return new GetFileResult(stream, title);
     }
 
     public async Task<CreateFolderResult> CreateFolder(long parentId, string name)

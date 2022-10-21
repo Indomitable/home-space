@@ -12,6 +12,7 @@ public interface IPathsManager
     string UserTempDirectory(long userId);
     string ResolveAbsolutePath(long userId, string relativePath);
     (string Absolute, string Relative) ResolvePaths(long userId, string parentPath, string name);
+    string GetTemporaryFile(long userId);
 }
 
 internal sealed class PathsManager : IPathsManager
@@ -56,6 +57,12 @@ internal sealed class PathsManager : IPathsManager
     {
         var rootFolder = UserDirectory(userId);
         return (Path.Join(rootFolder, parentPath, name), Path.Join(parentPath, name));
+    }
+
+    public string GetTemporaryFile(long userId)
+    {
+        var fileName = Guid.NewGuid().ToString("N");
+        return Path.Join(UserTempDirectory(userId), fileName);
     }
 
     private string UserSystemDirectory(long userId) =>

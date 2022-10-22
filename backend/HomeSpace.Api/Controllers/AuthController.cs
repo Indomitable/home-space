@@ -19,16 +19,16 @@ public class AuthController
     [HttpPost]
     [Route("login")]
     [Consumes(MediaTypeNames.Application.Json)]
-    public Task<IActionResult> Login([FromBody] LoginRequest request) => InternalLogin(request);
+    public Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken cancellationToken) => InternalLogin(request, cancellationToken);
 
     [HttpPost]
     [Route("login-auth")]
     [Consumes("application/x-www-form-urlencoded")]
-    public Task<IActionResult> LoginAuth([FromForm] LoginRequest request) => InternalLogin(request);
+    public Task<IActionResult> LoginAuth([FromForm] LoginRequest request, CancellationToken cancellationToken) => InternalLogin(request, cancellationToken);
 
-    private async Task<IActionResult> InternalLogin(LoginRequest request)
+    private async Task<IActionResult> InternalLogin(LoginRequest request, CancellationToken cancellationToken)
     {
-        var (result, token) = await authenticationService.LoginUser(request.UserName, request.Password);
+        var (result, token) = await authenticationService.LoginUser(request.UserName, request.Password, cancellationToken);
         if (result == LoginUserResult.Success)
         {
             return new OkObjectResult(new LoginResponse(token));

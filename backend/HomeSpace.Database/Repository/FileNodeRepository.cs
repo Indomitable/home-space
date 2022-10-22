@@ -8,11 +8,27 @@ public interface IFileNodeRepository
     Task CreateRootNode(long userId);
 
     Task<PagedResult<(FileNode FileNode, bool IsFavorite)>> GetNodes(
-        long userId, long parentId, int page, int pageSize, string sortColumn, SortDirection sortDirection);
+        long userId, long parentId, int page, int pageSize, string sortColumn, SortDirection sortDirection, CancellationToken cancellationToken);
 
-    Task<FileNode> GetNode(long userId, long id);
-    Task<FileNode?> GetNode(long userId, long parentId, string name);
+    /// <summary>
+    /// Get node by id
+    /// </summary>
+    /// <param name="userId">User Id</param>
+    /// <param name="id">Node id</param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    Task<FileNode> GetNode(long userId, long id, CancellationToken cancellationToken);
+    /// <summary>
+    /// Get node by name
+    /// </summary>
+    /// <param name="userId">User id</param>
+    /// <param name="parentId">Parent node id</param>
+    /// <param name="name">Node name</param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    Task<FileNode?> GetNode(long userId, long parentId, string name, CancellationToken cancellationToken);
     Task<FileNode> CreateNode(long userId, long parentId, string name, NodeType nodeType, string path, string mimeType, long size);
+    Task UpdateNode(long userId, long id, long size, int version, string mimeType);
 }
 
 internal sealed class FileNodeRepository : IFileNodeRepository
@@ -33,19 +49,21 @@ internal sealed class FileNodeRepository : IFileNodeRepository
             (id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size, node_version)
             values (0, $1, 'ROOT', null, 0, '/', 'inode/directory', $2, 0, 1)";
 
-        await access.ExecuteNonQuery(sequenceSql);
+        await access.ExecuteNonQuery(sequenceSql, CancellationToken.None);
         await access.ExecuteNonQuery(insertSql,
+            CancellationToken.None,
             DbParameter.Create(userId),
             DbParameter.Create(DateTime.UtcNow)
         );
     }
 
     public async Task<PagedResult<(FileNode FileNode, bool IsFavorite)>> GetNodes(
-        long userId, long parentId, int page, int pageSize, string sortColumn, SortDirection sortDirection)
+        long userId, long parentId, int page, int pageSize, string sortColumn, SortDirection sortDirection, CancellationToken cancellationToken)
     {
         var sorting = $"{sortColumn} {(sortDirection == SortDirection.Asc ? "asc" : "desc")}";
         const string totalCountSql = "select count(1) from file_nodes f where f.user_id = $1 and f.parent_id = $2";
         var totalCount = await access.ExecuteScalar<long>(totalCountSql,
+            cancellationToken,
             DbParameter.Create(userId),
             DbParameter.Create(parentId));
         var sql =
@@ -65,6 +83,7 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
         var offset = (page - 1) * pageSize;
         await foreach (var (node, isFavorite) in access.Query(sql,
                            reader => (FileNode.FromReader(reader), reader.GetFieldValue<bool>(10)),
+                           cancellationToken,
                            DbParameter.Create(userId),
                            DbParameter.Create(parentId),
                            DbParameter.Create(offset),
@@ -76,24 +95,26 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
         return new PagedResult<(FileNode, bool IsFavorite)>(page, pageSize, totalCount, pageData);
     }
 
-    public async Task<FileNode> GetNode(long userId, long id)
+    public async Task<FileNode> GetNode(long userId, long id, CancellationToken cancellationToken)
     {
         const string sql =
             @"select f.id, f.user_id, f.title, f.parent_id, f.node_type, f.filesystem_path, f.mime_type, f.modified_at, f.node_size, f.node_version
     from file_nodes f
     where f.user_id = $1 and f.id = $2";
         return await access.QueryOne(sql, FileNode.FromReader,
+            cancellationToken,
             DbParameter.Create(userId),
             DbParameter.Create(id));
     }
 
-    public async Task<FileNode?> GetNode(long userId, long parentId, string name)
+    public async Task<FileNode?> GetNode(long userId, long parentId, string name, CancellationToken cancellationToken)
     {
         const string sql =
             @"select f.id, f.user_id, f.title, f.parent_id, f.node_type, f.filesystem_path, f.mime_type, f.modified_at, f.node_size, f.node_version
     from file_nodes f
     where f.user_id = $1 and f.parent_id = $2 and f.title = $3";
         return await access.QueryOptional(sql, FileNode.FromReader,
+            cancellationToken,
             DbParameter.Create(userId),
             DbParameter.Create(parentId),
             DbParameter.Create(name)
@@ -107,6 +128,7 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
         values ({NextValSql(userId)}, $1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id";
         var createTime = DateTime.UtcNow;
         var id = await access.ExecuteScalar<long>(sql,
+            CancellationToken.None,
             DbParameter.Create(userId),
             DbParameter.Create(name),
             DbParameter.Create(parentId),
@@ -118,6 +140,24 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
             DbParameter.Create(1)
         );
         return new FileNode(id, userId, name, parentId, nodeType, path, mimeType, createTime, size, 1);
+    }
+
+    public async Task UpdateNode(long userId, long id, long size, int version, string mimeType)
+    {
+        const string sql = @"update file_nodes
+        set mime_type = $3,
+        modified_at = $4,
+        node_size = $5,
+        node_version = $6
+        where user_id = $1 and id = $2";
+        await access.ExecuteNonQuery(sql, CancellationToken.None,
+            DbParameter.Create(userId),
+            DbParameter.Create(id),
+            DbParameter.Create(mimeType),
+            DbParameter.Create(DateTime.UtcNow),
+            DbParameter.Create(size),
+            DbParameter.Create(version)
+        );
     }
 
     private string NextValSql(long userId)

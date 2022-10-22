@@ -6,8 +6,8 @@ namespace HomeSpace.Database.Repository;
 
 public interface IUserRepository
 {
-    Task<User?> GetById(long userId);
-    Task<User?> GetByName(string userName);
+    Task<User?> GetById(long userId, CancellationToken cancellationToken);
+    Task<User?> GetByName(string userName, CancellationToken cancellationToken);
     Task<User?> CreateUser(string userName);
 }
 
@@ -22,16 +22,16 @@ internal sealed class UserRepository : IUserRepository
         this.logger = logger;
     }
     
-    public async Task<User?> GetById(long userId)
+    public async Task<User?> GetById(long userId, CancellationToken cancellationToken)
     {
         const string sql = "select id, name from users where id = $1";
-        return await dbAccess.QueryOne(sql, User.FromReader, DbParameter.Create(userId));
+        return await dbAccess.QueryOne(sql, User.FromReader, cancellationToken, DbParameter.Create(userId));
     }
 
-    public async Task<User?> GetByName(string userName)
+    public async Task<User?> GetByName(string userName, CancellationToken cancellationToken)
     {
         const string sql = "select id, name from users where name = $1";
-        return await dbAccess.QueryOne(sql, User.FromReader, DbParameter.Create(userName));
+        return await dbAccess.QueryOne(sql, User.FromReader, cancellationToken, DbParameter.Create(userName));
     }
 
     public async Task<User?> CreateUser(string userName)
@@ -39,7 +39,7 @@ internal sealed class UserRepository : IUserRepository
         const string sql = "insert into users (name) values ($1) returning id";
         try
         {
-            var userId = await dbAccess.ExecuteScalar<long?>(sql, DbParameter.Create(userName));
+            var userId = await dbAccess.ExecuteScalar<long?>(sql, CancellationToken.None, DbParameter.Create(userName));
             if (userId.HasValue)
             {
                 return new User { Id = userId.Value, Name = userName };

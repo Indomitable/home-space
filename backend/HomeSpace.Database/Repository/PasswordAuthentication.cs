@@ -18,7 +18,7 @@ public class PasswordAuthentication: IAuthenticationType
     public async Task<long> Add(IDbAccess dbAccess)
     {
         const string sql = "insert into authentication_password (hash, salt) values ($1, $2) RETURNING id";
-        var authId = await dbAccess.ExecuteScalar<long>(sql,
+        var authId = await dbAccess.ExecuteScalar<long>(sql, CancellationToken.None,
             new NpgsqlParameter<byte[]> { NpgsqlDbType = NpgsqlDbType.Bytea, Value = Hash },
             new NpgsqlParameter<byte[]> { NpgsqlDbType = NpgsqlDbType.Bytea, Value = Salt });
         return authId;
@@ -32,6 +32,6 @@ public class PasswordAuthentication: IAuthenticationType
             var hash = reader.GetFieldValue<byte[]>(0);
             var salt = reader.GetFieldValue<byte[]>(1);
             return new PasswordAuthentication(hash, salt);
-        }, new NpgsqlParameter { Value = authId });
+        }, CancellationToken.None, new NpgsqlParameter { Value = authId });
     }
 }

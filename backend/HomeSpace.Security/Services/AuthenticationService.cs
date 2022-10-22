@@ -24,7 +24,7 @@ public enum RegisterUserResult
 
 public interface IAuthenticationService
 {
-    Task<(LoginUserResult, string Token)> LoginUser(string userName, string password);
+    Task<(LoginUserResult, string Token)> LoginUser(string userName, string password, CancellationToken cancellationToken);
     Task<(RegisterUserResult result, string Token)> RegisterUser(string userName, string password);
 }
 
@@ -35,31 +35,31 @@ internal sealed class AuthenticationService : IAuthenticationService
     private readonly IFileNodeRepository fileNodeRepository;
     private readonly IPasswordHasher passwordHasher;
     private readonly IJwtService jwtService;
-    private readonly IPathsManager pathsManager;
+    private readonly IPathsService pathsService;
 
     public AuthenticationService(IUserRepository userRepository, 
         IAuthenticationRepository authenticationRepository,
         IFileNodeRepository fileNodeRepository,
         IPasswordHasher passwordHasher,
         IJwtService jwtService,
-        IPathsManager pathsManager)
+        IPathsService pathsService)
     {
         this.userRepository = userRepository;
         this.authenticationRepository = authenticationRepository;
         this.fileNodeRepository = fileNodeRepository;
         this.passwordHasher = passwordHasher;
         this.jwtService = jwtService;
-        this.pathsManager = pathsManager;
+        this.pathsService = pathsService;
     }
     
-    public async Task<(LoginUserResult, string Token)> LoginUser(string userName, string password)
+    public async Task<(LoginUserResult, string Token)> LoginUser(string userName, string password, CancellationToken cancellationToken)
     {
-        var user = await userRepository.GetByName(userName);
+        var user = await userRepository.GetByName(userName, cancellationToken);
         if (user is null)
         {
             return (LoginUserResult.UnknownUser, string.Empty);
         }
-        var auth = await authenticationRepository.GetAuthentication(user.Id, AuthenticationType.Password);
+        var auth = await authenticationRepository.GetAuthentication(user.Id, AuthenticationType.Password, cancellationToken);
         if (auth is not PasswordAuthentication pass)
         {
             return (LoginUserResult.WrongAuthentication, string.Empty);
@@ -91,7 +91,7 @@ internal sealed class AuthenticationService : IAuthenticationService
         };
         await authenticationRepository.AddAuthentication(authenticaiton);
         await fileNodeRepository.CreateRootNode(user.Id);
-        pathsManager.InitUserFileSystem(user.Id);
+        pathsService.InitUserFileSystem(user.Id);
         return (RegisterUserResult.Success, string.Empty);
     }
 }

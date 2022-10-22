@@ -10,6 +10,7 @@ public static class ServiceBuilder
     public static IServiceCollection AddServices(this IServiceCollection serviceCollection)
     {
         serviceCollection.AddScoped<IFilesManager, FilesManager>();
+        serviceCollection.AddScoped<IVersionsManager, VersionsManager>();
         return serviceCollection;
     }
 

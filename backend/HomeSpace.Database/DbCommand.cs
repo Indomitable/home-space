@@ -58,24 +58,24 @@ internal class DbCommand : IDisposable, IAsyncDisposable
         }
     }
 
-    public Task Prepare()
+    public Task Prepare(CancellationToken cancellationToken)
     {
-        return command.PrepareAsync();
+        return command.PrepareAsync(cancellationToken);
     }
     
-    public Task<int> ExecuteNonQuery()
+    public Task<int> ExecuteNonQuery(CancellationToken cancellationToken)
     {
-        return command.ExecuteNonQueryAsync();
+        return command.ExecuteNonQueryAsync(cancellationToken);
     }
     
-    public Task<NpgsqlDataReader> ExecuteReader(CommandBehavior commandBehavior = CommandBehavior.Default)
+    public Task<NpgsqlDataReader> ExecuteReader(CommandBehavior commandBehavior, CancellationToken cancellationToken)
     {
-        return command.ExecuteReaderAsync(commandBehavior);
+        return command.ExecuteReaderAsync(commandBehavior, cancellationToken);
     }
     
-    public Task<object?> ExecuteScalar()
+    public Task<object?> ExecuteScalar(CancellationToken cancellationToken)
     {
-        return command.ExecuteScalarAsync();
+        return command.ExecuteScalarAsync(cancellationToken);
     }
 
     public void Dispose()

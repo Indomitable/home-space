@@ -3,7 +3,7 @@ using HomeSpace.Files.Configuration;
 
 namespace HomeSpace.Files.Services;
 
-public interface IPathsManager
+public interface IPathsService
 {
     void InitUserFileSystem(long userId);
     string UserDirectory(long userId);
@@ -13,9 +13,10 @@ public interface IPathsManager
     string ResolveAbsolutePath(long userId, string relativePath);
     (string Absolute, string Relative) ResolvePaths(long userId, string parentPath, string name);
     string GetTemporaryFile(long userId);
+    string GetVersionsFile(long userId);
 }
 
-internal sealed class PathsManager : IPathsManager
+internal sealed class PathsService : IPathsService
 {
     private const string SystemDir = ".system";
     private const string TrashDir = "trash";
@@ -24,7 +25,7 @@ internal sealed class PathsManager : IPathsManager
     
     private readonly FilesConfiguration configuration;
 
-    public PathsManager(FilesConfiguration configuration)
+    public PathsService(FilesConfiguration configuration)
     {
         this.configuration = configuration;
     }
@@ -63,6 +64,12 @@ internal sealed class PathsManager : IPathsManager
     {
         var fileName = Guid.NewGuid().ToString("N");
         return Path.Join(UserTempDirectory(userId), fileName);
+    }
+
+    public string GetVersionsFile(long userId)
+    {
+        var fileName = Guid.NewGuid().ToString("N");
+        return Path.Join(UserVersionsDirectory(userId), fileName);
     }
 
     private string UserSystemDirectory(long userId) =>

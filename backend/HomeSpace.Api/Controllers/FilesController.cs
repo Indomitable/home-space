@@ -1,11 +1,10 @@
+using System.ComponentModel.DataAnnotations;
 using System.Net.Mime;
 using HomeSpace.Api.Managers;
 using HomeSpace.Api.Model.Files;
 using HomeSpace.Infrastructure.Model;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Filters;
-using Microsoft.AspNetCore.Mvc.Formatters;
 
 namespace HomeSpace.Api.Controllers;
 
@@ -23,18 +22,18 @@ public class FilesController
 
     [HttpGet]
     [Route("")]
-    public async Task<IActionResult> GetFiles(long parentId, int page, int pageSize, FileNodeSort sortColumn, SortDirection sortDirection = SortDirection.Asc)
+    public async Task<IActionResult> GetFiles([FromQuery] GetFilesRequest request, CancellationToken cancellationToken)
     {
-        var result = await manager.GetFiles(parentId, page, pageSize, sortColumn, sortDirection);
+        var result = await manager.GetFiles(request.ParentId, request.Page, request.PageSize, request.SortColumn, request.SortDirection, cancellationToken);
         return new OkObjectResult(result);
     }
 
     [HttpGet]
     [Route("{id}")]
-    public async Task<IActionResult> GetFile([FromRoute] long id)
+    public async Task<IActionResult> GetFile([FromRoute] long id, CancellationToken cancellationToken)
     {
-        var result = await manager.GetFile(id);
-        return new FileStreamResult(result.Content, MediaTypeNames.Application.Octet)
+        var result = await manager.GetFile(id, cancellationToken);
+        return new FileStreamResult(result.Content, result.ContentType)
         {
             FileDownloadName = result.Name
         };
@@ -45,15 +44,25 @@ public class FilesController
     public async Task<IActionResult> CreateFolder([FromBody] CreateFolderRequest request)
     {
         var result = await manager.CreateFolder(request.ParentId, request.Name);
-        switch (result.Type)
+        return result.Type switch
         {
-            case CreateFolderResultType.FileWithSameNameExist:
-            case CreateFolderResultType.FolderWithSameNameExist:
-                return new ConflictObjectResult(result.Type);
-            case CreateFolderResultType.Success:
-                return new OkObjectResult(result.FileNode);
-            default:
-                throw new ArgumentOutOfRangeException();
-        }
+            CreateFolderResultType.FileWithSameNameExist => new ConflictObjectResult(result.Type),
+            CreateFolderResultType.FolderWithSameNameExist => new ConflictObjectResult(result.Type),
+            CreateFolderResultType.Success => new OkObjectResult(result.FileNode),
+            _ => throw new ArgumentOutOfRangeException()
+        };
+    }
+    
+    [HttpPut]
+    [Route("file")]
+    public async Task<IActionResult> UploadFile([FromHeader(Name = "X-PARENT-ID"), Required] long parentId, IFormFile file, CancellationToken cancellationToken)
+    {
+        var result = await manager.UploadFile(parentId, file, cancellationToken);
+        return result.Type switch
+        {
+            UploadFileResultType.FolderWithSameNameExist => new ConflictObjectResult(result.Type),
+            UploadFileResultType.Success => new OkObjectResult(result.FileNode),
+            _ => throw new ArgumentOutOfRangeException()
+        };
     }
 }

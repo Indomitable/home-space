@@ -10,8 +10,10 @@ public static class ServiceBuilder
     public static IServiceCollection AddHomeSpaceFiles(this IServiceCollection serviceCollection)
     {
         serviceCollection.AddConfiguration<FilesConfiguration>("Storage:Files");
-        serviceCollection.AddSingleton<IPathsManager, PathsManager>();
-        serviceCollection.AddSingleton<IFilesManager, FilesManager>();
+        serviceCollection.AddSingleton<IPathsService, PathsService>();
+        serviceCollection.AddSingleton<IFileSystem, FileSystem>();
+        serviceCollection.AddSingleton<IFilesService, FilesService>();
+        serviceCollection.AddSingleton<IVersionsService, VersionsService>();
         return serviceCollection;
     }
 }

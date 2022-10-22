@@ -1,7 +1,24 @@
+using System.ComponentModel.DataAnnotations;
 using HomeSpace.Database.Model;
 using HomeSpace.Infrastructure.Model;
 
 namespace HomeSpace.Api.Model.Files;
+
+public sealed record GetFilesRequest(
+    [property: Required]long ParentId,
+    [property: Required]int Page,
+    [property: Required]int PageSize, 
+    [property: Required]FileNodeSort SortColumn,
+    [property: Required]SortDirection SortDirection);
+
+public enum FileNodeSort
+{
+    Title,
+    MimeType,
+    ModifiedAt,
+    Size,
+    Favorite
+}
 
 public sealed record DisplayFileNode
 {

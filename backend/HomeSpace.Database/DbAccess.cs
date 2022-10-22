@@ -1,16 +1,17 @@
 using System.Data;
+using System.Runtime.CompilerServices;
 using Npgsql;
 
 namespace HomeSpace.Database;
 
 public interface IDbAccess
 {
-    Task ExecuteNonQuery(string sql, params NpgsqlParameter[] parameters);
-    Task<T?> ExecuteScalar<T>(string sql, params NpgsqlParameter[] parameters);
-    Task<T> QueryOne<T>(string sql, Func<NpgsqlDataReader, T> factory, params NpgsqlParameter[] parameters);
-    Task<T?> QueryOptional<T>(string sql, Func<NpgsqlDataReader, T> factory, params NpgsqlParameter[] parameters)
+    Task ExecuteNonQuery(string sql, CancellationToken cancellationToken, params NpgsqlParameter[] parameters);
+    Task<T?> ExecuteScalar<T>(string sql, CancellationToken cancellationToken, params NpgsqlParameter[] parameters);
+    Task<T> QueryOne<T>(string sql, Func<NpgsqlDataReader, T> factory, CancellationToken cancellationToken, params NpgsqlParameter[] parameters);
+    Task<T?> QueryOptional<T>(string sql, Func<NpgsqlDataReader, T> factory, CancellationToken cancellationToken, params NpgsqlParameter[] parameters)
         where T: class;
-    IAsyncEnumerable<T> Query<T>(string sql, Func<NpgsqlDataReader, T> factory, params NpgsqlParameter[] parameters);
+    IAsyncEnumerable<T> Query<T>(string sql, Func<NpgsqlDataReader, T> factory, CancellationToken cancellationToken, params NpgsqlParameter[] parameters);
 }
 
 internal sealed class DbAccess : IDbAccess
@@ -22,46 +23,46 @@ internal sealed class DbAccess : IDbAccess
         this.commandFactory = commandFactory;
     }
 
-    public async Task ExecuteNonQuery(string sql, params NpgsqlParameter[] parameters)
+    public async Task ExecuteNonQuery(string sql, CancellationToken cancellationToken, params NpgsqlParameter[] parameters)
     {
         await using var command = await commandFactory.Create(sql);
         command.AddParameters(parameters);
-        await command.ExecuteNonQuery();
+        await command.ExecuteNonQuery(cancellationToken);
     }
     
-    public async Task<T?> ExecuteScalar<T>(string sql, params NpgsqlParameter[] parameters)
+    public async Task<T?> ExecuteScalar<T>(string sql, CancellationToken cancellationToken, params NpgsqlParameter[] parameters)
     {
         await using var command = await commandFactory.Create(sql);
         command.AddParameters(parameters);
-        var result = await command.ExecuteScalar();
+        var result = await command.ExecuteScalar(cancellationToken);
         return result is T t ? t : default;
     }
 
-    public async Task<T> QueryOne<T>(string sql, Func<NpgsqlDataReader, T> factory, params NpgsqlParameter[] parameters)
+    public async Task<T> QueryOne<T>(string sql, Func<NpgsqlDataReader, T> factory, CancellationToken cancellationToken, params NpgsqlParameter[] parameters)
     {
         await using var command = await commandFactory.Create(sql);
         command.AddParameters(parameters);
-        await using var reader = await command.ExecuteReader(CommandBehavior.SingleRow);
-        await reader.ReadAsync();
+        await using var reader = await command.ExecuteReader(CommandBehavior.SingleRow, cancellationToken);
+        await reader.ReadAsync(cancellationToken);
         return factory(reader);
     }
     
-    public async Task<T?> QueryOptional<T>(string sql, Func<NpgsqlDataReader, T> factory, params NpgsqlParameter[] parameters)
+    public async Task<T?> QueryOptional<T>(string sql, Func<NpgsqlDataReader, T> factory, CancellationToken cancellationToken, params NpgsqlParameter[] parameters)
         where T: class
     {
         await using var command = await commandFactory.Create(sql);
         command.AddParameters(parameters);
-        await using var reader = await command.ExecuteReader(CommandBehavior.SingleRow);
-        return reader.Read() ? factory(reader) : null;
+        await using var reader = await command.ExecuteReader(CommandBehavior.SingleRow, cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? factory(reader) : null;
     }
     
-    public async IAsyncEnumerable<T> Query<T>(string sql, Func<NpgsqlDataReader, T> factory, params NpgsqlParameter[] parameters)
+    public async IAsyncEnumerable<T> Query<T>(string sql, Func<NpgsqlDataReader, T> factory, [EnumeratorCancellation] CancellationToken cancellationToken, params NpgsqlParameter[] parameters)
     {
         await using var command = await commandFactory.Create(sql);
         command.AddParameters(parameters);
-        await command.Prepare();
-        await using var reader = await command.ExecuteReader();
-        while (await reader.ReadAsync())
+        await command.Prepare(cancellationToken);
+        await using var reader = await command.ExecuteReader(CommandBehavior.Default, cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
         {
             yield return factory(reader);
         }

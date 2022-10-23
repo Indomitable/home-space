@@ -20,8 +20,8 @@ function onSelectAllToggled(selected: boolean) {
 }
 
 function onColumnNameClick(name: string) {
-    if (props.sorting.columnName === name) {
-        const direction = props.sorting.direction === SortDirection.Asc ? SortDirection.Desc : SortDirection.Asc;
+    if (props.sorting.sortColumn === name) {
+        const direction = props.sorting.sortDirection === SortDirection.Asc ? SortDirection.Desc : SortDirection.Asc;
         emit("sort-changed", { columnName: name, direction });
     } else {
         emit("sort-changed", { columnName: name, direction: SortDirection.Asc });
@@ -33,7 +33,7 @@ function onColumnNameClick(name: string) {
     <div
         class="node-list-header"
         :class="{
-            'node-list-header__title--sorted--asc': sorting.direction === SortDirection.Asc,
+            'node-list-header__title--sorted--asc': sorting.sortDirection === SortDirection.Asc,
         }"
     >
         <div class="node-list-header__actions">
@@ -42,7 +42,7 @@ function onColumnNameClick(name: string) {
         <div
             class="node-list-header__title"
             :class="{
-                'node-list-header__title--sorted': sorting.columnName === 'title',
+                'node-list-header__title--sorted': sorting.sortColumn === 'title',
             }"
             @click="() => onColumnNameClick('title')"
         >
@@ -51,7 +51,7 @@ function onColumnNameClick(name: string) {
         <div
             class="node-list-header__title"
             :class="{
-                'node-list-header__title--sorted': sorting.columnName === 'node_size',
+                'node-list-header__title--sorted': sorting.sortColumn === 'node_size',
             }"
             @click="() => onColumnNameClick('node_size')"
         >
@@ -60,7 +60,7 @@ function onColumnNameClick(name: string) {
         <div
             class="node-list-header__title"
             :class="{
-                'node-list-header__title--sorted': sorting.columnName === 'modified_at',
+                'node-list-header__title--sorted': sorting.sortColumn === 'modified_at',
             }"
             @click="() => onColumnNameClick('modified_at')"
         >

@@ -5,11 +5,11 @@ using HomeSpace.Infrastructure.Model;
 namespace HomeSpace.Api.Model.Files;
 
 public sealed record GetFilesRequest(
-    [property: Required]long ParentId,
-    [property: Required]int Page,
-    [property: Required]int PageSize, 
-    [property: Required]FileNodeSort SortColumn,
-    [property: Required]SortDirection SortDirection);
+    [Required]long ParentId,
+    [Required]int Page,
+    [Required]int PageSize, 
+    [Required]FileNodeSort SortColumn,
+    [Required]SortDirection SortDirection);
 
 public enum FileNodeSort
 {

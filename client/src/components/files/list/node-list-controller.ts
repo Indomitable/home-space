@@ -37,7 +37,7 @@ export class NodeListController {
         this.hasNodes = computed(() => this.nodes.value.length > 0);
         this.allNodesSelected = computed(() => Object.values(this.nodesState).every(s => s.selected));
         this.selectedNodes = computed(() => this.nodes.value.filter(n => this.nodesState[n.id].selected));
-        this.sorting = ref({ columnName: "title", direction: SortDirection.Asc });
+        this.sorting = ref({ sortColumn: "title", sortDirection: SortDirection.Asc });
     }
 
     toggleNodeSelection(node: FileNode, selected: boolean): void {

@@ -5,20 +5,15 @@ import { resolveApiUrl } from "@/api/url-resolver";
 import type { RequestInitVisitor } from "@/api/request-init-visitor";
 
 interface LoginUserResponse {
-    user_id: number;
-    user_name: string;
     access_token: string;
 }
 
 interface JWtTokenPayload {
-    user_id: number;
-    user_name: string;
     exp: number;
 }
 
 interface UserContext {
-    user_id: number;
-    user_name: string;
+    userName: string;
     access_token: {
         token: string;
         valid_until: number;
@@ -26,7 +21,6 @@ interface UserContext {
 }
 
 export interface User {
-    userId: number;
     userName: string;
 }
 
@@ -34,16 +28,16 @@ export class UserService implements RequestInitVisitor {
     private static token_key = "app_user_context_key";
 
     async login(userName: string, password: string): Promise<void> {
-        const url = resolveApiUrl("user", "login");
+        const url = resolveApiUrl("auth", "login");
         const response = await RequestBuilder.create(url)
             .setMethod(HttpMethod.POST)
             .setJsonBody({
-                user_name: userName,
+                userName,
                 password,
             })
             .build<LoginUserResponse>()
             .execute();
-        this.createUserContext(response);
+        this.createUserContext(response, userName);
     }
 
     logout(): void {
@@ -56,8 +50,7 @@ export class UserService implements RequestInitVisitor {
             return null;
         }
         return {
-            userId: userContext.user_id,
-            userName: userContext.user_name,
+            userName: userContext.userName,
         };
     }
 
@@ -69,13 +62,12 @@ export class UserService implements RequestInitVisitor {
         (requestInit.headers as Record<string, string>)["Authorization"] = `Bearer ${userContext.access_token.token}`;
     }
 
-    private createUserContext(loginResponse: LoginUserResponse): void {
+    private createUserContext(loginResponse: LoginUserResponse, name: string): void {
         const decoded_jwt = jwt_decode<JWtTokenPayload>(loginResponse.access_token);
         const token_expirations_ms = decoded_jwt.exp * 1000;
-        if (token_expirations_ms > Date.now() && decoded_jwt.user_id === loginResponse.user_id) {
+        if (token_expirations_ms > Date.now()) {
             this.saveUserContext({
-                user_id: loginResponse.user_id,
-                user_name: loginResponse.user_name,
+                userName: name,
                 access_token: {
                     token: loginResponse.access_token,
                     valid_until: decoded_jwt.exp * 1000,

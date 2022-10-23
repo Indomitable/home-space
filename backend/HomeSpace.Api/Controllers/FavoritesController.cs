@@ -7,7 +7,7 @@ namespace HomeSpace.Api.Controllers;
 
 [Authorize]
 [ApiController]
-[Route("favorites")]
+[Route("api/favorites")]
 public class FavoritesController
 {
     private readonly IFavoritesManager manager;
@@ -21,7 +21,7 @@ public class FavoritesController
     [Route("toggle")]
     public async Task<IActionResult> Toggle(ToggleFavoriteRequest request, CancellationToken cancellationToken)
     {
-        await manager.ToggleFavorite(request.NodeId, request.Favorite, cancellationToken);
+        await manager.ToggleFavorite(request.Id, request.Favorite, cancellationToken);
         return new OkResult();
     }
 }

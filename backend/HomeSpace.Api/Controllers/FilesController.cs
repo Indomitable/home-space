@@ -27,14 +27,21 @@ public class FilesController
     }
 
     [HttpGet]
-    [Route("{id}")]
-    public async Task<IActionResult> GetFile([FromRoute] long id, CancellationToken cancellationToken)
+    [Route("download")]
+    public async Task<IActionResult> GetFile([FromQuery] long[] id, CancellationToken cancellationToken)
     {
-        var result = await manager.GetFile(id, cancellationToken);
+        var result = await manager.GetFiles(id, cancellationToken);
         return new FileStreamResult(result.Content, result.ContentType)
         {
             FileDownloadName = result.Name
         };
+    }
+
+    [HttpGet]
+    [Route("parents/{id}")]
+    public IAsyncEnumerable<FileNodeResponse> GetParentNodes([FromRoute] long id, CancellationToken cancellationToken)
+    {
+        return manager.GetParents(id, cancellationToken);
     }
 
     [HttpPut]
@@ -53,9 +60,9 @@ public class FilesController
     
     [HttpPut]
     [Route("file")]
-    public async Task<IActionResult> UploadFile([FromHeader(Name = "X-PARENT-ID"), Required] long parentId, IFormFile file, CancellationToken cancellationToken)
+    public async Task<IActionResult> UploadFile([FromForm] UploadFileRequest request, CancellationToken cancellationToken)
     {
-        var result = await manager.UploadFile(parentId, file, cancellationToken);
+        var result = await manager.UploadFile(request.ParentId, request.File, cancellationToken);
         return result.Type switch
         {
             UploadFileResultType.FolderWithSameNameExist => new ConflictObjectResult(result.Type),

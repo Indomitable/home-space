@@ -1,9 +1,9 @@
 export enum SortDirection {
-    Asc = "Asc",
-    Desc = "Desc",
+    Asc = "asc",
+    Desc = "desc",
 }
 
 export interface Sorting {
-    columnName: string;
-    direction: SortDirection;
+    sortColumn: string;
+    sortDirection: SortDirection;
 }

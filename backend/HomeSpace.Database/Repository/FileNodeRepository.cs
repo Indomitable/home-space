@@ -29,6 +29,7 @@ public interface IFileNodeRepository
     Task<FileNode?> GetNode(long userId, long parentId, string name, CancellationToken cancellationToken);
     Task<FileNode> CreateNode(long userId, long parentId, string name, NodeType nodeType, string path, string mimeType, long size);
     Task UpdateNode(long userId, long id, long size, int version, string mimeType);
+    IAsyncEnumerable<FileNode> GetParentNodes(long userId, long id, CancellationToken cancellationToken);
     IAsyncEnumerable<FileNode> GetChildNodes(long userId, long parentId, CancellationToken cancellationToken);
     Task RenameNode(long userId, long id, string name, string path, CancellationToken cancellationToken);
     Task DeleteNode(long userId, long id, CancellationToken cancellationToken);
@@ -97,6 +98,21 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
         }
 
         return new PagedResult<(FileNode, bool IsFavorite)>(page, pageSize, totalCount, pageData);
+    }
+
+    public IAsyncEnumerable<FileNode> GetParentNodes(long userId, long id, CancellationToken cancellationToken)
+    {
+        var sql = @"WITH RECURSIVE query AS ( 
+            select *, 0 as lvl from file_nodes
+            where user_id = $1 and id = $2
+            UNION ALL 
+            select n.*, lvl-1 as lev from file_nodes n
+            INNER JOIN query p ON p.parent_id = n.id and p.user_id = n.user_id
+        )
+        select id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size, node_version from query
+        order by lvl";
+        return access.Query(sql, FileNode.FromReader, cancellationToken, DbParameter.Create(userId),
+            DbParameter.Create(id));
     }
 
     public IAsyncEnumerable<FileNode> GetChildNodes(long userId, long parentId, CancellationToken cancellationToken)
@@ -201,12 +217,12 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
     public Task DeleteNodeRecursive(long userId, long id, CancellationToken cancellationToken)
     {
         const string sql = @"WITH RECURSIVE query AS (
-        select n0.*, 0 as lvl from file_nodes n0
-        where user_id = $1 and id = $2
-        UNION ALL
-        select n1.*, lvl + 1 as lvl from file_nodes n1
-            INNER JOIN query p ON p.id = n1.parent_id
-            )
+            select n0.*, 0 as lvl from file_nodes n0
+            where user_id = $1 and id = $2
+            UNION ALL
+            select n1.*, lvl + 1 as lvl from file_nodes n1
+            INNER JOIN query p ON p.id = n1.parent_id and p.user_id = n1.user_id
+        )
         delete from file_nodes
         where user_id = $1 and id in (select id from query)";
         return access.ExecuteNonQuery(sql, CancellationToken.None,

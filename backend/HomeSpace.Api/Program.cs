@@ -1,4 +1,3 @@
-using System.Net.Mime;
 using HomeSpace.Api;
 using HomeSpace.Database;
 using HomeSpace.Files;
@@ -6,8 +5,6 @@ using HomeSpace.Infrastructure.Configuration;
 using HomeSpace.Infrastructure.Json;
 using HomeSpace.Infrastructure.Logging;
 using HomeSpace.Security;
-using Microsoft.AspNetCore.Mvc.ApplicationParts;
-using Microsoft.AspNetCore.Mvc.Formatters;
 using Serilog;
 
 var configuration = ConfigurationFactory.Create();
@@ -31,6 +28,7 @@ try
         .AddHttpContextAccessor()
         .AddSwagger()
         .AddServices()
+        .AddHomeSpaceCors(builder.Environment)
         .AddHomeSpaceDb()
         .AddHomeSpaceFiles()
         .AddHomeSpaceSecurity(configuration);
@@ -45,12 +43,13 @@ try
         app.UseStaticFiles();
         app.MapFallbackToFile("index.html");
     }
+    app.UseHomeSpaceCors(app.Environment);
     app.UseHttpsRedirection();
     app.UseRouting();
     app.UseAuthentication();
     app.UseAuthorization();
     app.HandleExceptions();
-    
+
     app.UseEndpoints(routeBuilder =>
     {
         routeBuilder.MapControllers();

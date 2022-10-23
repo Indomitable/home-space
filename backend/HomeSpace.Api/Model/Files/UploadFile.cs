@@ -7,3 +7,5 @@ public enum UploadFileResultType
 }
 
 public record UploadFileResult(UploadFileResultType Type, FileNodeResponse? FileNode);
+
+public record UploadFileRequest(long ParentId, IFormFile File);

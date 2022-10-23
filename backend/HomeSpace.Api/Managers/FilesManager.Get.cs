@@ -1,4 +1,6 @@
+using System.IO.Compression;
 using System.Net.Mime;
+using System.Runtime.CompilerServices;
 using HomeSpace.Api.Model.Files;
 using HomeSpace.Infrastructure.Model;
 
@@ -34,14 +36,62 @@ internal partial class FilesManager
         }
     }
 
-    public async Task<GetFileResult> GetFile(long id, CancellationToken cancellationToken)
+    public async IAsyncEnumerable<FileNodeResponse> GetParents(long id, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var user = currentUserProvider.RequireAuthorizedUser();
-        var fileNode = await repository.GetNode(user.Id, id, cancellationToken);
+        await foreach (var node in repository.GetParentNodes(user.Id, id, cancellationToken))
+        {
+            yield return FileNodeResponse.Map(node);
+        }
+    }
+
+    public async Task<GetFileResult> GetFiles(long[] ids, CancellationToken cancellationToken)
+    {
+        var user = currentUserProvider.RequireAuthorizedUser();
+        if (ids.Length == 1)
+        {
+            return await GetFile(user.Id, ids[0], cancellationToken);
+        }
+
+        var tempFile = pathsService.GetTemporaryFile(user.Id);
+        Stream? writeStream = null;
+        try
+        {
+            writeStream = File.OpenWrite(tempFile);
+            using var zipArchive = new ZipArchive(writeStream, ZipArchiveMode.Create, false);
+            foreach (var id in ids)
+            {
+                var result = await GetFile(user.Id, id, cancellationToken);
+                var archiveEntry = zipArchive.CreateEntry(result.Name, CompressionLevel.Fastest);
+                await using var entryStream = archiveEntry.Open();
+                await result.Content.CopyToAsync(entryStream, cancellationToken);
+                await result.Content.FlushAsync(cancellationToken);
+                result.Content.Close();
+                await result.Content.DisposeAsync();
+                entryStream.Close();
+            }
+
+            await writeStream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            if (writeStream != null)
+            {
+                // Close and dispose write handler. Will open read handler to serve.
+                writeStream.Close();
+                await writeStream.DisposeAsync(); 
+            }
+        }
+        return new GetFileResult(File.OpenRead(tempFile), "archive.zip", MediaTypeNames.Application.Zip);
+    }
+    
+    private async Task<GetFileResult> GetFile(long userId, long id, CancellationToken cancellationToken)
+    {
+        var fileNode = await repository.GetNode(userId, id, cancellationToken);
         var (stream, title, contentType) = fileNode.NodeType switch
         {
-            NodeType.Folder => (filesService.ZipFolder(user.Id, fileNode.FileSystemPath), string.Concat(fileNode.Title, ".zip"), MediaTypeNames.Application.Zip),
-            NodeType.File => (filesService.ReadFile(user.Id, fileNode.FileSystemPath), fileNode.Title, fileNode.MimeType),
+            NodeType.Folder => (filesService.ZipFolder(userId, fileNode.FileSystemPath), string.Concat(fileNode.Title, ".zip"), MediaTypeNames.Application.Zip),
+            NodeType.File => (filesService.ReadFile(userId, fileNode.FileSystemPath), fileNode.Title, fileNode.MimeType),
             _ => throw new ArgumentOutOfRangeException()
         };
         return new GetFileResult(stream, title, contentType);

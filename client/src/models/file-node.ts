@@ -1,6 +1,6 @@
 export enum NodeType {
-    File,
-    Folder,
+    Folder = 'Folder',
+    File = 'File',
 }
 
 export interface FileNode {
@@ -14,5 +14,8 @@ export interface FileNode {
     nodeSize: number;
     nodeSizeHuman: string;
     nodeVersion: number;
+}
+
+export interface FavoriteFileNode extends FileNode {
     isFavorite: boolean;
 }

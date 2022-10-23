@@ -1,8 +1,0 @@
-{
-    "files.exclude": {
-        "client-js/node_modules": true
-    },
-    "cSpell.words": [
-        "chrono"
-    ]
-}

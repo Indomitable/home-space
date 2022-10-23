@@ -13,6 +13,13 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HomeSpace.Security", "HomeS
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HomeSpace.Database", "HomeSpace.Database\HomeSpace.Database.csproj", "{2A832000-C35B-4DA4-8272-000DCFEAA27F}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Files", "Files", "{909C7422-5037-4281-B9B5-E343383C01AF}"
+	ProjectSection(SolutionItems) = preProject
+		..\deploy.sh = ..\deploy.sh
+		..\README.md = ..\README.md
+		..\TODO.md = ..\TODO.md
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU

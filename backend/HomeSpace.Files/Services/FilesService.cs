@@ -10,6 +10,20 @@ public interface IFilesService
     (string Absolute, string Relative) CreateFolder(long userId, string parentPath, string name);
 
     Task<long> CreateFile(long userId, string path, Stream contents, CancellationToken cancellationToken);
+    
+    Task DeleteFile(long userId, string path, CancellationToken cancellationToken);
+    
+    Task DeleteFolder(long userId, string path, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Renames user file located on path and returns the new path
+    /// </summary>
+    /// <param name="userId">UserId</param>
+    /// <param name="path">Relative path</param>
+    /// <param name="name">New file name</param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    Task<string> RenameFile(long userId, string path, string name, CancellationToken cancellationToken);
 }
 
 internal sealed class FilesService : IFilesService
@@ -48,5 +62,25 @@ internal sealed class FilesService : IFilesService
     {
         var absolutePath = pathsService.ResolveAbsolutePath(userId, path);
         return await fileSystem.WriteFile(absolutePath, contents, cancellationToken);
+    }
+
+    public async Task DeleteFile(long userId, string path, CancellationToken cancellationToken)
+    {
+        var absolutePath = pathsService.ResolveAbsolutePath(userId, path);
+        await fileSystem.DeleteFile(absolutePath, cancellationToken);
+    }
+
+    public async Task DeleteFolder(long userId, string path, CancellationToken cancellationToken)
+    {
+        var absolutePath = pathsService.ResolveAbsolutePath(userId, path);
+        await fileSystem.DeleteDir(absolutePath, cancellationToken);
+    }
+
+    public async Task<string> RenameFile(long userId, string path, string name, CancellationToken cancellationToken)
+    {
+        var sourcePath = pathsService.ResolveAbsolutePath(userId, path);
+        var destination = Path.Join(Path.GetDirectoryName(sourcePath), name);
+        await fileSystem.Rename(sourcePath, destination, cancellationToken);
+        return destination;
     }
 }

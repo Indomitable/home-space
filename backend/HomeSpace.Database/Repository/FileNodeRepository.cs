@@ -29,6 +29,10 @@ public interface IFileNodeRepository
     Task<FileNode?> GetNode(long userId, long parentId, string name, CancellationToken cancellationToken);
     Task<FileNode> CreateNode(long userId, long parentId, string name, NodeType nodeType, string path, string mimeType, long size);
     Task UpdateNode(long userId, long id, long size, int version, string mimeType);
+    IAsyncEnumerable<FileNode> GetChildNodes(long userId, long parentId, CancellationToken cancellationToken);
+    Task RenameNode(long userId, long id, string name, string path, CancellationToken cancellationToken);
+    Task DeleteNode(long userId, long id, CancellationToken cancellationToken);
+    Task DeleteNodeRecursive(long userId, long id, CancellationToken cancellationToken);
 }
 
 internal sealed class FileNodeRepository : IFileNodeRepository
@@ -95,25 +99,36 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
         return new PagedResult<(FileNode, bool IsFavorite)>(page, pageSize, totalCount, pageData);
     }
 
-    public async Task<FileNode> GetNode(long userId, long id, CancellationToken cancellationToken)
+    public IAsyncEnumerable<FileNode> GetChildNodes(long userId, long parentId, CancellationToken cancellationToken)
+    {
+        const string sql =
+            @"select f.id, f.user_id, f.title, f.parent_id, f.node_type, f.filesystem_path, f.mime_type, f.modified_at, f.node_size, f.node_version
+    from file_nodes f
+    where f.user_id = $1 and f.parent_id = $2";
+        return access.Query(sql, FileNode.FromReader, cancellationToken,
+            DbParameter.Create(userId),
+            DbParameter.Create(parentId));
+    }
+
+    public Task<FileNode> GetNode(long userId, long id, CancellationToken cancellationToken)
     {
         const string sql =
             @"select f.id, f.user_id, f.title, f.parent_id, f.node_type, f.filesystem_path, f.mime_type, f.modified_at, f.node_size, f.node_version
     from file_nodes f
     where f.user_id = $1 and f.id = $2";
-        return await access.QueryOne(sql, FileNode.FromReader,
+        return access.QueryOne(sql, FileNode.FromReader,
             cancellationToken,
             DbParameter.Create(userId),
             DbParameter.Create(id));
     }
 
-    public async Task<FileNode?> GetNode(long userId, long parentId, string name, CancellationToken cancellationToken)
+    public Task<FileNode?> GetNode(long userId, long parentId, string name, CancellationToken cancellationToken)
     {
         const string sql =
             @"select f.id, f.user_id, f.title, f.parent_id, f.node_type, f.filesystem_path, f.mime_type, f.modified_at, f.node_size, f.node_version
     from file_nodes f
     where f.user_id = $1 and f.parent_id = $2 and f.title = $3";
-        return await access.QueryOptional(sql, FileNode.FromReader,
+        return access.QueryOptional(sql, FileNode.FromReader,
             cancellationToken,
             DbParameter.Create(userId),
             DbParameter.Create(parentId),
@@ -142,7 +157,7 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
         return new FileNode(id, userId, name, parentId, nodeType, path, mimeType, createTime, size, 1);
     }
 
-    public async Task UpdateNode(long userId, long id, long size, int version, string mimeType)
+    public Task UpdateNode(long userId, long id, long size, int version, string mimeType)
     {
         const string sql = @"update file_nodes
         set mime_type = $3,
@@ -150,7 +165,7 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
         node_size = $5,
         node_version = $6
         where user_id = $1 and id = $2";
-        await access.ExecuteNonQuery(sql, CancellationToken.None,
+        return access.ExecuteNonQuery(sql, CancellationToken.None,
             DbParameter.Create(userId),
             DbParameter.Create(id),
             DbParameter.Create(mimeType),
@@ -158,6 +173,45 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
             DbParameter.Create(size),
             DbParameter.Create(version)
         );
+    }
+    
+    public Task RenameNode(long userId, long id, string name, string path, CancellationToken cancellationToken)
+    {
+        const string sql = @"update file_nodes
+        set title = $3,
+            filesystem_path = $4
+        where user_id = $1 and id = $2";
+        return access.ExecuteNonQuery(sql, CancellationToken.None,
+            DbParameter.Create(userId),
+            DbParameter.Create(id),
+            DbParameter.Create(name),
+            DbParameter.Create(path)
+        );
+    }
+
+    public Task DeleteNode(long userId, long id, CancellationToken cancellationToken)
+    {
+        const string sql = "delete file_nodes where user_id = $1 and id = $2";
+        return access.ExecuteNonQuery(sql, CancellationToken.None,
+            DbParameter.Create(userId),
+            DbParameter.Create(id)
+        );
+    }
+
+    public Task DeleteNodeRecursive(long userId, long id, CancellationToken cancellationToken)
+    {
+        const string sql = @"WITH RECURSIVE query AS (
+        select n0.*, 0 as lvl from file_nodes n0
+        where user_id = $1 and id = $2
+        UNION ALL
+        select n1.*, lvl + 1 as lvl from file_nodes n1
+            INNER JOIN query p ON p.id = n1.parent_id
+            )
+        delete from file_nodes
+        where user_id = $1 and id in (select id from query)";
+        return access.ExecuteNonQuery(sql, CancellationToken.None,
+            DbParameter.Create(userId),
+            DbParameter.Create(id));
     }
 
     private string NextValSql(long userId)

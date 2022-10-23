@@ -61,3 +61,6 @@ TODO:
     - [ ] File sync
 - [ ] iPhone native app
     - [ ] File sync
+
+### Extra Services
+- [ ] Develop extra service which clean orphan versions, the temp files and old items in the trash.

@@ -6,4 +6,4 @@ public enum UploadFileResultType
     Success
 }
 
-public record UploadFileResult(UploadFileResultType Type, DisplayFileNode? FileNode);
+public record UploadFileResult(UploadFileResultType Type, FileNodeResponse? FileNode);

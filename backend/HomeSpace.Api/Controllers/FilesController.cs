@@ -1,8 +1,6 @@
 using System.ComponentModel.DataAnnotations;
-using System.Net.Mime;
 using HomeSpace.Api.Managers;
 using HomeSpace.Api.Model.Files;
-using HomeSpace.Infrastructure.Model;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -64,5 +62,34 @@ public class FilesController
             UploadFileResultType.Success => new OkObjectResult(result.FileNode),
             _ => throw new ArgumentOutOfRangeException()
         };
+    }
+
+    [HttpPost]
+    [Route("rename")]
+    public async Task<IActionResult> RenameFile([FromBody] RenameNodeRequest request, CancellationToken cancellationToken)
+    {
+        var result = await manager.RenameNode(request.Id, request.Name, cancellationToken);
+        return result.Type switch
+        {
+            RenameNodeResultType.NodeWithSameNameExist => new ConflictObjectResult(result.Type),
+            RenameNodeResultType.Success => new OkObjectResult(result.Node),
+            _ => throw new ArgumentOutOfRangeException()
+        };
+    }
+
+    [HttpPost]
+    [Route("copy")]
+    public async Task<IActionResult> CopyNodes([FromBody] CopyNodeRequest request, CancellationToken cancellationToken)
+    {
+        var result = await manager.CopyNodes(request.Nodes, request.ParentId, cancellationToken);
+        return new OkObjectResult(result);
+    }
+
+    [HttpPost]
+    [Route("move")]
+    public async Task<IActionResult> MoveNodes([FromBody] MoveNodeRequest request, CancellationToken cancellationToken)
+    {
+        var result = await manager.MoveNodes(request.Nodes, request.ParentId, cancellationToken);
+        return new OkObjectResult(result);
     }
 }

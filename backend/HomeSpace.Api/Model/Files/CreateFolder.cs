@@ -11,4 +11,4 @@ public enum CreateFolderResultType
     Success
 }
 
-public record CreateFolderResult(CreateFolderResultType Type, DisplayFileNode? FileNode);
+public record CreateFolderResult(CreateFolderResultType Type, FileNodeResponse? FileNode);

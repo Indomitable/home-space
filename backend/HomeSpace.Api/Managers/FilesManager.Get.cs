@@ -4,7 +4,7 @@ using HomeSpace.Infrastructure.Model;
 
 namespace HomeSpace.Api.Managers;
 
-public partial class FilesManager
+internal partial class FilesManager
 {
     public async Task<PagedResult<DisplayFileNode>> GetFiles(long parentId, int page, int pageSize, FileNodeSort sortColumn,
         SortDirection sortDirection, CancellationToken cancellationToken)

@@ -4,7 +4,7 @@ using HomeSpace.Infrastructure.Model;
 
 namespace HomeSpace.Api.Managers;
 
-public partial class FilesManager
+internal partial class FilesManager
 {
     public async Task<CreateFolderResult> CreateFolder(long parentId, string name)
     {

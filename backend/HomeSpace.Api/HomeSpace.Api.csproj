@@ -11,4 +11,8 @@
     <ProjectReference Include="..\HomeSpace.Security\HomeSpace.Security.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Model\Favorites" />
+  </ItemGroup>
+
 </Project>

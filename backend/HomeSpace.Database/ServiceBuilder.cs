@@ -16,6 +16,7 @@ public static class ServiceBuilder
         serviceCollection.AddSingleton<IAuthenticationRepository, AuthenticationRepository>();
         serviceCollection.AddSingleton<IFileNodeRepository, FileNodeRepository>();
         serviceCollection.AddSingleton<IVersionsRepository, VersionsRepository>();
+        serviceCollection.AddSingleton<IFavoritesRepository, FavoritesRepository>();
         return serviceCollection;
     }
 }

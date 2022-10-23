@@ -4,7 +4,7 @@ using HomeSpace.Infrastructure.Model;
 
 namespace HomeSpace.Api.Managers;
 
-public partial class FilesManager
+internal partial class FilesManager
 {
     private static readonly int CopyChunkSize = 3;
     

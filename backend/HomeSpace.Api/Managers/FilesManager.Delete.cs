@@ -2,7 +2,7 @@ using HomeSpace.Database.Model;
 
 namespace HomeSpace.Api.Managers;
 
-public partial class FilesManager
+internal partial class FilesManager
 {
     private async Task PermanentDeleteFile(FileNode target, CancellationToken cancellationToken)
     {

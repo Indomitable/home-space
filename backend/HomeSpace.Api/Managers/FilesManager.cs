@@ -19,7 +19,7 @@ public interface IFilesManager
     Task<RenameNodeResult> RenameNode(long id, string name, CancellationToken cancellationToken);
 }
 
-sealed partial class FilesManager : IFilesManager
+internal sealed partial class FilesManager : IFilesManager
 {
     private readonly IFileNodeRepository repository;
     private readonly ICurrentUserProvider currentUserProvider;

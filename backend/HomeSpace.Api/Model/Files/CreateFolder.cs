@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace HomeSpace.Api.Model.Files;
 
-public record CreateFolderRequest([property: Required]long ParentId, [property: Required] string Name);
+public record CreateFolderRequest([Required]long ParentId, [Required] string Name);
 
 public enum CreateFolderResultType
 {

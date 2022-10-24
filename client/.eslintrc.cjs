@@ -13,11 +13,11 @@ module.exports = {
         ecmaVersion: "latest",
     },
     rules: {
-        "max-len": ["error", { code: 120, comments: 120 }],
+        "max-len": ["error", { code: 140, comments: 120 }],
         "prettier/prettier": [
             "error",
             {
-                printWidth: 120,
+                printWidth: 140,
                 arrowParens: "avoid",
             },
         ],

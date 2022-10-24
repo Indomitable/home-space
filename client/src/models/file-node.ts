@@ -1,6 +1,6 @@
 export enum NodeType {
-    Folder = 'Folder',
-    File = 'File',
+    Folder = "Folder",
+    File = "File",
 }
 
 export interface FileNode {

@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect } from "vue";
 
-import { type FileNode, NodeType } from "@/models/file-node";
+import { type FavoriteFileNode, type FileNode, NodeType } from "@/models/file-node";
 
 import SelectAction from "./actions/SelectAction.vue";
 import FavoriteAction from "./actions/FavoriteAction.vue";
 import type { NodeState } from "./node-list-controller";
 
-interface NodeListRowProps {
-    node: FileNode;
+export interface NodeListRowProps {
+    node: FavoriteFileNode;
     state: NodeState;
 }
 
-interface NodeListRowEvent {
+export interface NodeListRowEvent {
     (event: "node-selection-toggled", node: FileNode, selected: boolean): void;
     (event: "node-favorite-toggled", node: FileNode, favorite: boolean): void;
     (event: "node-title-click", node: FileNode): void;

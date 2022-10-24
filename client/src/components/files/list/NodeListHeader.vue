@@ -2,7 +2,7 @@
 import { SortDirection, type Sorting } from "@/models/sorting";
 import SelectAction from "./actions/SelectAction.vue";
 
-interface NodeListHeaderProps {
+export interface NodeListHeaderProps {
     isAllRowsSelected: boolean;
     sorting: Sorting;
 }
@@ -21,10 +21,11 @@ function onSelectAllToggled(selected: boolean) {
 
 function onColumnNameClick(name: string) {
     if (props.sorting.sortColumn === name) {
-        const direction = props.sorting.sortDirection === SortDirection.Asc ? SortDirection.Desc : SortDirection.Asc;
-        emit("sort-changed", { columnName: name, direction });
+        const sortDirection =
+            props.sorting.sortDirection === SortDirection.Asc ? SortDirection.Desc : SortDirection.Asc;
+        emit("sort-changed", { sortColumn: name, sortDirection });
     } else {
-        emit("sort-changed", { columnName: name, direction: SortDirection.Asc });
+        emit("sort-changed", { sortColumn: name, sortDirection: SortDirection.Asc });
     }
 }
 </script>

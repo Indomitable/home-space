@@ -121,7 +121,7 @@ export class FileActionService {
             .setMethod(HttpMethod.POST)
             .enhance(this.userService)
             .setJsonBody({
-                node_id: node.id,
+                id: node.id,
                 name: name,
             })
             .build("")

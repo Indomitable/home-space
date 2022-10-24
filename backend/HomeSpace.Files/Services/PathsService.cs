@@ -11,6 +11,8 @@ public interface IPathsService
     string UserVersionsDirectory(long userId);
     string UserTempDirectory(long userId);
     string ResolveAbsolutePath(long userId, string relativePath);
+    string ResolveRelativePath(long userId, string absolutePath);
+
     (string Absolute, string Relative) ResolvePaths(long userId, string parentPath, string name);
     string GetTemporaryFile(long userId);
     string GetVersionsFile(long userId);
@@ -57,6 +59,10 @@ internal sealed class PathsService : IPathsService
     public string ResolveAbsolutePath(long userId, string relativePath) =>
         Path.Join(UserDirectory(userId), relativePath);
 
+    public string ResolveRelativePath(long userId, string absolutePath)
+    {
+        return Path.Join("/", Path.GetRelativePath(UserDirectory(userId), absolutePath));
+    }
     public (string Absolute, string Relative) ResolvePaths(long userId, string parentPath, string name)
     {
         var rootFolder = UserDirectory(userId);

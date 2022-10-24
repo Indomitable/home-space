@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type Router } from "vue-router";
 import HomeView from "@/views/HomeView.vue";
 import LoginView from "@/views/auth/LoginView.vue";
+import RegisterView from "@/views/auth/RegisterView.vue";
 import AllFiles from "@/views/home/AllFiles.vue";
 import FavoriteFiles from "@/views/home/FavoriteFiles.vue";
 import RecentFiles from "@/views/home/RecentFiles.vue";
@@ -58,6 +59,14 @@ export function createAppRouter(userService: UserService): Router {
                     guestOk: true,
                 },
             },
+            {
+                path: "/register",
+                name: "register",
+                component: RegisterView,
+                meta: {
+                    guestOk: true
+                }
+            }
         ],
     });
 

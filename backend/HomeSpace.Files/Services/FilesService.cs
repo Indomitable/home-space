@@ -81,6 +81,6 @@ internal sealed class FilesService : IFilesService
         var sourcePath = pathsService.ResolveAbsolutePath(userId, path);
         var destination = Path.Join(Path.GetDirectoryName(sourcePath), name);
         await fileSystem.Rename(sourcePath, destination, cancellationToken);
-        return destination;
+        return pathsService.ResolveRelativePath(userId, destination);
     }
 }

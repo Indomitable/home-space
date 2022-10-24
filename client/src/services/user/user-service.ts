@@ -40,6 +40,19 @@ export class UserService implements RequestInitVisitor {
         this.createUserContext(response, userName);
     }
 
+    async register(userName: string, password: string) {
+        const url = resolveApiUrl("auth", "register");
+        const response = await RequestBuilder.create(url)
+            .setMethod(HttpMethod.POST)
+            .setJsonBody({
+                userName,
+                password,
+            })
+            .build<LoginUserResponse>()
+            .execute();
+        this.createUserContext(response, userName);
+    }
+
     logout(): void {
         sessionStorage.removeItem(UserService.token_key);
     }

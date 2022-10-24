@@ -1,7 +1,7 @@
 import { computed, type ComputedRef, reactive, ref, type Ref } from "vue";
 import type { Router } from "vue-router";
 
-import type { FileNode } from "@/models/file-node";
+import type { FavoriteFileNode, FileNode } from "@/models/file-node";
 import type { FileActionService } from "@/services/files/file-action-service";
 import { SortDirection, type Sorting } from "@/models/sorting";
 
@@ -11,7 +11,7 @@ export interface NodeState {
 }
 
 export class NodeListController {
-    nodes: Ref<FileNode[]>;
+    nodes: Ref<FavoriteFileNode[]>;
     nodesState: Record<number, NodeState>;
     hasNodes: ComputedRef<boolean>;
     allNodesSelected: ComputedRef<boolean>;
@@ -19,7 +19,7 @@ export class NodeListController {
     sorting: Ref<Sorting>;
 
     constructor(
-        nodes: FileNode[],
+        nodes: FavoriteFileNode[],
         private fileActionService: FileActionService,
         private router: Router,
         private parentId: number

@@ -15,7 +15,9 @@ Log.Information("Start Home Space");
 try
 {
     var builder = WebApplication.CreateBuilder(args);
-    builder.Host.UseSerilog(Log.Logger);
+    builder.Host
+        .UseSerilog(Log.Logger)
+        .UseSystemd();
     builder.Configuration.AddConfig(configuration);
     builder.Services
         .AddControllers()

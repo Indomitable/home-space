@@ -7,11 +7,11 @@ TODO:
   - [ ] Drag and drop file in the list view.
   - [x] Copy files
   - [x] Move files
-  - [ ] Delete files
+  - [X] Delete files
   - [x] Rename files
   - [x] Context menu
   - [ ] Folder size
-  - [ ] Account register
+  - [X] Account register
 
 ### Pages
 - [ ] List of files page. Initial release load all files in folders.

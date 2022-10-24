@@ -86,7 +86,7 @@ internal partial class FilesManager
             Title = name,
             FileSystemPath = destination
         };
-        return new RenameNodeResult(RenameNodeResultType.NodeWithSameNameExist, FileNodeResponse.Map(node));
+        return new RenameNodeResult(RenameNodeResultType.Success, FileNodeResponse.Map(node));
     }
     
     public record CopyNodeResultInner(CopyNodeResultType Type, FileNode? Node);

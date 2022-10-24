@@ -10,7 +10,7 @@ import NodeListHeader from "./NodeListHeader.vue";
 import NodeListRow from "./NodeListRow.vue";
 import type { FileNode } from "@/models/file-node";
 
-interface NodeListProps {
+export interface NodeListProps {
     controller: NodeListController;
 }
 
@@ -45,8 +45,8 @@ function onNodeMenuClick(node: FileNode, targetPosition: DOMRect): void {
             :node="node"
             :state="controller.nodesState[node.id]"
             :class="{ 'node-row--clipboard': !!clipboardService.itemsIndex[node.id] }"
-            @node-selection-toggled="(node, selected) => controller.toggleNodeSelection(node, selected)"
-            @node-favorite-toggled="(node, favorite) => controller.toggleNodeFavorite(node, favorite)"
+            @node-selection-toggled="(node: FileNode, selected: boolean) => controller.toggleNodeSelection(node, selected)"
+            @node-favorite-toggled="(node: FileNode, favorite: boolean) => controller.toggleNodeFavorite(node, favorite)"
             @node-title-click="node => controller.nodeTitleClicked(node)"
             @node-menu-click="onNodeMenuClick"
             @node-rename-cancel="node => controller.toggleNodeRename(node, false)"

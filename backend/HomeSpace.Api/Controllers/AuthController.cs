@@ -1,5 +1,6 @@
 using System.Net.Mime;
 using HomeSpace.Api.Model.Auth;
+using HomeSpace.Security.Configuration;
 using HomeSpace.Security.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -10,10 +11,12 @@ namespace HomeSpace.Api.Controllers;
 public class AuthController
 {
     private readonly IAuthenticationService authenticationService;
+    private readonly AuthConfiguration configuration;
 
-    public AuthController(IAuthenticationService authenticationService)
+    public AuthController(IAuthenticationService authenticationService, AuthConfiguration configuration)
     {
         this.authenticationService = authenticationService;
+        this.configuration = configuration;
     }
 
     [HttpPost]
@@ -38,8 +41,17 @@ public class AuthController
     
     [HttpPost]
     [Route("register")]
-    public async Task<IActionResult> Login([FromBody]RegisterRequest request)
+    public async Task<IActionResult> Register([FromBody]RegisterRequest request)
     {
+        if (!configuration.RegisterEnabled)
+        {
+            return new ContentResult
+            {
+                Content = "Better luck next time!",
+                ContentType = "text/plain",
+                StatusCode = StatusCodes.Status418ImATeapot
+            };
+        }
         var (result, token) = await authenticationService.RegisterUser(request.UserName, request.Password);
         if (result == RegisterUserResult.Success)
         {

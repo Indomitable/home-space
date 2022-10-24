@@ -14,11 +14,15 @@ const login = async (userName: string, password: string) => {
     loginError.value = "";
     try {
         await userService.login(userName, password);
-        router.push("/");
+        await router.push("/");
     } catch (e) {
         loginError.value = (e as Error).message;
     }
 };
+
+function navToRegister() {
+    router.push("/register");
+}
 </script>
 
 <template>
@@ -28,7 +32,7 @@ const login = async (userName: string, password: string) => {
         <span v-if="!!loginError">{{ loginError }}</span>
         <div class="login-actions">
             <button class="button login-button" v-on:click="login(userName, password)" type="button">Login</button>
-            <button class="button register-button" type="button">Register</button>
+            <button class="button register-button" type="button" @click="navToRegister()">Register</button>
         </div>
     </form>
 </template>

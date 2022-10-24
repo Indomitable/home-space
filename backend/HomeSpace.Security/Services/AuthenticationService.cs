@@ -92,6 +92,9 @@ internal sealed class AuthenticationService : IAuthenticationService
         await authenticationRepository.AddAuthentication(authenticaiton);
         await fileNodeRepository.CreateRootNode(user.Id);
         pathsService.InitUserFileSystem(user.Id);
-        return (RegisterUserResult.Success, string.Empty);
+        var token = jwtService.GenerateToken (
+            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64)
+        );
+        return (RegisterUserResult.Success, token);
     }
 }

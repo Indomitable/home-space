@@ -17,7 +17,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Files", "Files", "{909C7422
 	ProjectSection(SolutionItems) = preProject
 		..\README.md = ..\README.md
 		..\TODO.md = ..\TODO.md
+		home-space.service = home-space.service
 	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HomeSpace.Files.Tests", "HomeSpace.Files.Tests\HomeSpace.Files.Tests.csproj", "{1DD5B564-436A-4932-AE9E-0945AD372F27}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -48,5 +51,9 @@ Global
 		{2A832000-C35B-4DA4-8272-000DCFEAA27F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2A832000-C35B-4DA4-8272-000DCFEAA27F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2A832000-C35B-4DA4-8272-000DCFEAA27F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1DD5B564-436A-4932-AE9E-0945AD372F27}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1DD5B564-436A-4932-AE9E-0945AD372F27}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1DD5B564-436A-4932-AE9E-0945AD372F27}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1DD5B564-436A-4932-AE9E-0945AD372F27}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

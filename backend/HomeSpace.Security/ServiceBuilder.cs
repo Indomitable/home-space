@@ -15,6 +15,7 @@ public static class ServiceBuilder
 {
     public static IServiceCollection AddHomeSpaceSecurity(this IServiceCollection serviceCollection, IConfiguration configuration)
     {
+        serviceCollection.AddConfiguration<AuthConfiguration>("Auth");
         serviceCollection.AddJwtAuthentication(configuration);
         serviceCollection.AddPasswordHashing();
         serviceCollection.AddSingleton<IAuthenticationService, AuthenticationService>();

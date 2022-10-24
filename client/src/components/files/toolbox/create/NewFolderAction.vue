@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch, watchEffect } from "vue";
 
 interface NewFolderActionEmit {
     (event: "create-folder", name: string): void;
@@ -21,6 +21,14 @@ function onNewFolderKeyDown(event: KeyboardEvent) {
         isReadOnly.value = true;
     }
 }
+
+const input = ref<HTMLInputElement | null>(null);
+
+watchEffect(() => {
+    if (input.value) {
+        input.value.focus();
+    }
+});
 </script>
 <template>
     <a v-on:click="isReadOnly = false">
@@ -28,6 +36,7 @@ function onNewFolderKeyDown(event: KeyboardEvent) {
         <span v-if="isReadOnly">New Folder</span>
         <input
             v-else
+            ref="input"
             placeholder="Folder name"
             class="input new-folder-action-input"
             v-model="folderName"
@@ -36,7 +45,7 @@ function onNewFolderKeyDown(event: KeyboardEvent) {
         />
     </a>
 </template>
-<style scoped lang="scss">
+<style>
 .new-folder-action-input {
     width: 100%;
     height: 30px !important;

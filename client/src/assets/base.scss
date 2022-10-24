@@ -17,6 +17,7 @@ html, body {
   padding: 0;
   margin: 0;
   height: 100%;
+  width: 100%;
 }
 
 body {
@@ -28,10 +29,12 @@ body {
 
 #app {
   height: 100%;
+  width: 100%;
 }
 
 main {
   min-height: 100%;
+  width: 100%;
   color: var(--primary-font-color);
   background: var(--background-color);
 }

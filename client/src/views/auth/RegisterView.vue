@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { inject, ref } from "vue";
 import { userServiceInjectionToken } from "@/services/user/user-service";
-import {useRouter} from "vue-router";
+import { useRouter } from "vue-router";
 
 const userName = ref("");
 const password = ref("");
@@ -26,23 +26,17 @@ async function register(userName: string, password: string, repeatPassword: stri
 
 <template>
     <form class="register-dialog">
-        <input class="input" type="text" placeholder="User name" v-model="userName" autocomplete="username"/>
-        <input class="input" type="password" placeholder="Password"
-               v-model="password"
-               autocomplete="new-password"/>
-        <input class="input" type="password" placeholder="Confirm password"
-               v-model="repeatPassword"
-               autocomplete="new-password"/>
+        <input class="input" type="text" placeholder="User name" v-model="userName" autocomplete="username" />
+        <input class="input" type="password" placeholder="Password" v-model="password" autocomplete="new-password" />
+        <input class="input" type="password" placeholder="Confirm password" v-model="repeatPassword" autocomplete="new-password" />
         <span v-if="!!registerError">{{ registerError }}</span>
         <div class="register-actions">
-            <button class="button register-button" v-on:click="register(userName, password, repeatPassword)"
-                    type="button">Register
-            </button>
+            <button class="button register-button" v-on:click="register(userName, password, repeatPassword)" type="button">Register</button>
         </div>
     </form>
 </template>
 
-<style scoped>
+<style>
 .register-dialog {
     height: 100vh;
     display: grid;

@@ -90,7 +90,7 @@ function onNodeRename(event: KeyboardEvent) {
     </div>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss">
 .node-row {
     display: contents;
     cursor: pointer;
@@ -164,5 +164,20 @@ function onNodeRename(event: KeyboardEvent) {
 }
 .node-row__version {
     text-align: center;
+}
+
+@media (min-width: 900px) and (max-width: 1200px) {
+    .node-row {
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 900px) {
+    .node-row__actions,
+    .node-row__node-size,
+    .node-row__modified_at,
+    .node-row__version {
+        display: none;
+    }
 }
 </style>

@@ -5,7 +5,7 @@ import { ClipboardOperation, clipboardServiceInjectionToken } from "@/services/f
 
 import { CopyStrategyChooser } from "./copy-stragety";
 
-interface CopyActionProps {
+export interface CopyActionProps {
     operation: ClipboardOperation;
     selectedNodes: Ref<FileNode[]>;
 }
@@ -20,15 +20,8 @@ function onActivate() {
 </script>
 
 <template>
-    <button
-        :class="$attrs.class"
-        class="icon-button ghost-button"
-        @click="onActivate"
-        v-if="!clipboardService.hasItems.value"
-    >
+    <button :class="$attrs.class" class="icon-button ghost-button" @click="onActivate" v-if="!clipboardService.hasItems.value">
         <span class="icon-outlined">{{ strategy.buttonIcon }}</span>
         {{ strategy.buttonTitle }}
     </button>
 </template>
-
-<style scoped></style>

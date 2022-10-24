@@ -4,7 +4,7 @@ import { inject } from "vue";
 import { useRouter } from "vue-router";
 import BreadcrumbItem from "./BreadcrumbItem.vue";
 
-interface BreadcrumbsFileNavProps {
+export interface BreadcrumbsFileNavProps {
     parentId: number;
 }
 const props = defineProps<BreadcrumbsFileNavProps>();
@@ -30,14 +30,20 @@ function onBreadcrumbNavigate(id: number, isLast: boolean) {
             :id="node.id"
             :title="node.id === 0 ? 'My Files' : node.title"
             :icon="node.id === 0 ? 'home' : ''"
-            @breadcrumb-clicked="(id) => onBreadcrumbNavigate(id, index === nodes.length - 1)"
+            @breadcrumb-clicked="id => onBreadcrumbNavigate(id, index === nodes.length - 1)"
         />
     </nav>
 </template>
 
-<style scoped lang="scss">
+<style>
 .breadcrumbs-nav {
     padding: 20px 17px 30px 17px;
     display: flex;
+}
+
+@media (max-width: 900px) {
+    .breadcrumbs-nav {
+        padding: 10px;
+    }
 }
 </style>

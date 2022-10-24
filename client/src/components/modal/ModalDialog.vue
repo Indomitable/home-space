@@ -25,7 +25,7 @@ defineEmits<ModalDialogEvents>();
     </Teleport>
 </template>
 
-<style scoped>
+<style>
 .modal-dialog {
     position: fixed;
     top: 50%;

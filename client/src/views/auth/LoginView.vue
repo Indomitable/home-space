@@ -37,7 +37,7 @@ function navToRegister() {
     </form>
 </template>
 
-<style scoped>
+<style>
 .login-dialog {
     height: 100vh;
     display: grid;

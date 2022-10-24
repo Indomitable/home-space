@@ -1,9 +1,9 @@
 <script setup lang="ts">
-interface FavoriteActionProps {
+export interface FavoriteActionProps {
     isFavorite: boolean;
 }
 
-interface FavoriteActionEvents {
+export interface FavoriteActionEvents {
     (event: "favorite-toggled", isFavorite: boolean): void;
 }
 
@@ -15,11 +15,6 @@ function onFavoriteClick() {
 </script>
 
 <template>
-    <span
-        v-if="props.isFavorite"
-        @click="onFavoriteClick"
-        class="icon-outlined node-row-action node-row-action--visible"
-        >star</span
-    >
+    <span v-if="props.isFavorite" @click="onFavoriteClick" class="icon-outlined node-row-action node-row-action--visible">star</span>
     <span v-else class="icon-outlined node-row-action" @click="onFavoriteClick">star_border</span>
 </template>

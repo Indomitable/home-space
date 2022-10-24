@@ -29,32 +29,25 @@ function nodeIcon(node: FileNode): string {
                 }}
             </div>
             <ul class="clipboard-container-items">
-                <li
-                    v-for="node of clipboardService.items"
-                    :key="node.id"
-                    class="clipboard-container-item"
-                    :title="node.title"
-                >
+                <li v-for="node of clipboardService.items" :key="node.id" class="clipboard-container-item" :title="node.title">
                     <span class="clipboard-container-item__icon icon-filled">{{ nodeIcon(node) }}</span>
                     <span class="clipboard-container-item__title">{{ node.title }}</span>
                 </li>
             </ul>
             <div class="clipboard-container-actions">
-                <button class="button" @click="onPaste" :disabled="clipboardService.parentId === parentId">
-                    Paste
-                </button>
+                <button class="button" @click="onPaste" :disabled="clipboardService.parentId === parentId">Paste</button>
                 <button class="button" @click="onCancel">Cancel</button>
             </div>
         </div>
     </Teleport>
 </template>
 
-<style scoped lang="scss">
+<style>
 .clipboard-container {
     position: fixed;
     bottom: 0;
     right: 10px;
-    background: var(--invert-background-color); // invert colors
+    background: var(--invert-background-color);
     color: var(--invert-font-color);
     padding: 10px;
     width: 500px;
@@ -79,10 +72,10 @@ function nodeIcon(node: FileNode): string {
     column-gap: 3px;
     align-items: center;
     white-space: nowrap;
+}
 
-    > .clipboard-container-item__icon {
-        color: var(--invert-font-color);
-    }
+.clipboard-container-item__icon {
+    color: var(--invert-font-color);
 }
 
 .clipboard-container-item__title {

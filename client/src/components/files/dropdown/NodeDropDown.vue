@@ -4,13 +4,13 @@ import type { FileNode } from "@/models/file-node";
 import { ClipboardOperation, clipboardServiceInjectionToken } from "@/services/files/clipboard-service";
 import type { NodeListController } from "@/components/files/list/node-list-controller";
 
-interface NodeDropDownProps {
+export interface NodeDropDownProps {
     node: FileNode;
     targetPosition: DOMRect;
     controller: NodeListController;
 }
 
-interface NodeDropDownEvents {
+export interface NodeDropDownEvents {
     (event: "dropdown-close"): void;
 }
 
@@ -60,7 +60,7 @@ function onCopyClick() {
     </ul>
 </template>
 
-<style scoped>
+<style>
 .node-dropdown-menu {
     position: absolute;
     background: var(--background-color);

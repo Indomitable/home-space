@@ -21,8 +21,7 @@ function onSelectAllToggled(selected: boolean) {
 
 function onColumnNameClick(name: string) {
     if (props.sorting.sortColumn === name) {
-        const sortDirection =
-            props.sorting.sortDirection === SortDirection.Asc ? SortDirection.Desc : SortDirection.Asc;
+        const sortDirection = props.sorting.sortDirection === SortDirection.Asc ? SortDirection.Desc : SortDirection.Asc;
         emit("sort-changed", { sortColumn: name, sortDirection });
     } else {
         emit("sort-changed", { sortColumn: name, sortDirection: SortDirection.Asc });
@@ -41,7 +40,7 @@ function onColumnNameClick(name: string) {
             <select-action :is-selected="isAllRowsSelected" @selection-toggled="onSelectAllToggled" />
         </div>
         <div
-            class="node-list-header__title"
+            class="node-list-header__title node-list-header-title"
             :class="{
                 'node-list-header__title--sorted': sorting.sortColumn === 'title',
             }"
@@ -50,30 +49,30 @@ function onColumnNameClick(name: string) {
             <span style="text-align: left">Name</span>
         </div>
         <div
-            class="node-list-header__title"
+            class="node-list-header__title node-list-header-size"
             :class="{
-                'node-list-header__title--sorted': sorting.sortColumn === 'node_size',
+                'node-list-header__title--sorted': sorting.sortColumn === 'size',
             }"
-            @click="() => onColumnNameClick('node_size')"
+            @click="() => onColumnNameClick('size')"
         >
             <span>Size</span>
         </div>
         <div
-            class="node-list-header__title"
+            class="node-list-header__title node-list-header-modified-at"
             :class="{
-                'node-list-header__title--sorted': sorting.sortColumn === 'modified_at',
+                'node-list-header__title--sorted': sorting.sortColumn === 'modifiedAt',
             }"
-            @click="() => onColumnNameClick('modified_at')"
+            @click="() => onColumnNameClick('modifiedAt')"
         >
             <span>Last Modified</span>
         </div>
-        <div class="node-list-header__title">
+        <div class="node-list-header__title node-list-header-version">
             <span>Version</span>
         </div>
     </div>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss">
 @use "@/assets/icons.scss";
 
 .node-list-header {
@@ -133,5 +132,14 @@ function onColumnNameClick(name: string) {
     align-items: center;
     justify-content: flex-start;
     border-bottom: 1px solid var(--border-color);
+}
+
+@media (max-width: 900px) {
+    .node-list-header__actions,
+    .node-list-header-size,
+    .node-list-header-version,
+    .node-list-header-modified-at {
+        display: none;
+    }
 }
 </style>

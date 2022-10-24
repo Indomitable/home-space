@@ -35,7 +35,7 @@
     </nav>
 </template>
 
-<style scoped lang="scss">
+<style>
 .left-nav {
     height: 100%;
     padding: 10px 0 0 0;
@@ -55,9 +55,9 @@
     text-decoration: none;
     cursor: pointer;
     color: var(--link-font-color);
+}
 
-    &:hover {
-        background: var(--list-item-hover-color);
-    }
+.left-nav-link:hover {
+    background: var(--list-item-hover-color);
 }
 </style>

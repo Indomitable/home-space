@@ -9,7 +9,7 @@ import type { NodeListController } from "../list/node-list-controller";
 import FilesActionCreate from "./create/FilesActionCreate.vue";
 import CopyAction from "./copy/CopyAction.vue";
 
-interface FileActionsProps {
+export interface FileActionsProps {
     parentId: number;
     ctrl: NodeListController;
 }
@@ -45,11 +45,7 @@ async function onDownloadSelectedNodes() {
 <template>
     <ul class="file-actions">
         <li class="file-actions-item file-actions-create-container">
-            <files-action-create
-                class="file-actions-button"
-                @create-folder="onCreateFolder"
-                @upload-files="onUploadFiles"
-            />
+            <files-action-create class="file-actions-button" @create-folder="onCreateFolder" @upload-files="onUploadFiles" />
         </li>
         <template v-if="ctrl.selectedNodes.value.length > 0">
             <li class="file-actions-item">
@@ -84,7 +80,7 @@ async function onDownloadSelectedNodes() {
     </ul>
 </template>
 
-<style lang="scss">
+<style>
 .file-actions {
     height: 50px;
     display: flex;
@@ -92,18 +88,29 @@ async function onDownloadSelectedNodes() {
     align-items: center;
     padding: 0 10px;
     border-bottom: 1px solid var(--border-color);
+}
 
-    > .file-actions-item {
-        width: 120px;
+.file-actions-item {
+    width: 120px;
+}
 
-        > .file-actions-button {
-            margin: 0 auto;
-            font-size: 15px;
-        }
-    }
+.file-actions-button {
+    margin: 0 auto;
+    font-size: 15px;
 }
 
 .file-actions-create-container {
     position: relative;
+}
+
+@media (max-width: 900px) {
+    .file-actions {
+        /* overflow-x: auto; */
+    }
+
+    .file-actions-button {
+        padding: 0 !important;
+        margin: 0 10px 0 0;
+    }
 }
 </style>

@@ -11,7 +11,7 @@ public static partial class ServiceBuilder
             {
                 options.AddPolicy(CorsDevPolicyName, policy =>
                 {
-                    policy.WithOrigins("http://127.0.0.1:5173")
+                    policy.WithOrigins("http://127.0.0.1:5173", "http://localhost:3333")
                         .AllowAnyMethod()
                         .AllowAnyHeader()
                         .AllowCredentials();

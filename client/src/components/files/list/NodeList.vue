@@ -62,19 +62,26 @@ function onNodeMenuClick(node: FileNode, targetPosition: DOMRect): void {
     </div>
 </template>
 
-<style scoped lang="scss">
+<style>
 .node-list {
     display: grid;
-    grid-template-columns: 100px 650px 150px 300px 80px;
+    grid-template-columns: 10% 40% 20% 20% 10%;
+    max-width: 1300px;
 }
 
-:deep(.node-row-action) {
+.node-row-action {
     visibility: hidden;
     user-select: none;
     cursor: pointer;
 }
 
-:deep(.node-row-action--visible) {
+.node-row-action--visible {
     visibility: visible;
+}
+
+@media (max-width: 900px) {
+    .node-list {
+        grid-template-columns: 100%;
+    }
 }
 </style>

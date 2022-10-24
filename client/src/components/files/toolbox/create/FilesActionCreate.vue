@@ -44,7 +44,7 @@ function uploadFiles() {
         </li> -->
     </ul>
 </template>
-<style scoped lang="scss">
+<style lang="scss">
 .file-action-create {
     padding: 2px 7px;
     display: flex;
@@ -90,6 +90,12 @@ function uploadFiles() {
         display: block;
         height: 5px;
         border-bottom: 1px solid var(--border-color);
+    }
+}
+
+@media (max-width: 900px) {
+    .file-action-create {
+        padding: 0;
     }
 }
 </style>

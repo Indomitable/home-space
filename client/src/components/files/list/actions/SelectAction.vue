@@ -1,9 +1,9 @@
 <script setup lang="ts">
-interface SelectActionProps {
+export interface SelectActionProps {
     isSelected: boolean;
 }
 
-interface SelectActionEvents {
+export interface SelectActionEvents {
     (event: "selection-toggled", selected: boolean): void;
 }
 
@@ -15,11 +15,6 @@ function onSelectionClick() {
 </script>
 
 <template>
-    <span
-        v-if="props.isSelected"
-        @click="onSelectionClick"
-        class="icon-outlined node-row-action node-row-action--visible"
-        >check_box</span
-    >
+    <span v-if="props.isSelected" @click="onSelectionClick" class="icon-outlined node-row-action node-row-action--visible">check_box</span>
     <span v-else class="icon-outlined node-row-action" @click="onSelectionClick">check_box_outline_blank</span>
 </template>

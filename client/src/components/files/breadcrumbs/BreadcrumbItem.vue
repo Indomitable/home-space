@@ -1,11 +1,11 @@
 <script setup lang="ts">
-interface BreadcrumbItemProps {
+export interface BreadcrumbItemProps {
     id: number;
     icon?: string;
     title: string;
 }
 
-interface BreadcrumbItemEvents {
+export interface BreadcrumbItemEvents {
     (event: "breadcrumb-clicked", id: number): void;
 }
 
@@ -22,7 +22,7 @@ function onBreadcrumbClick(): void {
         <span>{{ props.title }}</span>
     </div>
 </template>
-<style scoped lang="scss">
+<style lang="scss">
 @use "@/assets/icons.scss";
 
 .breadcrumb-item {

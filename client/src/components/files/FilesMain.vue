@@ -9,7 +9,7 @@ import NodeList from "./list/NodeList.vue";
 import { NodeListController } from "./list/node-list-controller";
 import FileActions from "./toolbox/FilesActions.vue";
 
-interface FilesMainProps {
+export interface FilesMainProps {
     parentId: number;
 }
 
@@ -29,8 +29,14 @@ const ctrl = new NodeListController(nodes, fileActionService, router, props.pare
     </div>
 </template>
 
-<style scoped lang="scss">
+<style>
 .file-view-lists-container {
-    max-width: 1200px;
+}
+
+@media (max-width: 900px) {
+    .file-view-lists-container {
+        width: 100%;
+        padding: 0 10px;
+    }
 }
 </style>

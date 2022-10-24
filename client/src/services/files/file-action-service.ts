@@ -11,6 +11,7 @@ import type { FileSystemService } from "./file-system-service";
 import type { FileLoadService } from "./files-load-service";
 import { UploadFileRequestEnhancer } from "./upload-file-request-enhancer";
 import type { ClipboardOperation } from "./clipboard-service";
+import type {FileNodeResponse} from "@/dto/file-node-response";
 
 export class FileActionService {
     constructor(
@@ -36,60 +37,56 @@ export class FileActionService {
     }
 
     async toggleNodeFavorite(node: FileNode, favorite: boolean): Promise<void> {
-        const url = resolveApiUrl("files", "favorite");
+        const url = resolveApiUrl("favorites", "toggle");
         await RequestBuilder.create(url)
             .setMethod(HttpMethod.POST)
             .enhance(this.userService)
             .setJsonBody({ id: node.id, favorite })
-            .build("json")
+            .build("")
             .execute();
     }
 
     createFolder(parentId: number, folderName: string): Promise<{ id: number }> {
-        const url = resolveApiUrl("files", "create-folder");
+        const url = resolveApiUrl("files", "folder");
         return RequestBuilder.create(url)
             .setMethod(HttpMethod.PUT)
             .enhance(this.userService)
-            .setJsonBody({ parent_id: parentId, name: folderName })
+            .setJsonBody({ parentId: parentId, name: folderName })
             .build<{ id: number }>("json")
             .execute();
     }
 
     async uploadFile(parentId: number, file: File): Promise<number> {
-        interface FileNodeDto {
-            id: number;
-            user_id: number;
-            title: string;
-            parent_id: number;
-            node_type: number;
-            filesystem_path: string;
-            mime_type: number;
-            modified_at: string;
-            node_size: number;
-        }
-        const url = resolveApiUrl("files", "upload-file");
+        const url = resolveApiUrl("files", "file");
+        const formData = new FormData();
+        formData.append("parentId", "" + parentId);
+        formData.append("file", file, file.name);
         const response = await RequestBuilder.create(url)
             .setMethod(HttpMethod.PUT)
             .enhance(this.userService)
-            .enhance(new UploadFileRequestEnhancer(parentId, file.name))
-            .setBody(file)
-            .build<FileNodeDto>()
+            .enhance(new UploadFileRequestEnhancer(parentId))
+            .setBody(formData)
+            .build<FileNodeResponse>()
             .execute();
         return response.id;
     }
 
     async deleteNode(nodeId: number): Promise<void> {
-        const url = resolveApiUrl("files", "delete-node", nodeId);
-        await RequestBuilder.create(url).setMethod(HttpMethod.DELETE).enhance(this.userService).build().execute();
+        const url = resolveApiUrl("trash", "delete", nodeId);
+        await RequestBuilder.create(url)
+            .setMethod(HttpMethod.DELETE)
+            .enhance(this.userService)
+            .build("")
+            .execute();
     }
 
     async downloadNodes(nodes: FileNode[]): Promise<void> {
         function getSaveFileName(): string {
             if (nodes.length === 1) {
                 const node = nodes[0];
-                return node.nodeType === NodeType.File ? node.title : `${node.title}.tar`;
+                return node.nodeType === NodeType.File ? node.title : `${node.title}.zip`;
             }
-            return "archive.tar";
+            return "archive.zip";
         }
 
         const url = resolveApiUrl("files", "download");

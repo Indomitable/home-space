@@ -1,6 +1,22 @@
+# ignore out/
 out/
+# ignore rust target
 target/
+# ignore home-space binary
 home-space
+# ignore idea
 .idea/
+# ignore all log files
 *.log
 
+# ignore dotnet bin/
+bin/
+# ignore dotnet obj/
+obj/
+# ignore publish folder
+publish/
+# ignore Jetbrains .fleet
+.fleet/
+# ignore dotnet user files
+*.user
+wwwroot/

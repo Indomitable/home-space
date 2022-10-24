@@ -1,13 +1,6 @@
 create user files with createdb password 'files';
 create database files_db owner files encoding utf8;
 
-create table authentication_type (
-	id smallint primary key,
-	name varchar not null
-);
-
-insert into authentication_type values ( 1, 'password' );
-
 create table users (
    id bigserial,
    name varchar not null,
@@ -16,19 +9,27 @@ create table users (
 
 CREATE UNIQUE INDEX user_name_idx ON users (name);
 
+create table authentication_type (
+	id smallint primary key,
+	name varchar not null
+);
+
+insert into authentication_type values ( 1, 'password' );
+
+
 create table authentication_password (
 	id bigserial,
-	hash varchar not null,
+	hash bytea not null,
+	salt bytea not null,
 	constraint pk_auth_passworkd primary key (id)
 );
 
 create table authentication (
 	user_id bigint not null,
 	auth_type_id smallint not null,
-	auth_password_id bigint null,
+	auth_id bigint null,
 	constraint fk_users foreign key (user_id) references users(id) on delete cascade,
-	constraint fk_auth_type foreign key (auth_type_id) references authentication_type(id),
-	constraint fk_auth_pass foreign key (auth_password_id) references authentication_password(id) on delete set null
+	constraint fk_auth_type foreign key (auth_type_id) references authentication_type(id)
 );
 
 create table roles (
@@ -84,6 +85,7 @@ create table trash_box (
 	node_type SMALLINT NOT NULL,	
 	filesystem_path varchar not null,
 	mime_type varchar not null,
+	version_created_at timestamptz not null, 
 	deleted_at timestamptz not null,
 	node_size bigint not null,
 	node_version int not null,

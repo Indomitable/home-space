@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <ItemGroup>
+        <PackageReference Include="Konscious.Security.Cryptography.Argon2" Version="1.3.0" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication" Version="2.2.0" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="6.0.10" />
+    </ItemGroup>
+    <ItemGroup>
+      <ProjectReference Include="..\HomeSpace.Database\HomeSpace.Database.csproj" />
+      <ProjectReference Include="..\HomeSpace.Files\HomeSpace.Files.csproj" />
+      <ProjectReference Include="..\HomeSpace.Infrastructure\HomeSpace.Infrastructure.csproj" />
+    </ItemGroup>
+</Project>

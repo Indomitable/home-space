@@ -19,4 +19,5 @@ internal partial class FilesManager
         await repository.DeleteNodeRecursive(target.UserId, target.Id, cancellationToken);
         await filesService.DeleteFolder(target.UserId, target.FileSystemPath, cancellationToken);
     }
+    
 }

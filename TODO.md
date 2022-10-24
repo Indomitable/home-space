@@ -45,7 +45,7 @@ TODO:
     - [ ] Readonly mode: View and download files in it.
     - [ ] Edit mode: Copy/Move/Rename files
     - [ ] Move files between managed and external locations.
-- [ ] Process indication. Upload/Copy/Move file indicator. How should we use websocket to upload file and show progress? 
+- [ ] Process indication. Upload/Copy/Move file indicator. How should we use websocket to upload file and show progress?
 
 ### Security
 - [ ] Move JWT to HTTP only, SameSite and Secure cookie: This will give ability to open files in the browser with direct links.
@@ -64,3 +64,6 @@ TODO:
 
 ### Extra Services
 - [ ] Develop extra service which clean orphan versions, the temp files and old items in the trash.
+
+### Stability
+- [ ] Atomic file/db operations for move,copy,delete,rename etc.... (create distributed transactions)

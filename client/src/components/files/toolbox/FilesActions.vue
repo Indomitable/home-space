@@ -35,6 +35,7 @@ async function onDeleteSelectedNodes() {
     for (const node of props.ctrl.selectedNodes.value) {
         await fileActionService.deleteNode(node.id);
     }
+    await props.ctrl.refresh();
 }
 
 async function onDownloadSelectedNodes() {

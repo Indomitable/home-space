@@ -14,7 +14,7 @@ public interface IFilesService
     Task DeleteFile(long userId, string path, CancellationToken cancellationToken);
     
     Task DeleteFolder(long userId, string path, CancellationToken cancellationToken);
-
+    
     /// <summary>
     /// Renames user file located on path and returns the new path
     /// </summary>

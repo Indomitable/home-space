@@ -65,7 +65,7 @@ internal sealed class FileNodeRepository : IFileNodeRepository
     public async Task<PagedResult<(FileNode FileNode, bool IsFavorite)>> GetNodes(
         long userId, long parentId, int page, int pageSize, string sortColumn, SortDirection sortDirection, CancellationToken cancellationToken)
     {
-        var sorting = $"{sortColumn} {(sortDirection == SortDirection.Asc ? "asc" : "desc")}";
+        var sorting = $"{sortColumn} {sortDirection.GetOrderByDirection()}";
         const string totalCountSql = "select count(1) from file_nodes f where f.user_id = $1 and f.parent_id = $2";
         var totalCount = await access.ExecuteScalar<long>(totalCountSql,
             cancellationToken,

@@ -10,6 +10,7 @@ public static partial class ServiceBuilder
         serviceCollection.AddScoped<IFilesManager, FilesManager>();
         serviceCollection.AddScoped<IVersionsManager, VersionsManager>();
         serviceCollection.AddScoped<IFavoritesManager, FavoritesManager>();
+        serviceCollection.AddScoped<ITrashManager, TrashManager>();
         return serviceCollection;
     }
 

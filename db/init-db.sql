@@ -85,6 +85,7 @@ create table trash_box (
 	node_type SMALLINT NOT NULL,	
 	filesystem_path varchar not null,
 	mime_type varchar not null,
+	version_created_at timestamptz not null, 
 	deleted_at timestamptz not null,
 	node_size bigint not null,
 	node_version int not null,

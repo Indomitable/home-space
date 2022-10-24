@@ -15,7 +15,7 @@ public interface IVersionsManager
     Task DeleteHistory(FileNode node, CancellationToken cancellationToken);
 }
 
-public class VersionsManager : IVersionsManager
+internal sealed class VersionsManager : IVersionsManager
 {
     private readonly ICurrentUserProvider currentUserProvider;
     private readonly IVersionsService service;

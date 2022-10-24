@@ -1,4 +1,3 @@
-using System.ComponentModel.DataAnnotations;
 using HomeSpace.Api.Managers;
 using HomeSpace.Api.Model.Files;
 using Microsoft.AspNetCore.Authorization;

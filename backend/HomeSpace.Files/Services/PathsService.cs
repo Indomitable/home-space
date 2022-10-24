@@ -14,6 +14,9 @@ public interface IPathsService
     (string Absolute, string Relative) ResolvePaths(long userId, string parentPath, string name);
     string GetTemporaryFile(long userId);
     string GetVersionsFile(long userId);
+    string GetVersionsFile(long userId, string fileName);
+    string GetTrashFile(long userId);
+    string GetTrashFile(long userId, string fileName);
 }
 
 internal sealed class PathsService : IPathsService
@@ -69,7 +72,23 @@ internal sealed class PathsService : IPathsService
     public string GetVersionsFile(long userId)
     {
         var fileName = Guid.NewGuid().ToString("N");
+        return GetVersionsFile(userId, fileName);
+    }
+
+    public string GetVersionsFile(long userId, string fileName)
+    {
         return Path.Join(UserVersionsDirectory(userId), fileName);
+    }
+
+    public string GetTrashFile(long userId)
+    {
+        var fileName = Guid.NewGuid().ToString("N");
+        return GetTrashFile(userId, fileName);
+    }
+
+    public string GetTrashFile(long userId, string fileName)
+    {
+        return Path.Join(UserTrashDirectory(userId), fileName);
     }
 
     private string UserSystemDirectory(long userId) =>

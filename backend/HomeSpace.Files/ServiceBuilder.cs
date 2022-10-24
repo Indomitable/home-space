@@ -14,6 +14,7 @@ public static class ServiceBuilder
         serviceCollection.AddSingleton<IFileSystem, FileSystem>();
         serviceCollection.AddSingleton<IFilesService, FilesService>();
         serviceCollection.AddSingleton<IVersionsService, VersionsService>();
+        serviceCollection.AddSingleton<ITrashService, TrashService>();
         return serviceCollection;
     }
 }

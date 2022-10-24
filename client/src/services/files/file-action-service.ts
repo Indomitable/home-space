@@ -72,11 +72,11 @@ export class FileActionService {
     }
 
     async deleteNode(nodeId: number): Promise<void> {
-        const url = resolveApiUrl("files", "delete", nodeId);
+        const url = resolveApiUrl("trash", "delete", nodeId);
         await RequestBuilder.create(url)
             .setMethod(HttpMethod.DELETE)
             .enhance(this.userService)
-            .build()
+            .build("")
             .execute();
     }
 

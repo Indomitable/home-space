@@ -8,6 +8,7 @@ const listVisible = ref(false);
 interface FileActionCreateEvents {
     (event: "create-folder", name: string): void;
     (event: "upload-files"): void;
+    (event: "upload-folder"): void;
 }
 
 const emit = defineEmits<FileActionCreateEvents>();
@@ -19,6 +20,11 @@ function createFolder(name: string) {
 
 function uploadFiles() {
     emit("upload-files");
+    listVisible.value = false;
+}
+
+function uploadFolder() {
+    emit("upload-folder");
     listVisible.value = false;
 }
 </script>
@@ -34,7 +40,7 @@ function uploadFiles() {
             <new-folder-action @create-folder="createFolder" />
         </li>
         <li class="file-action-create-list-item file-action-create-list-item--start-group">
-            <upload-file-action parent_id="{props.parent_id}" @upload-files="uploadFiles" />
+            <upload-file-action parent_id="{props.parent_id}" @upload-files="uploadFiles" @upload-folder="uploadFolder" />
         </li>
         <!-- <li class="file-action-create-list-item file-action-create-list-item--start-group">
             <a>

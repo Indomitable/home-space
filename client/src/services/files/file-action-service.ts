@@ -42,17 +42,17 @@ export class FileActionService {
             .execute();
     }
 
-    createFolder(parentId: number, folderName: string): Promise<{ id: number }> {
+    createFolder(parentId: number, folderName: string): Promise<FileNodeResponse> {
         const url = resolveApiUrl("files", "folder");
         return RequestBuilder.create(url)
             .setMethod(HttpMethod.PUT)
             .enhance(this.userService)
             .setJsonBody({ parentId: parentId, name: folderName })
-            .build<{ id: number }>("json")
+            .build<FileNodeResponse>("json")
             .execute();
     }
 
-    async uploadFile(parentId: number, file: File): Promise<number> {
+    async uploadFile(parentId: number, file: File): Promise<FileNodeResponse> {
         const url = resolveApiUrl("files", "file");
         const formData = new FormData();
         formData.append("parentId", "" + parentId);
@@ -64,7 +64,19 @@ export class FileActionService {
             .setBody(formData)
             .build<FileNodeResponse>()
             .execute();
-        return response.id;
+        return response;
+    }
+
+    async uploadFolder(parentId: number, folderHandle: HSFileSystemDirectoryHandle) {
+        const folder = await this.createFolder(parentId, folderHandle.name);
+        for await (const node of folderHandle.values()) {
+            if (node.kind === "directory") {
+                await this.uploadFolder(folder.id, node);
+            } else {
+                const file = await node.getFile();
+                await this.uploadFile(folder.id, file);
+            }
+        }
     }
 
     async deleteNode(nodeId: number): Promise<void> {

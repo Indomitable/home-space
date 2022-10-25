@@ -18,7 +18,7 @@ declare global {
         new (): FileSystemHandle;
     };
 
-    type FileSystemHandleUnion = FileSystemFileHandle | FileSystemDirectoryHandle;
+    type FileSystemHandleUnion = FileSystemFileHandle | HSFileSystemDirectoryHandle;
 
     interface FilePickerAcceptType {
         description?: string | undefined;
@@ -92,27 +92,25 @@ declare global {
         new (): FileSystemFileHandle;
     };
 
-    interface FileSystemDirectoryHandle extends FileSystemHandle {
+    interface HSFileSystemDirectoryHandle extends FileSystemHandle {
         readonly kind: "directory";
-        getDirectoryHandle(name: string, options?: FileSystemGetDirectoryOptions): Promise<FileSystemDirectoryHandle>;
+        getDirectoryHandle(name: string, options?: FileSystemGetDirectoryOptions): Promise<HSFileSystemDirectoryHandle>;
         getFileHandle(name: string, options?: FileSystemGetFileOptions): Promise<FileSystemFileHandle>;
         removeEntry(name: string, options?: FileSystemRemoveOptions): Promise<void>;
         resolve(possibleDescendant: FileSystemHandle): Promise<string[] | null>;
         keys(): AsyncIterableIterator<string>;
-        values(): AsyncIterableIterator<FileSystemDirectoryHandle | FileSystemFileHandle>;
-        entries(): AsyncIterableIterator<[string, FileSystemDirectoryHandle | FileSystemFileHandle]>;
-        [Symbol.asyncIterator]: FileSystemDirectoryHandle["entries"];
+        values(): AsyncIterableIterator<HSFileSystemDirectoryHandle | FileSystemFileHandle>;
+        entries(): AsyncIterableIterator<[string, HSFileSystemDirectoryHandle | FileSystemFileHandle]>;
+        [Symbol.asyncIterator]: HSFileSystemDirectoryHandle["entries"];
     }
 
     const FileSystemDirectoryHandle: {
-        prototype: FileSystemDirectoryHandle;
-        new (): FileSystemDirectoryHandle;
+        prototype: HSFileSystemDirectoryHandle;
+        new (): HSFileSystemDirectoryHandle;
     };
 
-    function showOpenFilePicker(
-        options?: OpenFilePickerOptions & { multiple?: false | undefined }
-    ): Promise<[FileSystemFileHandle]>;
+    function showOpenFilePicker(options?: OpenFilePickerOptions & { multiple?: false | undefined }): Promise<[FileSystemFileHandle]>;
     function showOpenFilePicker(options?: OpenFilePickerOptions): Promise<FileSystemFileHandle[]>;
-    function showDirectoryPicker(options?: DirectoryPickerOptions): Promise<FileSystemDirectoryHandle>;
+    function showDirectoryPicker(options?: DirectoryPickerOptions): Promise<HSFileSystemDirectoryHandle>;
     function showSaveFilePicker(options: SaveFilePickerOptions): Promise<FileSystemFileHandle>;
 }

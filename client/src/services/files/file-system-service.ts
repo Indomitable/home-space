@@ -135,6 +135,10 @@ export class FileSystemService {
             }
         }
     }
+
+    loadFolder(): Promise<HSFileSystemDirectoryHandle> {
+        return showDirectoryPicker();
+    }
 }
 
 export const fileSystemServiceInjectionToken: InjectionKey<FileSystemService> = Symbol("FileSystemService");

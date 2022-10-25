@@ -31,6 +31,12 @@ async function onUploadFiles() {
     await props.ctrl.refresh();
 }
 
+async function onUploadFolder() {
+    const folder = await fs.loadFolder();
+    await fileActionService.uploadFolder(props.parentId, folder);
+    await props.ctrl.refresh();
+}
+
 async function onDeleteSelectedNodes() {
     for (const node of props.ctrl.selectedNodes.value) {
         await fileActionService.deleteNode(node.id);
@@ -45,7 +51,12 @@ async function onDownloadSelectedNodes() {
 <template>
     <ul class="file-actions">
         <li class="file-actions-item file-actions-create-container">
-            <files-action-create class="file-actions-button" @create-folder="onCreateFolder" @upload-files="onUploadFiles" />
+            <files-action-create
+                class="file-actions-button"
+                @create-folder="onCreateFolder"
+                @upload-files="onUploadFiles"
+                @upload-folder="onUploadFolder"
+            />
         </li>
         <template v-if="ctrl.selectedNodes.value.length > 0">
             <li class="file-actions-item">

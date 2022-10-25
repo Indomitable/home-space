@@ -62,8 +62,9 @@ TODO:
 - [ ] iPhone native app
     - [ ] File sync
 
-### Extra Services
-- [ ] Develop extra service which clean orphan versions, the temp files and old items in the trash.
-
 ### Stability
 - [ ] Atomic file/db operations for move,copy,delete,rename etc.... (create distributed transactions)
+
+### CLI Client
+- [ ] Import files from external folder to home space.
+- [ ] Garbage collection: Clean orphan versions, the temp files and old items in the trash. Run with cron job

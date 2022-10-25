@@ -22,18 +22,31 @@ const ctrl = new NodeListController(nodes, fileActionService, router, props.pare
 </script>
 
 <template>
-    <file-actions :parent-id="parentId" :ctrl="ctrl"></file-actions>
-    <breadcrumbs-file-nav :parent-id="parentId" />
-    <div class="file-view-lists-container">
-        <node-list :controller="ctrl" />
+    <div class="files-main-component">
+        <file-actions :parent-id="parentId" :ctrl="ctrl"></file-actions>
+        <breadcrumbs-file-nav :parent-id="parentId" />
+        <div class="file-view-lists-container">
+            <node-list :controller="ctrl" />
+        </div>
     </div>
 </template>
 
 <style>
+.files-main-component {
+    height: 100%;
+    display: grid;
+    grid-template-rows: 50px 77px auto;
+}
+
 .file-view-lists-container {
+    overflow: hidden;
 }
 
 @media (max-width: 900px) {
+    .files-main-component {
+        grid-template-rows: 50px 40px auto;
+    }
+
     .file-view-lists-container {
         width: 100%;
         padding: 0 10px;

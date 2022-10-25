@@ -41,18 +41,19 @@ function toggleLeftNavigation(value: boolean) {
     display: grid;
     grid-template-columns: 200px auto;
     width: 100%;
+    height: 100%;
+    overflow: hidden;
 }
 
 .home-view-content {
     width: 100%;
     height: 100%;
-    overflow-x: auto;
+    overflow: hidden;
 }
 
 @media (max-width: 900px) {
     .home-content {
         display: block;
-        overflow: hidden;
     }
     .home-view-navigation {
         position: absolute;
@@ -70,7 +71,6 @@ function toggleLeftNavigation(value: boolean) {
     }
     .home-view-content {
         width: 100%;
-        overflow: hidden;
     }
 }
 </style>

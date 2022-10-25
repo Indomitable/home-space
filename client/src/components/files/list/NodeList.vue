@@ -81,6 +81,12 @@ function onNodeMenuClick(node: FileNode, targetPosition: DOMRect): void {
 
 @media (max-width: 900px) {
     .node-list {
+        grid-template-columns: minmax(50%, 70%) 1fr;
+    }
+}
+
+@media (max-width: 400px) {
+    .node-list {
         grid-template-columns: 100%;
     }
 }

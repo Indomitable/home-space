@@ -17,7 +17,7 @@ function toggleLeftNavigation(value: boolean) {
 
 <template>
     <div class="home">
-        <top-header :user-name="userName" @toggle-menu="value => toggleLeftNavigation(value)" />
+        <top-header @toggle-menu="value => toggleLeftNavigation(value)" />
         <div class="home-content">
             <aside class="home-view-navigation" :class="{ 'home-view-navigation--visible': leftNavVisible }">
                 <left-navigation />
@@ -44,6 +44,8 @@ function toggleLeftNavigation(value: boolean) {
 }
 
 .home-view-content {
+    width: 100%;
+    height: 100%;
     overflow-x: auto;
 }
 
@@ -57,8 +59,10 @@ function toggleLeftNavigation(value: boolean) {
         width: 200px;
         height: 100%;
         background: var(--background-color);
+        border-right: 1px solid var(--border-color);
+        box-shadow: 2px 2px 6px 2px #443d3d;
         z-index: 10;
-        left: -200px;
+        left: -210px;
         transition: cubic-bezier(1, 0, 0, 1) 0.5s left;
     }
     .home-view-navigation.home-view-navigation--visible {

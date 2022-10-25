@@ -11,14 +11,10 @@ import type { FileSystemService } from "./file-system-service";
 import type { FileLoadService } from "./files-load-service";
 import { UploadFileRequestEnhancer } from "./upload-file-request-enhancer";
 import type { ClipboardOperation } from "./clipboard-service";
-import type {FileNodeResponse} from "@/dto/file-node-response";
+import type { FileNodeResponse } from "@/dto/file-node-response";
 
 export class FileActionService {
-    constructor(
-        private userService: UserService,
-        private fileSystem: FileSystemService,
-        private fileLoadService: FileLoadService
-    ) {}
+    constructor(private userService: UserService, private fileSystem: FileSystemService, private fileLoadService: FileLoadService) {}
 
     loadNodes(parentId: number, sorting?: Sorting) {
         return this.fileLoadService.loadFileNodes(parentId, sorting);
@@ -73,11 +69,7 @@ export class FileActionService {
 
     async deleteNode(nodeId: number): Promise<void> {
         const url = resolveApiUrl("trash", "delete", nodeId);
-        await RequestBuilder.create(url)
-            .setMethod(HttpMethod.DELETE)
-            .enhance(this.userService)
-            .build("")
-            .execute();
+        await RequestBuilder.create(url).setMethod(HttpMethod.DELETE).enhance(this.userService).build("").execute();
     }
 
     async downloadNodes(nodes: FileNode[]): Promise<void> {

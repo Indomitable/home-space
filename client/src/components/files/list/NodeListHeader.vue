@@ -137,7 +137,11 @@ function onColumnNameClick(name: string) {
 @media (max-width: 900px) {
     .node-list-header__actions,
     .node-list-header-size,
-    .node-list-header-version,
+    .node-list-header-version {
+        display: none;
+    }
+}
+@media (max-width: 400px) {
     .node-list-header-modified-at {
         display: none;
     }

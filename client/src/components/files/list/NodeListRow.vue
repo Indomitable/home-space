@@ -161,18 +161,33 @@ function onNodeRename(event: KeyboardEvent) {
 
 .node-row__modified_at {
     text-align: center;
+    white-space: nowrap;
 }
 .node-row__version {
     text-align: center;
 }
 
-@media (min-width: 900px) and (max-width: 1200px) {
+@media (min-width: 901px) and (max-width: 1200px) {
     .node-row {
         font-size: 13px;
     }
 }
 
-@media (max-width: 900px) {
+@media (min-width: 401px) and (max-width: 900px) {
+    .node-row {
+        font-size: 13px;
+    }
+    .node-row__actions,
+    .node-row__node-size,
+    .node-row__version {
+        display: none;
+    }
+}
+
+@media (max-width: 400px) {
+    .node-row {
+        font-size: 14px;
+    }
     .node-row__actions,
     .node-row__node-size,
     .node-row__modified_at,

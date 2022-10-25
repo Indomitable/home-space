@@ -18,12 +18,7 @@ export class NodeListController {
     selectedNodes: ComputedRef<FileNode[]>;
     sorting: Ref<Sorting>;
 
-    constructor(
-        nodes: FavoriteFileNode[],
-        private fileActionService: FileActionService,
-        private router: Router,
-        private parentId: number
-    ) {
+    constructor(nodes: FavoriteFileNode[], private fileActionService: FileActionService, private router: Router, private parentId: number) {
         this.nodes = ref(nodes);
         this.nodesState = reactive(
             nodes.reduce((aggr, node) => {

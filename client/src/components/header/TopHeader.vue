@@ -1,22 +1,22 @@
 <script setup lang="ts">
 import MenuButton from "../navigation/MenuButton.vue";
-import LogoutButton from "./LogoutButton.vue";
-export interface HeaderProps {
-    userName: string;
-}
+import UserMenu from "./UserMenu.vue";
 
 export interface HeaderEvents {
     (event: "toggle-menu", value: boolean): void;
 }
 
-const props = defineProps<HeaderProps>();
 defineEmits<HeaderEvents>();
 </script>
 
 <template>
     <header class="top-header">
-        <div class="top-header__menu-button"><MenuButton :toggled="false" @toggle-menu="value => $emit('toggle-menu', value)" /></div>
-        <div class="top-header_user">Welcome {{ props.userName }}<LogoutButton /></div>
+        <div class="top-header__menu-button">
+            <MenuButton :toggled="false" @toggle-menu="value => $emit('toggle-menu', value)" />
+        </div>
+        <div class="top-header_user">
+            <UserMenu />
+        </div>
     </header>
 </template>
 

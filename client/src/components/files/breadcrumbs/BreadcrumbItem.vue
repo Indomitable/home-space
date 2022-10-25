@@ -45,4 +45,10 @@ function onBreadcrumbClick(): void {
         @extend .icon-filled;
     }
 }
+
+@media (max-width: 900px) {
+    .breadcrumb-item {
+        font-size: 1.2rem;
+    }
+}
 </style>

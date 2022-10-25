@@ -52,6 +52,11 @@ export function createAppRouter(userService: UserService): Router {
                 component: () => import("../views/AboutView.vue"),
             },
             {
+                path: "/configuration",
+                name: "configuration",
+                component: () => import("../views/ConfigurationView.vue"),
+            },
+            {
                 path: "/login",
                 name: "login",
                 component: LoginView,
@@ -64,9 +69,9 @@ export function createAppRouter(userService: UserService): Router {
                 name: "register",
                 component: RegisterView,
                 meta: {
-                    guestOk: true
-                }
-            }
+                    guestOk: true,
+                },
+            },
         ],
     });
 

@@ -15,5 +15,6 @@ const onLogout = () => {
 <template>
     <button class="ghost-button icon-button" v-on:click="onLogout">
         <span class="icon-filled">logout</span>
+        <span>Logout</span>
     </button>
 </template>

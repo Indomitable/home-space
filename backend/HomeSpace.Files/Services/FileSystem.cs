@@ -12,7 +12,8 @@ public interface IFileSystem
     Stream OpenReadFile(string target);
     Stream CreateFile(string target);
     Task<long> WriteFile(string absolutePath, Stream contents, CancellationToken cancellationToken);
-    Task Rename(string source, string destination, CancellationToken cancellationToken);
+    Task RenameFile(string source, string destination, CancellationToken cancellationToken);
+    Task RenameFolder(string source, string destination, CancellationToken cancellationToken);
 }
 
 internal sealed class FileSystem : IFileSystem
@@ -82,11 +83,16 @@ internal sealed class FileSystem : IFileSystem
         return File.Create(target);
     }
 
-    public Task Rename(string source, string destination, CancellationToken cancellationToken)
+    public Task RenameFile(string source, string destination, CancellationToken cancellationToken)
     {
         return Task.Run(() => File.Move(source, destination, true), cancellationToken);
     }
     
+    public Task RenameFolder(string source, string destination, CancellationToken cancellationToken)
+    {
+        return Task.Run(() => Directory.Move(source, destination), cancellationToken);
+    }
+
     public async Task<long> WriteFile(string absolutePath, Stream contents, CancellationToken cancellationToken)
     {
         await using var writeStream = File.Create(absolutePath);

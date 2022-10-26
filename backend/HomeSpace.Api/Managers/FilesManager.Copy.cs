@@ -79,14 +79,14 @@ internal partial class FilesManager
         {
             return new RenameNodeResult(RenameNodeResultType.NodeWithSameNameExist, null);
         }
-        var destination = await filesService.RenameFile(user.Id, sourceNode.FileSystemPath, name, cancellationToken);
-        await repository.RenameNode(user.Id, id, name, destination, cancellationToken);
-        var node = sourceNode with
+        var destination = await filesService.Rename(user.Id, sourceNode.FileSystemPath, name, sourceNode.NodeType, cancellationToken);
+        var destinationNode = sourceNode with
         {
             Title = name,
             FileSystemPath = destination
         };
-        return new RenameNodeResult(RenameNodeResultType.Success, FileNodeResponse.Map(node));
+        await repository.Rename(sourceNode, destinationNode, cancellationToken);
+        return new RenameNodeResult(RenameNodeResultType.Success, FileNodeResponse.Map(destinationNode));
     }
     
     public record CopyNodeResultInner(CopyNodeResultType Type, FileNode? Node);

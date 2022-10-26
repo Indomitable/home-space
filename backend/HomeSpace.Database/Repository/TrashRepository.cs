@@ -27,7 +27,7 @@ public class TrashRepository : ITrashRepository
     public async Task MoveNodeFromVersionToTrash(FileNode node, string fileName, int trashVersion,
         CancellationToken cancellationToken)
     {
-        await using var tran = await dbAccess.StartTransaction();
+        await using var tran = await dbAccess.BeginTransaction();
         await CreateTrashNodeFromFileNode(tran, node, fileName, trashVersion, cancellationToken);
 
         const string deleteSql = @"delete from file_versions where user_id = $1 and id = $2 and node_version = $3";
@@ -43,7 +43,7 @@ public class TrashRepository : ITrashRepository
 
     public async Task MoveNodeToTrash(FileNode node, string fileName, int trashVersion, CancellationToken cancellationToken)
     {
-        await using var tran = await dbAccess.StartTransaction();
+        await using var tran = await dbAccess.BeginTransaction();
         await CreateTrashNodeFromFileNode(tran, node, fileName, trashVersion, cancellationToken);
 
         const string deleteSql = @"delete from file_nodes where user_id = $1 and id = $2";

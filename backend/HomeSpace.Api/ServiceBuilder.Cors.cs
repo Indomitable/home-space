@@ -11,7 +11,8 @@ public static partial class ServiceBuilder
             {
                 options.AddPolicy(CorsDevPolicyName, policy =>
                 {
-                    policy.WithOrigins("http://127.0.0.1:5173", "http://localhost:3333")
+                    // Enable ip and host name for npm start. Enable Vite server too.
+                    policy.WithOrigins("http://127.0.0.1:5173", "http://localhost:5173", "http://localhost:3333")
                         .AllowAnyMethod()
                         .AllowAnyHeader()
                         .AllowCredentials();

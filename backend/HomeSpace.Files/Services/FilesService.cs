@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using HomeSpace.Infrastructure.Model;
 
 namespace HomeSpace.Files.Services;
 
@@ -23,7 +24,7 @@ public interface IFilesService
     /// <param name="name">New file name</param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    Task<string> RenameFile(long userId, string path, string name, CancellationToken cancellationToken);
+    Task<string> Rename(long userId, string path, string name, NodeType nodeType, CancellationToken cancellationToken);
 }
 
 internal sealed class FilesService : IFilesService
@@ -76,11 +77,15 @@ internal sealed class FilesService : IFilesService
         await fileSystem.DeleteDir(absolutePath, cancellationToken);
     }
 
-    public async Task<string> RenameFile(long userId, string path, string name, CancellationToken cancellationToken)
+    public async Task<string> Rename(long userId, string path, string name, NodeType nodeType, CancellationToken cancellationToken)
     {
         var sourcePath = pathsService.ResolveAbsolutePath(userId, path);
         var destination = Path.Join(Path.GetDirectoryName(sourcePath), name);
-        await fileSystem.Rename(sourcePath, destination, cancellationToken);
+        if (nodeType == NodeType.File) {
+            await fileSystem.RenameFile(sourcePath, destination, cancellationToken);
+        } else {
+            await fileSystem.RenameFolder(sourcePath, destination, cancellationToken);
+        }
         return pathsService.ResolveRelativePath(userId, destination);
     }
 }

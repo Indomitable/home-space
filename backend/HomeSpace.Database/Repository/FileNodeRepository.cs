@@ -31,7 +31,7 @@ public interface IFileNodeRepository
     Task UpdateNode(long userId, long id, long size, int version, string mimeType);
     IAsyncEnumerable<FileNode> GetParentNodes(long userId, long id, CancellationToken cancellationToken);
     IAsyncEnumerable<FileNode> GetChildNodes(long userId, long parentId, CancellationToken cancellationToken);
-    Task RenameNode(long userId, long id, string name, string path, CancellationToken cancellationToken);
+    Task Rename(FileNode source, FileNode destination, CancellationToken cancellationToken);
     Task DeleteNode(long userId, long id, CancellationToken cancellationToken);
     Task DeleteNodeRecursive(long userId, long id, CancellationToken cancellationToken);
 }
@@ -191,18 +191,44 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
         );
     }
     
-    public Task RenameNode(long userId, long id, string name, string path, CancellationToken cancellationToken)
+    public async Task Rename(FileNode source, FileNode destination, CancellationToken cancellationToken)
     {
-        const string sql = @"update file_nodes
+        var transaction = await access.BeginTransaction();
+        const string updateRootNode = @"update file_nodes
         set title = $3,
             filesystem_path = $4
         where user_id = $1 and id = $2";
-        return access.ExecuteNonQuery(sql, CancellationToken.None,
-            DbParameter.Create(userId),
-            DbParameter.Create(id),
-            DbParameter.Create(name),
-            DbParameter.Create(path)
+        await transaction.ExecuteNonQuery(updateRootNode, CancellationToken.None,
+            DbParameter.Create(source.UserId),
+            DbParameter.Create(source.Id),
+            DbParameter.Create(destination.Title),
+            DbParameter.Create(destination.FileSystemPath)
         );
+
+        if (source.NodeType == NodeType.Folder) {
+            // Update all children node, by replacing the start of filesystem_path with the new one
+            const string updateChildrenSql = @"WITH RECURSIVE query AS (
+                select n0.*, 0 as lvl from file_nodes n0
+                where user_id = $1 and id = $2
+                UNION ALL
+                select n1.*, lvl + 1 as lvl from file_nodes n1
+                INNER JOIN query p ON p.id = n1.parent_id and p.user_id = n1.user_id
+            )
+            
+    update file_nodes fn
+    set filesystem_path = $3 || substring(q.filesystem_path, $4)
+    from query q
+    where lvl > 0 and fn.id = q.id and fn.user_id  = q.user_id";
+            await transaction.ExecuteNonQuery(updateChildrenSql, cancellationToken,
+                DbParameter.Create(source.UserId),
+                DbParameter.Create(source.Id),
+                DbParameter.Create(destination.FileSystemPath),
+                DbParameter.Create(source.FileSystemPath.Length + 1)
+            );
+        }
+
+        await transaction.Commit(cancellationToken);
+
     }
 
     public Task DeleteNode(long userId, long id, CancellationToken cancellationToken)

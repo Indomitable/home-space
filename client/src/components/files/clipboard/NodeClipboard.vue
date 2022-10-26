@@ -89,4 +89,27 @@ function nodeIcon(node: FileNode): string {
     align-items: center;
     justify-content: space-between;
 }
+
+@media (max-width: 900px) {    
+    .clipboard-container {
+        right: 0;
+        width: 400px;
+    }
+}
+
+@media (max-width: 400px) {
+    .clipboard-container {
+        width: 100%;
+        height: 250px;
+    }
+}
+
+@media (max-height: 700px) {
+    .clipboard-container-title {
+        padding-bottom: 5px;
+    }
+    .clipboard-container {
+        height: 180px;
+    }
+}
 </style>

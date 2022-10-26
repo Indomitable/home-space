@@ -11,13 +11,13 @@ const folderName = ref("");
 const emit = defineEmits<NewFolderActionEmit>();
 
 function onNewFolderKeyPress(event: KeyboardEvent) {
-    if (event.code === "Enter") {
+    if (event.key === "Enter") {
         emit("create-folder", folderName.value);
     }
 }
 
 function onNewFolderKeyDown(event: KeyboardEvent) {
-    if (event.code === "Escape") {
+    if (event.key === "Escape") {
         isReadOnly.value = true;
     }
 }

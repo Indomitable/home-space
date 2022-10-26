@@ -102,8 +102,8 @@ function onNodeListDragOver(event: DragEvent) {
 <style>
 .node-list {
     max-width: 1300px;
-    display: grid;
-    grid-template-rows: 40px auto;
+    display: flex;
+    flex-direction: column;
     height: 100%;
 }
 .node-list-header,

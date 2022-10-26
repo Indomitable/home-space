@@ -23,6 +23,7 @@ defineEmits<HeaderEvents>();
 <style>
 .top-header {
     display: flex;
+    flex: 0 0 50px;
     align-items: center;
     justify-content: flex-end;
     border-bottom: 1px solid var(--border-color);

@@ -93,7 +93,7 @@ async function onDownloadSelectedNodes() {
 
 <style>
 .file-actions {
-    height: 50px;
+    flex: 0 0 50px;
     display: flex;
     flex-flow: row nowrap;
     align-items: center;

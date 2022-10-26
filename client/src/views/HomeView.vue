@@ -33,8 +33,8 @@ function toggleLeftNavigation(value: boolean) {
 .home {
     height: 100%;
     width: 100%;
-    display: grid;
-    grid-template-rows: 50px auto;
+    display: flex;
+    flex-direction: column;
 }
 
 .home-content {
@@ -68,9 +68,6 @@ function toggleLeftNavigation(value: boolean) {
     }
     .home-view-navigation.home-view-navigation--visible {
         left: 0px;
-    }
-    .home-view-content {
-        width: 100%;
     }
 }
 </style>

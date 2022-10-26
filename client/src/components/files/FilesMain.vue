@@ -34,8 +34,8 @@ const ctrl = new NodeListController(nodes, fileActionService, router, props.pare
 <style>
 .files-main-component {
     height: 100%;
-    display: grid;
-    grid-template-rows: 50px 77px auto;
+    display: flex;
+    flex-direction: column;
 }
 
 .file-view-lists-container {
@@ -43,10 +43,6 @@ const ctrl = new NodeListController(nodes, fileActionService, router, props.pare
 }
 
 @media (max-width: 900px) {
-    .files-main-component {
-        grid-template-rows: 50px 40px auto;
-    }
-
     .file-view-lists-container {
         width: 100%;
         padding: 0 10px;

@@ -39,11 +39,14 @@ function onBreadcrumbNavigate(id: number, isLast: boolean) {
 .breadcrumbs-nav {
     padding: 20px 17px 30px 17px;
     display: flex;
+    flex: 0 0 77px;
+    white-space: nowrap;
 }
 
 @media (max-width: 900px) {
     .breadcrumbs-nav {
         padding: 10px;
+        flex-basis: 50px;
     }
 }
 </style>

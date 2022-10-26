@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, watchEffect } from "vue";
+import { computed, inject, type StyleValue, watchEffect } from "vue";
 import type { FileNode } from "@/models/file-node";
 import { ClipboardOperation, clipboardServiceInjectionToken } from "@/services/files/clipboard-service";
 import type { NodeListController } from "@/components/files/list/node-list-controller";
@@ -16,10 +16,27 @@ export interface NodeDropDownEvents {
 
 const props = defineProps<NodeDropDownProps>();
 
-const pos = computed(() => ({
-    top: `${props.targetPosition.y}px`,
-    left: `${props.targetPosition.x + 19}px`,
-}));
+const pos = computed<StyleValue>(() => {
+    const popupSize = { width: 130, height: 130 };
+    const position: StyleValue = {};
+    const height = window.innerHeight;
+    const width = window.innerWidth;
+    if (props.targetPosition.left + popupSize.width > width) {
+        // The popup goes outside of screen - show it to the left.
+        // target right = distance from left, but our right is distance from right.
+        position.right = `${width - props.targetPosition.right}px`;
+    } else {
+        position.left = `${props.targetPosition.left}px`;
+    }
+
+    if (props.targetPosition.top + popupSize.height > height) {
+        // The popup goes outside of screen - show it to the top.
+        position.bottom = `${height - props.targetPosition.top + 5}px`;
+    } else {
+        position.top = `${props.targetPosition.bottom + 5}px`;
+    }
+    return position;
+});
 
 const emits = defineEmits<NodeDropDownEvents>();
 function onBodyClick(event: MouseEvent) {
@@ -53,7 +70,7 @@ function onCopyClick() {
 </script>
 
 <template>
-    <ul class="node-dropdown-menu" :style="{ top: pos.top, left: pos.left }">
+    <ul class="node-dropdown-menu" :style="pos">
         <li class="node-dropdown-menu-item" @click="onRename">Rename</li>
         <li class="node-dropdown-menu-item" @click="onCutClick" v-if="!clipboardService.hasItems.value">Cut</li>
         <li class="node-dropdown-menu-item" @click="onCopyClick" v-if="!clipboardService.hasItems.value">Copy</li>

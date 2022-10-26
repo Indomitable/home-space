@@ -40,6 +40,7 @@ const ctrl = new NodeListController(nodes, fileActionService, router, props.pare
 
 .file-view-lists-container {
     overflow: hidden;
+    flex: 1;
 }
 
 @media (max-width: 900px) {

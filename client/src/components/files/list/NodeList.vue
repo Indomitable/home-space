@@ -38,17 +38,19 @@ function onNodeListDragLeave() {
     }
 }
 
-function onNodeListDrop(event: DragEvent) {
+async function onNodeListDrop(event: DragEvent) {
     event.preventDefault();
     if (event.dataTransfer && event.dataTransfer.files.length > 0) {
         const files = event.dataTransfer.files;
         for (let i = 0; i < files.length; i++) {
             const file = files.item(i);
             if (file !== null) {
-                props.controller.renameNode;
+                await props.controller.uploadFile(file);
             }
         }
+        await props.controller.refresh();
     }
+    dragTarget.value?.classList.toggle("node-list--drag-target", false);
 }
 
 function onNodeListDragOver(event: DragEvent) {
@@ -118,7 +120,7 @@ function onNodeListDragOver(event: DragEvent) {
 }
 
 .node-list--drag-target {
-    background-color: #4a3f54;
+    background-color: #db7f3754;
 }
 
 .node-row-action {

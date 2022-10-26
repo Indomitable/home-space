@@ -1,17 +1,13 @@
-TODO:
-
 ### File operations:
-- [ ] Rewrite current frontend in VueJs: The initial frontend was in Yew using Rust but developing is quite slow. Using VueJS makes FE developing faster.
-  - [x] Create folder
-  - [x] Upload file
-  - [ ] Drag and drop file in the list view.
-  - [x] Copy files
-  - [x] Move files
-  - [X] Delete files
-  - [x] Rename files
-  - [x] Context menu
-  - [ ] Folder size
-  - [X] Account register
+- [x] Create folder
+- [x] Upload file
+- [X] Drag and drop file in the list view.
+- [x] Copy files
+- [x] Move files
+- [X] Delete files
+- [x] Rename files
+- [x] Context menu
+- [X] Account register
 
 ### Pages
 - [ ] List of files page. Initial release load all files in folders.
@@ -46,6 +42,7 @@ TODO:
     - [ ] Edit mode: Copy/Move/Rename files
     - [ ] Move files between managed and external locations.
 - [ ] Process indication. Upload/Copy/Move file indicator. How should we use websocket to upload file and show progress?
+- [ ] Folder size
 
 ### Security
 - [ ] Move JWT to HTTP only, SameSite and Secure cookie: This will give ability to open files in the browser with direct links.

@@ -38,6 +38,7 @@ function onColumnNameClick(name: string) {
     >
         <div class="node-list-header__actions">
             <select-action :is-selected="isAllRowsSelected" @selection-toggled="onSelectAllToggled" />
+            <span class="node-list-header__actions-empty"></span>
         </div>
         <div
             class="node-list-header__title node-list-header-title"
@@ -127,11 +128,18 @@ function onColumnNameClick(name: string) {
 }
 
 .node-list-header__actions {
-    padding-left: 22px;
     display: flex;
+    flex-direction: row;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
+    column-gap: 10px;
     border-bottom: 1px solid var(--border-color);
+}
+
+// Empty placeholder to make select icon exactly above select row icons
+.node-list-header__actions-empty {
+    width: 24px;
+    height: 24px;
 }
 
 @media (max-width: 900px) {

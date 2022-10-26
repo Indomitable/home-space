@@ -1,3 +1,4 @@
+using FluentValidation.AspNetCore;
 using HomeSpace.Api;
 using HomeSpace.Database;
 using HomeSpace.Files;
@@ -29,6 +30,7 @@ try
         .AddEndpointsApiExplorer()
         .AddHttpContextAccessor()
         .AddSwagger()
+        .AddFluentValidationAutoValidation()
         .AddServices()
         .AddHomeSpaceCors(builder.Environment)
         .AddHomeSpaceDb()

@@ -1,4 +1,8 @@
+using FluentValidation;
 using HomeSpace.Api.Managers;
+using HomeSpace.Api.Model.Auth;
+using HomeSpace.Api.Model.Files;
+using HomeSpace.Api.Validations;
 using Microsoft.AspNetCore.Diagnostics;
 
 namespace HomeSpace.Api;
@@ -11,6 +15,8 @@ public static partial class ServiceBuilder
         serviceCollection.AddScoped<IVersionsManager, VersionsManager>();
         serviceCollection.AddScoped<IFavoritesManager, FavoritesManager>();
         serviceCollection.AddScoped<ITrashManager, TrashManager>();
+        
+        serviceCollection.AddValidations();
         return serviceCollection;
     }
 
@@ -30,5 +36,20 @@ public static partial class ServiceBuilder
             },
             AllowStatusCode404Response = true
         });
+    }
+
+    private static void AddValidations(this IServiceCollection serviceCollection)
+    {
+        serviceCollection.AddScoped<IValidator<LoginRequest>, LoginRequestValidator>();
+        serviceCollection.AddScoped<IValidator<RegisterRequest>, RegisterRequestValidator>();
+        
+        serviceCollection.AddScoped<IValidator<RenameNodeRequest>, RenameNodeRequestValidator>();
+        serviceCollection.AddScoped<IValidator<CreateFolderRequest>, CreateFolderRequestValidator>();
+        serviceCollection.AddScoped<IValidator<GetFilesRequest>, GetFilesRequestValidator>();
+
+        serviceCollection.AddScoped<IValidator<UploadFileRequest>, UploadFileRequestValidator>();
+        
+        serviceCollection.AddScoped<IValidator<CopyNodeRequest>, CopyNodeRequestValidator>();
+        serviceCollection.AddScoped<IValidator<MoveNodeRequest>, MoveNodeRequestValidator>();
     }
 }

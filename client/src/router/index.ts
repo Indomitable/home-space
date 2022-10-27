@@ -44,22 +44,22 @@ export function createAppRouter(userService: UserService): Router {
                         name: "trash",
                         component: TrashFiles,
                     },
+                    {
+                        path: "/jobs",
+                        name: "jobs",
+                        component: () => import("../views/home/JobsView.vue"),
+                    },
+                    {
+                        path: "/configuration",
+                        name: "configuration",
+                        component: () => import("../views/home/ConfigurationView.vue"),
+                    },
                 ],
             },
             {
                 path: "/about",
                 name: "about",
                 component: () => import("../views/AboutView.vue"),
-            },
-            {
-                path: "/configuration",
-                name: "configuration",
-                component: () => import("../views/ConfigurationView.vue"),
-            },
-            {
-                path: "/jobs",
-                name: "jobs",
-                component: () => import("../views/JobsView.vue"),
             },
             {
                 path: "/login",

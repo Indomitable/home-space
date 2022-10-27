@@ -31,6 +31,12 @@
                     <span>Trash</span>
                 </router-link>
             </li>
+            <li class="left-nav-item">
+                <router-link :to="{ name: 'jobs' }" class="left-nav-link">
+                    <span class="icon-filled">construction</span>
+                    <span>Jobs</span>
+                </router-link>
+            </li>
         </ul>
     </nav>
 </template>

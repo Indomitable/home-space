@@ -3,6 +3,7 @@ import { inject } from "vue";
 
 import { fileActionServiceInjectionToken } from "@/services/files/file-action-service";
 import { fileSystemServiceInjectionToken } from "@/services/files/file-system-service";
+import { jobServiceInjectionToken } from "@/services/jobs-service";
 import { ClipboardOperation } from "@/services/files/clipboard-service";
 
 import type { NodeListController } from "../list/node-list-controller";
@@ -17,6 +18,8 @@ export interface FileActionsProps {
 const props = defineProps<FileActionsProps>();
 
 const fileActionService = inject(fileActionServiceInjectionToken)!;
+const jobService = inject(jobServiceInjectionToken)!;
+
 async function onCreateFolder(name: string) {
     await fileActionService.createFolder(props.parentId, name);
     await props.ctrl.refresh();

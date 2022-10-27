@@ -40,7 +40,7 @@ function uploadFolder() {
             <new-folder-action @create-folder="createFolder" />
         </li>
         <li class="file-action-create-list-item file-action-create-list-item--start-group">
-            <upload-file-action parent_id="{props.parent_id}" @upload-files="uploadFiles" @upload-folder="uploadFolder" />
+            <upload-file-action @upload-files="uploadFiles" @upload-folder="uploadFolder" />
         </li>
         <!-- <li class="file-action-create-list-item file-action-create-list-item--start-group">
             <a>

@@ -50,13 +50,14 @@ public class FilesController
         var result = await manager.CreateFolder(request.ParentId, request.Name);
         return result.Type switch
         {
-            CreateFolderResultType.FileWithSameNameExist => new ConflictObjectResult(result.Type),
-            CreateFolderResultType.FolderWithSameNameExist => new ConflictObjectResult(result.Type),
+            CreateFolderResultType.FileWithSameNameExist => new ConflictObjectResult(result),
+            CreateFolderResultType.FolderWithSameNameExist => new ConflictObjectResult(result),
             CreateFolderResultType.Success => new OkObjectResult(result.FileNode),
             _ => throw new ArgumentOutOfRangeException()
         };
     }
     
+    [RequestSizeLimit(int.MaxValue)]
     [HttpPut]
     [Route("file")]
     public async Task<IActionResult> UploadFile([FromForm] UploadFileRequest request, CancellationToken cancellationToken)

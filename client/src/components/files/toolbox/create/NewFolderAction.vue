@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, watchEffect } from "vue";
+import { ref, watchEffect } from "vue";
 
 interface NewFolderActionEmit {
     (event: "create-folder", name: string): void;

@@ -50,11 +50,11 @@ export class FetchRequest<TResponse> {
 
     private async readError(response: Response): Promise<ServerError> {
         if (FetchRequest.isContentType(response, MimeTypes.Json)) {
-            const { message } = await response.json();
+            const json = await response.json();
             return {
                 code: response.status,
                 name: response.statusText,
-                message,
+                ...json,
             };
         }
         const body = await response.text();

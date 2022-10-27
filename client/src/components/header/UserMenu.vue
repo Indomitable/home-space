@@ -16,6 +16,7 @@ const listVisible = ref(false);
     <div class="user-menu-component">
         <button class="user-menu-action ghost-button" v-on:click="listVisible = !listVisible">
             <span>Welcome {{ loggedUser.userName }}</span>
+            <span class="icon-filled">arrow_drop_down</span>
         </button>
         <ul class="user-menu-list popup" v-if="listVisible">
             <li class="user-menu-list-item"><ConfigurationAction /></li>
@@ -31,6 +32,9 @@ const listVisible = ref(false);
 
 .user-menu-action {
     font-size: 16px;
+    display: flex;
+    align-items: center;
+    flex-direction: row;
 }
 
 .user-menu-list {

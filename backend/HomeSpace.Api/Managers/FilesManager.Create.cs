@@ -13,8 +13,8 @@ internal partial class FilesManager
         if (fileNode is not null)
         {
             return fileNode.NodeType == NodeType.Folder
-                ? new CreateFolderResult(CreateFolderResultType.FolderWithSameNameExist, null)
-                : new CreateFolderResult(CreateFolderResultType.FileWithSameNameExist, null);
+                ? new CreateFolderResult(CreateFolderResultType.FolderWithSameNameExist, FileNodeResponse.Map(fileNode))
+                : new CreateFolderResult(CreateFolderResultType.FileWithSameNameExist, FileNodeResponse.Map(fileNode));
         }
         
         var parentNode = await repository.GetNode(user.Id, parentId, CancellationToken.None);

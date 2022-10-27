@@ -2,6 +2,7 @@ import type { InjectionKey } from "vue";
 import type { Router } from "vue-router";
 
 import { HttpMethod, RequestBuilder } from "@/api/request-builder";
+
 import { resolveApiUrl } from "@/api/url-resolver";
 import { type FileNode, NodeType } from "@/models/file-node";
 import type { Sorting } from "@/models/sorting";
@@ -12,9 +13,20 @@ import type { FileLoadService } from "./files-load-service";
 import { UploadFileRequestEnhancer } from "./upload-file-request-enhancer";
 import type { ClipboardOperation } from "./clipboard-service";
 import type { FileNodeResponse } from "@/dto/file-node-response";
+import type { JobService } from "../jobs-service";
+
+interface UploadItem {
+    handle: HSFileSystemDirectoryHandle | HSFileSystemFileHandle;
+    items: UploadItem[];
+}
 
 export class FileActionService {
-    constructor(private userService: UserService, private fileSystem: FileSystemService, private fileLoadService: FileLoadService) {}
+    constructor(
+        private userService: UserService,
+        private fileSystem: FileSystemService,
+        private fileLoadService: FileLoadService,
+        private jobService: JobService
+    ) {}
 
     loadNodes(parentId: number, sorting?: Sorting) {
         return this.fileLoadService.loadFileNodes(parentId, sorting);
@@ -42,14 +54,22 @@ export class FileActionService {
             .execute();
     }
 
-    createFolder(parentId: number, folderName: string): Promise<FileNodeResponse> {
+    async createFolder(parentId: number, folderName: string): Promise<FileNodeResponse> {
         const url = resolveApiUrl("files", "folder");
-        return RequestBuilder.create(url)
-            .setMethod(HttpMethod.PUT)
-            .enhance(this.userService)
-            .setJsonBody({ parentId: parentId, name: folderName })
-            .build<FileNodeResponse>("json")
-            .execute();
+        try {
+            const folder = await RequestBuilder.create(url)
+                .setMethod(HttpMethod.PUT)
+                .enhance(this.userService)
+                .setJsonBody({ parentId: parentId, name: folderName })
+                .build<FileNodeResponse>("json")
+                .execute();
+            return folder;
+        } catch (e: any) {
+            if (e.type === "FolderWithSameNameExist") {
+                return e.fileNode;
+            }
+            throw e;
+        }
     }
 
     async uploadFile(parentId: number, file: File): Promise<FileNodeResponse> {
@@ -68,15 +88,46 @@ export class FileActionService {
     }
 
     async uploadFolder(parentId: number, folderHandle: HSFileSystemDirectoryHandle) {
-        const folder = await this.createFolder(parentId, folderHandle.name);
-        for await (const node of folderHandle.values()) {
+        const root: UploadItem = { handle: folderHandle, items: [] };
+        const count = await this.collectUploadItems(root);
+        const jobId = this.jobService.addJob({ name: "Uploading folder: " + folderHandle.name, id: 0, steps: count });
+        try {
+            // for steps should use object so to be passed by reference.
+            await this.pushUploadItem(parentId, jobId, root, { step: 0 });
+        } finally {
+            this.jobService.finishJob(jobId);
+        }
+    }
+
+    private async pushUploadItem(parentId: number, jobId: number, uploadItem: UploadItem, steps: { step: number }) {
+        steps.step += 1;
+        this.jobService.reportProgress(jobId, steps.step);
+        if (uploadItem.handle.kind === "directory") {
+            this.jobService.setInfo(jobId, "Create folder: " + uploadItem.handle.name);
+            const folder = await this.createFolder(parentId, uploadItem.handle.name);
+            for (const item of uploadItem.items) {
+                await this.pushUploadItem(folder.id, jobId, item, steps);
+            }
+        } else {
+            const file = await uploadItem.handle.getFile();
+            this.jobService.setInfo(jobId, "Uploading file: " + file.name);
+            await this.uploadFile(parentId, file);
+        }
+    }
+
+    private async collectUploadItems(parent: UploadItem): Promise<number> {
+        let count = 0;
+        for await (const node of (parent.handle as HSFileSystemDirectoryHandle).values()) {
+            count++;
             if (node.kind === "directory") {
-                await this.uploadFolder(folder.id, node);
+                const uploadItem: UploadItem = { handle: node, items: [] };
+                parent.items.push(uploadItem);
+                count += await this.collectUploadItems(uploadItem);
             } else {
-                const file = await node.getFile();
-                await this.uploadFile(folder.id, file);
+                parent.items.push({ handle: node, items: [] });
             }
         }
+        return count;
     }
 
     async deleteNode(nodeId: number): Promise<void> {

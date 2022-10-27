@@ -57,6 +57,11 @@ export function createAppRouter(userService: UserService): Router {
                 component: () => import("../views/ConfigurationView.vue"),
             },
             {
+                path: "/jobs",
+                name: "jobs",
+                component: () => import("../views/JobsView.vue"),
+            },
+            {
                 path: "/login",
                 name: "login",
                 component: LoginView,

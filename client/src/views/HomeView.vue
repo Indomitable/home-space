@@ -4,6 +4,7 @@ import { inject, ref } from "vue";
 import { userServiceInjectionToken } from "@/services/user/user-service";
 import TopHeader from "@/components/header/TopHeader.vue";
 import LeftNavigation from "@/components/navigation/LeftNavigation.vue";
+import JobsNotification from "@/components/jobs/JobsNotification.vue";
 
 const userService = inject(userServiceInjectionToken)!;
 const loggedUser = userService.getLoggedUser();
@@ -26,6 +27,7 @@ function toggleLeftNavigation(value: boolean) {
                 <router-view :key="$route.path" />
             </section>
         </div>
+        <jobs-notification />
     </div>
 </template>
 

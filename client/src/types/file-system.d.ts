@@ -18,7 +18,7 @@ declare global {
         new (): FileSystemHandle;
     };
 
-    type FileSystemHandleUnion = FileSystemFileHandle | HSFileSystemDirectoryHandle;
+    type FileSystemHandleUnion = HSFileSystemFileHandle | HSFileSystemDirectoryHandle;
 
     interface FilePickerAcceptType {
         description?: string | undefined;
@@ -81,26 +81,26 @@ declare global {
         truncate(size: number): Promise<void>;
     }
 
-    interface FileSystemFileHandle extends FileSystemHandle {
+    interface HSFileSystemFileHandle extends FileSystemHandle {
         readonly kind: "file";
         getFile(): Promise<File>;
         createWritable(options?: FileSystemCreateWritableOptions): Promise<FileSystemWritableFileStream>;
     }
 
     const FileSystemFileHandle: {
-        prototype: FileSystemFileHandle;
-        new (): FileSystemFileHandle;
+        prototype: HSFileSystemFileHandle;
+        new (): HSFileSystemFileHandle;
     };
 
     interface HSFileSystemDirectoryHandle extends FileSystemHandle {
         readonly kind: "directory";
         getDirectoryHandle(name: string, options?: FileSystemGetDirectoryOptions): Promise<HSFileSystemDirectoryHandle>;
-        getFileHandle(name: string, options?: FileSystemGetFileOptions): Promise<FileSystemFileHandle>;
+        getFileHandle(name: string, options?: FileSystemGetFileOptions): Promise<HSFileSystemFileHandle>;
         removeEntry(name: string, options?: FileSystemRemoveOptions): Promise<void>;
         resolve(possibleDescendant: FileSystemHandle): Promise<string[] | null>;
         keys(): AsyncIterableIterator<string>;
-        values(): AsyncIterableIterator<HSFileSystemDirectoryHandle | FileSystemFileHandle>;
-        entries(): AsyncIterableIterator<[string, HSFileSystemDirectoryHandle | FileSystemFileHandle]>;
+        values(): AsyncIterableIterator<HSFileSystemDirectoryHandle | HSFileSystemFileHandle>;
+        entries(): AsyncIterableIterator<[string, HSFileSystemDirectoryHandle | HSFileSystemFileHandle]>;
         [Symbol.asyncIterator]: HSFileSystemDirectoryHandle["entries"];
     }
 
@@ -109,8 +109,8 @@ declare global {
         new (): HSFileSystemDirectoryHandle;
     };
 
-    function showOpenFilePicker(options?: OpenFilePickerOptions & { multiple?: false | undefined }): Promise<[FileSystemFileHandle]>;
-    function showOpenFilePicker(options?: OpenFilePickerOptions): Promise<FileSystemFileHandle[]>;
+    function showOpenFilePicker(options?: OpenFilePickerOptions & { multiple?: false | undefined }): Promise<[HSFileSystemFileHandle]>;
+    function showOpenFilePicker(options?: OpenFilePickerOptions): Promise<HSFileSystemFileHandle[]>;
     function showDirectoryPicker(options?: DirectoryPickerOptions): Promise<HSFileSystemDirectoryHandle>;
-    function showSaveFilePicker(options: SaveFilePickerOptions): Promise<FileSystemFileHandle>;
+    function showSaveFilePicker(options: SaveFilePickerOptions): Promise<HSFileSystemFileHandle>;
 }

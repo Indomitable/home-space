@@ -1,3 +1,4 @@
+using System.Net.Mime;
 using HomeSpace.Api.Model.Files;
 using HomeSpace.Database.Model;
 using HomeSpace.Infrastructure.Model;
@@ -41,6 +42,55 @@ internal partial class FilesManager
         var parentNode = await repository.GetNode(user.Id, parentId, cancellationToken);
         var node = await CreateFile(name, fileStream, contentType, parentNode, cancellationToken);
         return new UploadFileResult(UploadFileResultType.Success, FileNodeResponse.Map(node));
+    }
+
+    public async Task<string> UploadFileChunk(string id, IFormFile file, int chunk, int totalChunks,
+        CancellationToken cancellationToken)
+    {
+        var user = currentUserProvider.RequireAuthorizedUser();
+        var fileId = chunk > 0 ? id : Guid.NewGuid().ToString("N");
+        await using var fileStream = file.OpenReadStream();
+        await filesService.UploadFileChunk(user.Id, fileId, fileStream, chunk, cancellationToken);
+        return fileId;
+    }
+
+    public async Task<UploadFileResult> UploadLastFileChunk(string id, long parentId, IFormFile file, string fileName, string mimeType,
+        long fileSize, int totalChunks, string hash, CancellationToken cancellationToken)
+    {
+        var user = currentUserProvider.RequireAuthorizedUser();
+        var fileNode = await repository.GetNode(user.Id, parentId, fileName, cancellationToken);
+        // If client can not resolve mime type then try to do it on server.
+        if (mimeType == MediaTypeNames.Application.Octet)
+        {
+            if (contentTypeProvider.TryGetContentType(fileName, out var contentType) && !string.IsNullOrEmpty(contentType))
+            {
+                mimeType = contentType;
+            }
+        }
+        
+        await using var chunkStream = file.OpenReadStream();
+        await filesService.UploadFileChunk(user.Id, id, chunkStream, totalChunks - 1, cancellationToken);
+        var (fullFile, err) = await filesService.GetUploadFileChunks(user.Id, id, totalChunks, cancellationToken);
+        if (fullFile is null) {
+            logger.LogError(err);
+            return new UploadFileResult(UploadFileResultType.UploadError, null);
+        }
+        try {
+            if (fileNode is not null)
+            {
+                if (fileNode.NodeType == NodeType.Folder)
+                {
+                    return new UploadFileResult(UploadFileResultType.FolderWithSameNameExist, null);
+                }
+                var updatedNode = await OverrideNode(fullFile, mimeType, fileNode, cancellationToken);
+                return new UploadFileResult(UploadFileResultType.Success, FileNodeResponse.Map(updatedNode));
+            }
+            var parentNode = await repository.GetNode(user.Id, parentId, cancellationToken);
+            var node = await CreateFile(fileName, fullFile, mimeType, parentNode, cancellationToken);
+            return new UploadFileResult(UploadFileResultType.Success, FileNodeResponse.Map(node));
+        } finally {
+            await fullFile.DisposeAsync();
+        }
     }
     
     private async Task<FileNode> OverrideNode(Stream content, string contentType, FileNode destination, CancellationToken cancellationToken)

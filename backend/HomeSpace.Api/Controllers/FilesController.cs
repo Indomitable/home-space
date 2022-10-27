@@ -71,6 +71,42 @@ public class FilesController
             _ => throw new ArgumentOutOfRangeException()
         };
     }
+    
+    [RequestFormLimits(KeyLengthLimit = int.MaxValue, ValueLengthLimit = int.MaxValue, MultipartBodyLengthLimit = int.MaxValue)]
+    [RequestSizeLimit(int.MaxValue)]
+    [HttpPut]
+    [Route("upload")]
+    public async Task<IActionResult> UploadFileChunk([FromForm] UploadFileChunkRequest request, CancellationToken cancellationToken)
+    {
+        var result = await manager.UploadFileChunk(request.Id, request.File, request.Chunk, request.TotalChunks, cancellationToken);
+        return new ContentResult
+        {
+            Content = result,
+            ContentType = "plain/text",
+            StatusCode = StatusCodes.Status200OK
+        };
+    }
+    
+    [RequestFormLimits(KeyLengthLimit = int.MaxValue, ValueLengthLimit = int.MaxValue, MultipartBodyLengthLimit = int.MaxValue)]
+    [RequestSizeLimit(int.MaxValue)]
+    [HttpPut]
+    [Route("upload-last")]
+    public async Task<IActionResult> UploadLastFileChunk([FromForm] UploadLastFileChunkRequest request, CancellationToken cancellationToken)
+    {
+        var result = await manager.UploadLastFileChunk(request.Id, 
+            request.ParentId, 
+            request.File,
+            request.FileName,
+            request.MimeType,
+            request.FileSize, request.TotalChunks, request.FileHash, cancellationToken);
+        return result.Type switch
+        {
+            UploadFileResultType.FolderWithSameNameExist => new ConflictObjectResult(result.Type),
+            UploadFileResultType.UploadError => new BadRequestObjectResult(result.Type),
+            UploadFileResultType.Success => new OkObjectResult(result.FileNode),
+            _ => throw new ArgumentOutOfRangeException()
+        };
+    }
 
     [HttpPost]
     [Route("rename")]

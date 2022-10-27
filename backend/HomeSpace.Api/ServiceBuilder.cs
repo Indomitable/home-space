@@ -4,6 +4,7 @@ using HomeSpace.Api.Model.Auth;
 using HomeSpace.Api.Model.Files;
 using HomeSpace.Api.Validations;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.StaticFiles;
 
 namespace HomeSpace.Api;
 
@@ -11,6 +12,7 @@ public static partial class ServiceBuilder
 {
     public static IServiceCollection AddServices(this IServiceCollection serviceCollection)
     {
+        serviceCollection.AddScoped<IContentTypeProvider>(sp => new FileExtensionContentTypeProvider());
         serviceCollection.AddScoped<IFilesManager, FilesManager>();
         serviceCollection.AddScoped<IVersionsManager, VersionsManager>();
         serviceCollection.AddScoped<IFavoritesManager, FavoritesManager>();

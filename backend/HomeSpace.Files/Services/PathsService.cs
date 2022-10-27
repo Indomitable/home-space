@@ -19,6 +19,7 @@ public interface IPathsService
     string GetVersionsFile(long userId, string fileName);
     string GetTrashFile(long userId);
     string GetTrashFile(long userId, string fileName);
+    string UserUploadsDirectory(long userId);
 }
 
 internal sealed class PathsService : IPathsService
@@ -27,6 +28,7 @@ internal sealed class PathsService : IPathsService
     private const string TrashDir = "trash";
     private const string VersionsDir = "versions";
     private const string TempDir = "temp";
+    private const string UploadsDir = "uploads";
     
     private readonly FilesConfiguration configuration;
 
@@ -42,6 +44,7 @@ internal sealed class PathsService : IPathsService
         Directory.CreateDirectory(UserTrashDirectory(userId));
         Directory.CreateDirectory(UserVersionsDirectory(userId));
         Directory.CreateDirectory(UserTempDirectory(userId));
+        Directory.CreateDirectory(UserUploadsDirectory(userId));
     }
 
     public string UserDirectory(long userId) => 
@@ -55,6 +58,9 @@ internal sealed class PathsService : IPathsService
     
     public string UserTempDirectory(long userId) =>
         Path.Join(UserSystemDirectory(userId), TempDir);
+    
+    public string UserUploadsDirectory(long userId) =>
+        Path.Join(UserSystemDirectory(userId), UploadsDir);
 
     public string ResolveAbsolutePath(long userId, string relativePath) =>
         Path.Join(UserDirectory(userId), relativePath);

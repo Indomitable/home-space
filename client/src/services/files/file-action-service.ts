@@ -72,6 +72,12 @@ export class FileActionService {
         }
     }
 
+    /**
+     * Uploads a file. Obsolete use uploadFileChunks
+     * @obsolete
+     * @param parentId Parent Id
+     * @param file File
+     */
     private async uploadFile(parentId: number, file: File): Promise<FileNodeResponse> {
         const url = resolveApiUrl("files", "file");
         const formData = new FormData();
@@ -87,6 +93,51 @@ export class FileActionService {
         return response;
     }
 
+    private async uploadFileChunks(parentId: number, file: File): Promise<FileNodeResponse> {
+        const uploadUrl = resolveApiUrl("files", "upload");
+        const uploadLastUrl = resolveApiUrl("files", "upload-last");
+        const chunkSize = 7340032; // 7MB
+        const size = file.size;
+        const totalChunks = Math.ceil(size / chunkSize);
+        let id = "-";
+        for (let i = 0; i < totalChunks - 1; i++) {
+            // upload all chunks without the last.
+            const start = i * chunkSize;
+            const end = start + chunkSize;
+            const chunk = file.slice(start, end, file.type);
+            const formData = new FormData();
+            formData.append("id", id);
+            formData.append("file", chunk);
+            formData.append("chunk", i.toString());
+            formData.append("totalChunks", totalChunks.toString());
+            id = await RequestBuilder.create(uploadUrl)
+                .setMethod(HttpMethod.PUT)
+                .enhance(this.userService)
+                .setBody(formData)
+                .build("text")
+                .execute();
+        }
+        // upload last chunk
+        const start = (totalChunks - 1) * chunkSize;
+        const chunk = file.slice(start, file.size, file.type);
+        const formData = new FormData();
+        formData.append("id", id);
+        formData.append("parentId", parentId.toString());
+        formData.append("file", chunk);
+        formData.append("fileName", file.name);
+        formData.append("mimeType", file.type || "application/octet-stream");
+        formData.append("fileSize", file.size.toString());
+        formData.append("totalChunks", totalChunks.toString());
+        formData.append("fileHash", "-");
+        const response = await RequestBuilder.create(uploadLastUrl)
+            .setMethod(HttpMethod.PUT)
+            .enhance(this.userService)
+            .setBody(formData)
+            .build<FileNodeResponse>()
+            .execute();
+        return response;
+    }
+
     async *uploadFiles(parentId: number, files: File[]) {
         const jobId = this.jobService.addJob({ name: "Uploading files", id: 0, steps: files.length });
         try {
@@ -95,7 +146,7 @@ export class FileActionService {
                 try {
                     this.jobService.reportProgress(jobId, ++step);
                     this.jobService.setInfo(jobId, `Uploading file: ${file.name}. Size: ${file.size}`);
-                    const node = await this.uploadFile(parentId, file);
+                    const node = await this.uploadFileChunks(parentId, file);
                     yield node;
                 } catch (e) {
                     // On drag and drop a folder can be selected and this will result in error.
@@ -131,7 +182,7 @@ export class FileActionService {
         } else {
             const file = await uploadItem.handle.getFile();
             this.jobService.setInfo(jobId, "Uploading file: " + file.name);
-            await this.uploadFile(parentId, file);
+            await this.uploadFileChunks(parentId, file);
         }
     }
 

@@ -42,7 +42,7 @@
     - [ ] Edit mode: Copy/Move/Rename files
     - [ ] Move files between managed and external locations.
 - [_] Process indication. Upload/Copy/Move file indicator.
-- [ ] Support of big files. Upload files on chunks so to ignore max request size.
+- [X] Support of big files. Upload files on chunks so to ignore max request size.
 - [ ] Folder size
 
 ### Security

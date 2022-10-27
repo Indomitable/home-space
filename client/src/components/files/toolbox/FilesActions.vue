@@ -28,9 +28,11 @@ async function onCreateFolder(name: string) {
 const fs = inject(fileSystemServiceInjectionToken)!;
 async function onUploadFiles() {
     const files = fs.loadFiles([]);
+    const arr = [];
     for await (const file of files) {
-        await fileActionService.uploadFile(props.parentId, file);
+        arr.push(file);
     }
+    await fileActionService.uploadFiles(props.parentId, arr);
     await props.ctrl.refresh();
 }
 

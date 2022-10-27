@@ -41,7 +41,8 @@
     - [ ] Readonly mode: View and download files in it.
     - [ ] Edit mode: Copy/Move/Rename files
     - [ ] Move files between managed and external locations.
-- [ ] Process indication. Upload/Copy/Move file indicator. How should we use websocket to upload file and show progress?
+- [_] Process indication. Upload/Copy/Move file indicator.
+- [ ] Support of big files. Upload files on chunks so to ignore max request size.
 - [ ] Folder size
 
 ### Security

@@ -72,7 +72,7 @@ export class FileActionService {
         }
     }
 
-    async uploadFile(parentId: number, file: File): Promise<FileNodeResponse> {
+    private async uploadFile(parentId: number, file: File): Promise<FileNodeResponse> {
         const url = resolveApiUrl("files", "file");
         const formData = new FormData();
         formData.append("parentId", "" + parentId);
@@ -85,6 +85,26 @@ export class FileActionService {
             .build<FileNodeResponse>()
             .execute();
         return response;
+    }
+
+    async *uploadFiles(parentId: number, files: File[]) {
+        const jobId = this.jobService.addJob({ name: "Uploading files", id: 0, steps: files.length });
+        try {
+            let step = 0;
+            for (const file of files) {
+                try {
+                    this.jobService.reportProgress(jobId, ++step);
+                    this.jobService.setInfo(jobId, `Uploading file: ${file.name}. Size: ${file.size}`);
+                    const node = await this.uploadFile(parentId, file);
+                    yield node;
+                } catch (e) {
+                    // On drag and drop a folder can be selected and this will result in error.
+                    console.error(`Unable to upload file: ${file.name}.`, e);
+                }
+            }
+        } finally {
+            this.jobService.finishJob(jobId);
+        }
     }
 
     async uploadFolder(parentId: number, folderHandle: HSFileSystemDirectoryHandle) {

@@ -42,12 +42,8 @@ async function onNodeListDrop(event: DragEvent) {
     event.preventDefault();
     if (event.dataTransfer && event.dataTransfer.files.length > 0) {
         const files = event.dataTransfer.files;
-        for (let i = 0; i < files.length; i++) {
-            const file = files.item(i);
-            if (file !== null) {
-                await props.controller.uploadFile(file);
-            }
-        }
+        const arr = Array.from(files);
+        await props.controller.uploadFiles(arr);
         await props.controller.refresh();
     }
     dragTarget.value?.classList.toggle("node-list--drag-target", false);

@@ -57,6 +57,7 @@ public class FilesController
         };
     }
     
+    [RequestFormLimits(KeyLengthLimit = int.MaxValue, ValueLengthLimit = int.MaxValue, MultipartBodyLengthLimit = int.MaxValue)]
     [RequestSizeLimit(int.MaxValue)]
     [HttpPut]
     [Route("file")]

@@ -56,13 +56,8 @@ export class NodeListController {
         await this.refresh();
     }
 
-    async uploadFile(file: File) {
-        try {
-            await this.fileActionService.uploadFile(this.parentId, file);
-        } catch {
-            // File is directory
-            console.error(file.name);
-        }
+    async uploadFiles(files: File[]) {
+        await this.fileActionService.uploadFiles(this.parentId, files);
     }
 
     async nodeTitleClicked(node: FileNode): Promise<void> {

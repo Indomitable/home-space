@@ -1,19 +1,18 @@
-import type { InjectionKey } from "vue";
-import type { Router } from "vue-router";
+import type {InjectionKey} from "vue";
+import type {Router} from "vue-router";
 
-import { HttpMethod, RequestBuilder } from "@/api/request-builder";
+import {HttpMethod, RequestBuilder} from "@/api/request-builder";
 
-import { resolveApiUrl } from "@/api/url-resolver";
-import { type FileNode, NodeType } from "@/models/file-node";
-import type { Sorting } from "@/models/sorting";
+import {resolveApiUrl} from "@/api/url-resolver";
+import {type FileNode, NodeType} from "@/models/file-node";
+import type {Sorting} from "@/models/sorting";
 
-import type { UserService } from "../user/user-service";
-import type { FileSystemService } from "./file-system-service";
-import type { FileLoadService } from "./files-load-service";
-import { UploadFileRequestEnhancer } from "./upload-file-request-enhancer";
-import type { ClipboardOperation } from "./clipboard-service";
-import type { FileNodeResponse } from "@/dto/file-node-response";
-import type { JobService } from "../jobs-service";
+import type {UserService} from "../user/user-service";
+import type {FileSystemService} from "./file-system-service";
+import type {FileLoadService} from "./files-load-service";
+import type {ClipboardOperation} from "./clipboard-service";
+import type {FileNodeResponse} from "@/dto/file-node-response";
+import type {JobService} from "../jobs-service";
 
 interface UploadItem {
     handle: HSFileSystemDirectoryHandle | HSFileSystemFileHandle;
@@ -83,14 +82,12 @@ export class FileActionService {
         const formData = new FormData();
         formData.append("parentId", "" + parentId);
         formData.append("file", file, file.name);
-        const response = await RequestBuilder.create(url)
+        return await RequestBuilder.create(url)
             .setMethod(HttpMethod.PUT)
             .enhance(this.userService)
-            .enhance(new UploadFileRequestEnhancer(parentId))
             .setBody(formData)
             .build<FileNodeResponse>()
             .execute();
-        return response;
     }
 
     private async uploadFileChunks(parentId: number, file: File): Promise<FileNodeResponse> {
@@ -129,13 +126,12 @@ export class FileActionService {
         formData.append("fileSize", file.size.toString());
         formData.append("totalChunks", totalChunks.toString());
         formData.append("fileHash", "-");
-        const response = await RequestBuilder.create(uploadLastUrl)
+        return await RequestBuilder.create(uploadLastUrl)
             .setMethod(HttpMethod.PUT)
             .enhance(this.userService)
             .setBody(formData)
             .build<FileNodeResponse>()
             .execute();
-        return response;
     }
 
     async *uploadFiles(parentId: number, files: File[]) {

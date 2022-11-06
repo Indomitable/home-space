@@ -32,7 +32,6 @@ try
         .AddSwagger()
         .AddFluentValidationAutoValidation()
         .AddServices()
-        .AddHomeSpaceCors(builder.Environment)
         .AddHomeSpaceDb()
         .AddHomeSpaceFiles()
         .AddHomeSpaceSecurity(configuration);
@@ -47,7 +46,6 @@ try
         app.UseStaticFiles();
         app.MapFallbackToFile("index.html");
     }
-    app.UseHomeSpaceCors(app.Environment);
     app.UseHttpsRedirection();
     app.UseRouting();
     app.UseAuthentication();

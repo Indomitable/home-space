@@ -44,6 +44,9 @@ public static class ServiceBuilder
                     ValidIssuer = jwtConfig.Issuer,
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKey = key,
+                    ValidateLifetime = true,
+                    IgnoreTrailingSlashWhenValidatingAudience = true,
+                    ClockSkew = TimeSpan.FromSeconds(5),
                 };
             });
     }

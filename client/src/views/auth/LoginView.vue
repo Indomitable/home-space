@@ -27,8 +27,8 @@ function navToRegister() {
 
 <template>
     <form class="login-dialog">
-        <input class="input" type="text" v-model="userName" autocomplete="username" />
-        <input class="input" type="password" v-model="password" autocomplete="current-password" />
+        <input class="input" type="text" v-model="userName" name="username" autocomplete="username" />
+        <input class="input" type="password" v-model="password" name="password" autocomplete="current-password" />
         <span v-if="!!loginError">{{ loginError }}</span>
         <div class="login-actions">
             <button class="button login-button" v-on:click="login(userName, password)" type="button">Login</button>

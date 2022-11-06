@@ -6,5 +6,6 @@ public sealed class JwtConfiguration
     public string Audience { get; set; } = string.Empty;
     public string Issuer { get; set; } = string.Empty;
 
-    public TimeSpan ExpireTime { get; set; } = TimeSpan.FromMinutes(5);
+    public TimeSpan AccessTokenExpireTime { get; set; } = TimeSpan.FromMinutes(5);
+    public TimeSpan RefreshTokenExpireTime { get; set; } = TimeSpan.FromMinutes(7);
 }

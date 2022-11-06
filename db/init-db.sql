@@ -32,6 +32,15 @@ create table authentication (
 	constraint fk_auth_type foreign key (auth_type_id) references authentication_type(id)
 );
 
+create table refresh_tokens
+(
+    token varchar not null,
+    user_id bigint not null,
+    valid_to timestamptz not null,
+    constraint pk_refresh_tokens primary key (token),
+    constraint fk_users foreign key (user_id) references users(id) on delete cascade
+);
+
 create table roles (
 	id serial,
 	name varchar(200) not null,

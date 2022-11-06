@@ -12,7 +12,7 @@ public static partial class ServiceBuilder
 {
     public static IServiceCollection AddServices(this IServiceCollection serviceCollection)
     {
-        serviceCollection.AddScoped<IContentTypeProvider>(sp => new FileExtensionContentTypeProvider());
+        serviceCollection.AddScoped<IContentTypeProvider>(_ => new FileExtensionContentTypeProvider());
         serviceCollection.AddScoped<IFilesManager, FilesManager>();
         serviceCollection.AddScoped<IVersionsManager, VersionsManager>();
         serviceCollection.AddScoped<IFavoritesManager, FavoritesManager>();
@@ -49,7 +49,8 @@ public static partial class ServiceBuilder
         serviceCollection.AddScoped<IValidator<CreateFolderRequest>, CreateFolderRequestValidator>();
         serviceCollection.AddScoped<IValidator<GetFilesRequest>, GetFilesRequestValidator>();
 
-        serviceCollection.AddScoped<IValidator<UploadFileRequest>, UploadFileRequestValidator>();
+        serviceCollection.AddScoped<IValidator<UploadFileChunkRequest>, UploadFileChunkRequestValidator>();
+        serviceCollection.AddScoped<IValidator<UploadLastFileChunkRequest>, UploadLastFileChunkRequestValidator>();
         
         serviceCollection.AddScoped<IValidator<CopyNodeRequest>, CopyNodeRequestValidator>();
         serviceCollection.AddScoped<IValidator<MoveNodeRequest>, MoveNodeRequestValidator>();

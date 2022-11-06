@@ -1,6 +1,7 @@
 // noinspection ES6MissingAwait
 
 import { MimeTypes } from "./mime-types";
+import { type UserContext, UserContextStorage } from "@/services/user/user-context";
 
 export interface ServerError extends Error {
     code: number;
@@ -15,11 +16,45 @@ export class FetchRequest<TResponse> {
 
     async execute(): Promise<TResponse> {
         const request = new Request(this.endpoint, this.requestInit);
-        const response = await fetch(request);
+        let response = await fetch(request);
+        response = await this.handleRefreshToken(this.endpoint, this.requestInit, response);
         if (response.ok) {
             return this.handleOkResponse(response);
         }
-        throw await this.readError(response);
+        throw await this.handleError(response);
+    }
+    
+    private async handleRefreshToken(originalUrl: string, originalInit: RequestInit, originalResponse: Response): Promise<Response> {
+        if (originalResponse.headers.has("X-REFRESH-TOKEN") || originalResponse.headers.has("X-EXPIRED-TOKEN")) {
+            // We need to refresh token.
+            const context = UserContextStorage.getContext();
+            if (!context) {
+                return originalResponse;
+            }
+            const renewRequest = new Request("/api/auth/renew", {
+                method: 'POST',
+                body: context.refresh_token
+            });
+            let refreshTokenResponse = await fetch(renewRequest);
+            if (refreshTokenResponse.ok) {
+                const body = await refreshTokenResponse.json();
+                const newContext: UserContext = {
+                    ...context,
+                    access_token: body.access_token,
+                    refresh_token: body.refresh_token
+                };
+                UserContextStorage.saveContext(newContext);
+
+                if (originalResponse.headers.has("X-EXPIRED-TOKEN")) {
+                    // if action has expired due to the expired token
+                    const retryRequest = new Request(originalUrl, originalInit);
+                    // Replace token.
+                    retryRequest.headers.set("Authorization", `Bearer ${newContext.access_token}`);
+                    return await fetch(retryRequest);
+                }
+            }
+        }
+        return originalResponse;
     }
 
     private async handleOkResponse(response: Response): Promise<TResponse> {
@@ -48,7 +83,10 @@ export class FetchRequest<TResponse> {
         }
     }
 
-    private async readError(response: Response): Promise<ServerError> {
+    private async handleError(response: Response): Promise<ServerError> {
+        if (response.status === 401) {
+            UserContextStorage.removeContext();
+        }
         if (FetchRequest.isContentType(response, MimeTypes.Json)) {
             const json = await response.json();
             return {

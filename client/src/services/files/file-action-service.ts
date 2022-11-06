@@ -56,13 +56,12 @@ export class FileActionService {
     async createFolder(parentId: number, folderName: string): Promise<FileNodeResponse> {
         const url = resolveApiUrl("files", "folder");
         try {
-            const folder = await RequestBuilder.create(url)
+            return await RequestBuilder.create(url)
                 .setMethod(HttpMethod.PUT)
                 .enhance(this.userService)
-                .setJsonBody({ parentId: parentId, name: folderName })
+                .setJsonBody({parentId: parentId, name: folderName})
                 .build<FileNodeResponse>("json")
                 .execute();
-            return folder;
         } catch (e: any) {
             if (e.type === "FolderWithSameNameExist") {
                 return e.fileNode;

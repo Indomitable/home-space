@@ -8,8 +8,9 @@ namespace HomeSpace.Security.Jwt;
 
 public interface IJwtService
 {
-    string GenerateToken(params Claim[] claims);
     IReadOnlyList<Claim> GetTokenClaims(string token);
+    string GenerateAccessToken(params Claim[] claims);
+    (string token, DateTime expires) GenerateRefreshToken();
 }
 
 internal sealed class JwtService : IJwtService
@@ -33,13 +34,25 @@ internal sealed class JwtService : IJwtService
         };
     }
 
-    public string GenerateToken(params Claim[] claims)
+    public string GenerateAccessToken(params Claim[] claims)
+    {
+        var expires = DateTime.UtcNow.Add(configuration.AccessTokenExpireTime);
+        return GenerateToken(expires, claims);
+    }
+    
+    public (string token, DateTime expires) GenerateRefreshToken()
+    {
+        var expires = DateTime.UtcNow.Add(configuration.RefreshTokenExpireTime);
+        return (GenerateToken(expires, Array.Empty<Claim>()), expires);
+    }
+
+    private string GenerateToken(DateTime expires, IEnumerable<Claim> claims)
     {
         var tokenClaims = new List<Claim>(claims);
         var securityTokenDescriptor = new SecurityTokenDescriptor
         {
             Subject = new ClaimsIdentity(tokenClaims),
-            Expires = DateTime.UtcNow.Add(configuration.ExpireTime),
+            Expires = expires,
             SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha512Signature),
             Issuer = configuration.Issuer,
             Audience = configuration.Audience

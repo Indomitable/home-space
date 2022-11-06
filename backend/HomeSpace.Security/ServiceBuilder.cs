@@ -13,7 +13,8 @@ namespace HomeSpace.Security;
 
 public static class ServiceBuilder
 {
-    public static IServiceCollection AddHomeSpaceSecurity(this IServiceCollection serviceCollection, IConfiguration configuration)
+    public static IServiceCollection AddHomeSpaceSecurity(this IServiceCollection serviceCollection,
+        IConfiguration configuration)
     {
         serviceCollection.AddConfiguration<AuthConfiguration>("Auth");
         serviceCollection.AddJwtAuthentication(configuration);
@@ -22,12 +23,13 @@ public static class ServiceBuilder
         serviceCollection.AddScoped<ICurrentUserProvider, CurrentUserProvider>();
         return serviceCollection;
     }
-    
+
     private static void AddJwtAuthentication(this IServiceCollection serviceCollection, IConfiguration configuration)
     {
-        serviceCollection.AddConfiguration<JwtConfiguration>("Security:Token");
-        serviceCollection.AddSingleton<IJwtService, JwtService>();
         var jwtConfig = configuration.GetSection("Security:Token").Get<JwtConfiguration>();
+        serviceCollection.AddSingleton(jwtConfig);
+        serviceCollection.AddSingleton<IJwtService, JwtService>();
+        
         serviceCollection.AddAuthentication(o =>
             {
                 o.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -47,6 +49,32 @@ public static class ServiceBuilder
                     ValidateLifetime = true,
                     IgnoreTrailingSlashWhenValidatingAudience = true,
                     ClockSkew = TimeSpan.FromSeconds(5),
+                };
+                // Get difference between refresh and access token expire time. 
+                var refreshTokenExpireDiff = jwtConfig.RefreshTokenExpireTime - jwtConfig.AccessTokenExpireTime;
+                o.Events = new JwtBearerEvents
+                {
+                    OnTokenValidated = context =>
+                    {
+                        var validTo = context.SecurityToken.ValidTo.ToUniversalTime();
+                        if (validTo - DateTime.UtcNow <= TimeSpan.FromMinutes(1))
+                        {
+                            context.HttpContext.Response.Headers.Add("X-REFRESH-TOKEN", "1");
+                        }
+                        return Task.CompletedTask;
+                    },
+                    OnAuthenticationFailed = context =>
+                    {
+                        if (context.Exception is SecurityTokenExpiredException expiredException)
+                        {
+                            if (expiredException.Expires < DateTime.UtcNow + refreshTokenExpireDiff)
+                            {
+                                // access token has expired and is still before refresh token expiration.
+                                context.HttpContext.Response.Headers.Add("X-EXPIRED-TOKEN", "1");
+                            }
+                        }
+                        return Task.CompletedTask;
+                    }
                 };
             });
     }

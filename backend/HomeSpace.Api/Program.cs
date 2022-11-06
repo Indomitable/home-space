@@ -1,5 +1,6 @@
 using FluentValidation.AspNetCore;
 using HomeSpace.Api;
+using HomeSpace.Api.Formatters;
 using HomeSpace.Database;
 using HomeSpace.Files;
 using HomeSpace.Infrastructure.Configuration;
@@ -21,7 +22,10 @@ try
         .UseSystemd();
     builder.Configuration.AddConfig(configuration);
     builder.Services
-        .AddControllers()
+        .AddControllers(o =>
+        {
+            o.InputFormatters.Add(new TextInputFormatter());
+        })
         .AddJsonOptions(options =>
         {
             JsonSerializer.Configure(options.JsonSerializerOptions);

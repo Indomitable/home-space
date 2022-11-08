@@ -104,5 +104,5 @@ internal sealed class PathsService : IPathsService
     }
 
     private string UserSystemDirectory(long userId) =>
-        Path.Join(UserDirectory(userId), SystemDir);
+        Path.Join(configuration.BaseLocation, SystemDir, userId.ToString(CultureInfo.InvariantCulture));
 }

@@ -53,7 +53,7 @@ internal partial class FilesManager
             return await GetFile(user.Id, ids[0], cancellationToken);
         }
 
-        var tempFile = pathsService.GetTemporaryFile(user.Id);
+        var tempFile = pathsService.GetDownloadsFile(user.Id);
         Stream? writeStream = null;
         try
         {

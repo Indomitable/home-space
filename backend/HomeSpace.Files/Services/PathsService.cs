@@ -9,12 +9,12 @@ public interface IPathsService
     string UserDirectory(long userId);
     string UserTrashDirectory(long userId);
     string UserVersionsDirectory(long userId);
-    string UserTempDirectory(long userId);
+    string UserDownloadsDirectory(long userId);
     string ResolveAbsolutePath(long userId, string relativePath);
     string ResolveRelativePath(long userId, string absolutePath);
 
     (string Absolute, string Relative) ResolvePaths(long userId, string parentPath, string name);
-    string GetTemporaryFile(long userId);
+    string GetDownloadsFile(long userId);
     string GetVersionsFile(long userId);
     string GetVersionsFile(long userId, string fileName);
     string GetTrashFile(long userId);
@@ -27,7 +27,7 @@ internal sealed class PathsService : IPathsService
     private const string SystemDir = ".system";
     private const string TrashDir = "trash";
     private const string VersionsDir = "versions";
-    private const string TempDir = "temp";
+    private const string DownloadsDir = "downloads";
     private const string UploadsDir = "uploads";
     
     private readonly FilesConfiguration configuration;
@@ -43,7 +43,7 @@ internal sealed class PathsService : IPathsService
         Directory.CreateDirectory(UserSystemDirectory(userId));
         Directory.CreateDirectory(UserTrashDirectory(userId));
         Directory.CreateDirectory(UserVersionsDirectory(userId));
-        Directory.CreateDirectory(UserTempDirectory(userId));
+        Directory.CreateDirectory(UserDownloadsDirectory(userId));
         Directory.CreateDirectory(UserUploadsDirectory(userId));
     }
 
@@ -56,8 +56,8 @@ internal sealed class PathsService : IPathsService
     public string UserVersionsDirectory(long userId) =>
         Path.Join(UserSystemDirectory(userId), VersionsDir);
     
-    public string UserTempDirectory(long userId) =>
-        Path.Join(UserSystemDirectory(userId), TempDir);
+    public string UserDownloadsDirectory(long userId) =>
+        Path.Join(UserSystemDirectory(userId), DownloadsDir);
     
     public string UserUploadsDirectory(long userId) =>
         Path.Join(UserSystemDirectory(userId), UploadsDir);
@@ -75,10 +75,10 @@ internal sealed class PathsService : IPathsService
         return (Path.Join(rootFolder, parentPath, name), Path.Join(parentPath, name));
     }
 
-    public string GetTemporaryFile(long userId)
+    public string GetDownloadsFile(long userId)
     {
         var fileName = Guid.NewGuid().ToString("N");
-        return Path.Join(UserTempDirectory(userId), fileName);
+        return Path.Join(UserDownloadsDirectory(userId), fileName);
     }
 
     public string GetVersionsFile(long userId)

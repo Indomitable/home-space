@@ -49,7 +49,7 @@ internal sealed class FilesService : IFilesService
 
     public Stream ZipFolder(long userId, string relativePath)
     {
-        var temporaryFile = pathsService.GetTemporaryFile(userId);
+        var temporaryFile = pathsService.GetDownloadsFile(userId);
         var absolutePath = pathsService.ResolveAbsolutePath(userId, relativePath);
         ZipFile.CreateFromDirectory(absolutePath, temporaryFile, CompressionLevel.Optimal, true);
         return fileSystem.OpenReadFile(temporaryFile);

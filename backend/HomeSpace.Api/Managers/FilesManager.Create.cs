@@ -67,13 +67,22 @@ internal partial class FilesManager
                 mimeType = contentType;
             }
         }
-        
-        await using var chunkStream = file.OpenReadStream();
-        await filesService.UploadFileChunk(user.Id, id, chunkStream, totalChunks - 1, cancellationToken);
-        var (fullFile, err) = await filesService.GetUploadFileChunks(user.Id, id, totalChunks, cancellationToken);
-        if (fullFile is null) {
-            logger.LogError(err);
-            return new UploadFileResult(UploadFileResultType.UploadError, null);
+
+        Stream fileStream;
+        if (fileSize > 0)
+        {
+            await using var chunkStream = file.OpenReadStream();
+            await filesService.UploadFileChunk(user.Id, id, chunkStream, totalChunks - 1, cancellationToken);
+            var (fullFile, err) = await filesService.GetUploadFileChunks(user.Id, id, totalChunks, cancellationToken);
+            if (fullFile is null) {
+                logger.LogError(err);
+                return new UploadFileResult(UploadFileResultType.UploadError, null);
+            }
+            fileStream = fullFile;
+        }
+        else
+        {
+            fileStream = new MemoryStream();
         }
         try {
             if (fileNode is not null)
@@ -82,14 +91,14 @@ internal partial class FilesManager
                 {
                     return new UploadFileResult(UploadFileResultType.FolderWithSameNameExist, null);
                 }
-                var updatedNode = await OverrideNode(fullFile, mimeType, fileNode, cancellationToken);
+                var updatedNode = await OverrideNode(fileStream, mimeType, fileNode, cancellationToken);
                 return new UploadFileResult(UploadFileResultType.Success, FileNodeResponse.Map(updatedNode));
             }
             var parentNode = await repository.GetNode(user.Id, parentId, cancellationToken);
-            var node = await CreateFile(fileName, fullFile, mimeType, parentNode, cancellationToken);
+            var node = await CreateFile(fileName, fileStream, mimeType, parentNode, cancellationToken);
             return new UploadFileResult(UploadFileResultType.Success, FileNodeResponse.Map(node));
         } finally {
-            await fullFile.DisposeAsync();
+            await fileStream.DisposeAsync();
         }
     }
     

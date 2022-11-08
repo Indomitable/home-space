@@ -14,7 +14,7 @@ public class UploadFileChunkRequestValidator: AbstractValidator<UploadFileChunkR
         RuleFor(r => r.Chunk)
             .GreaterThanOrEqualTo(0);
         RuleFor(r => r.TotalChunks)
-            .GreaterThan(0);
+            .GreaterThan(0); // If we upload chunk then should be more than zero
     }
 }
 
@@ -31,6 +31,6 @@ public class UploadLastFileChunkRequestValidator: AbstractValidator<UploadLastFi
         RuleFor(r => r.FileSize)
             .GreaterThanOrEqualTo(0); // Support zero sized files
         RuleFor(r => r.TotalChunks)
-            .GreaterThan(0);
+            .GreaterThanOrEqualTo(0); // Support zero sized files.
     }
 }

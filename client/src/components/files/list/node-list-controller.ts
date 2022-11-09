@@ -57,7 +57,9 @@ export class NodeListController {
     }
 
     async uploadFiles(files: File[]) {
-        await this.fileActionService.uploadFiles(this.parentId, files);
+        for await (const file of this.fileActionService.uploadFiles(this.parentId, files)) {
+            console.debug("Uploading file: {}", file.title);
+        }
     }
 
     async nodeTitleClicked(node: FileNode): Promise<void> {

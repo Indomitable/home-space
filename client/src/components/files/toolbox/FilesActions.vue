@@ -32,9 +32,7 @@ async function onUploadFiles() {
     for await (const file of files) {
         arr.push(file);
     }
-    for await (const response of fileActionService.uploadFiles(props.parentId, arr)) {
-        
-    }
+    await props.ctrl.uploadFiles(arr);
     await props.ctrl.refresh();
 }
 

@@ -3,6 +3,8 @@ using HomeSpace.Database.Repository;
 using HomeSpace.Files.Services;
 using HomeSpace.Infrastructure.Model;
 using HomeSpace.Security.Services;
+using HomeSpace.Services;
+using HomeSpace.Services.Factories;
 using Microsoft.AspNetCore.StaticFiles;
 
 namespace HomeSpace.Api.Managers;
@@ -33,6 +35,8 @@ internal sealed partial class FilesManager : IFilesManager
     private readonly IPathsService pathsService;
     private readonly IVersionsManager versionsManager;
     private readonly IContentTypeProvider contentTypeProvider;
+    private readonly IJobManager jobManager;
+    private readonly ICalcHashSumFactory calcHashSumFactory;
     private readonly ILogger<FilesManager> logger;
 
     public FilesManager(
@@ -42,6 +46,8 @@ internal sealed partial class FilesManager : IFilesManager
         IPathsService pathsService,
         IVersionsManager versionsManager,
         IContentTypeProvider contentTypeProvider,
+        IJobManager jobManager,
+        ICalcHashSumFactory calcHashSumFactory,
         ILogger<FilesManager> logger)
     {
         this.currentUserProvider = currentUserProvider;
@@ -50,6 +56,8 @@ internal sealed partial class FilesManager : IFilesManager
         this.pathsService = pathsService;
         this.versionsManager = versionsManager;
         this.contentTypeProvider = contentTypeProvider;
+        this.jobManager = jobManager;
+        this.calcHashSumFactory = calcHashSumFactory;
         this.logger = logger;
     }
 }

@@ -13,7 +13,8 @@ public record FileNode(
     string MimeType,
     DateTime ModifiedAt,
     long Size,
-    int Version
+    int Version,
+    byte[]? HashSum
 )
 {
     public static FileNode FromReader(NpgsqlDataReader reader)
@@ -28,7 +29,8 @@ public record FileNode(
             reader.GetFieldValue<string>(6),
             reader.GetFieldValue<DateTime>(7),
             reader.GetFieldValue<long>(8),
-            reader.GetFieldValue<int>(9)
+            reader.GetFieldValue<int>(9),
+            reader.IsDBNull(10) ? null : reader.GetFieldValue<byte[]>(10)
         );
     }
 }

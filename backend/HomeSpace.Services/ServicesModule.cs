@@ -1,4 +1,5 @@
 using Autofac;
+using HomeSpace.Services.Factories;
 using Microsoft.Extensions.Hosting;
 
 namespace HomeSpace.Services;
@@ -10,6 +11,10 @@ public class ServicesModule: Module
         builder.RegisterType<JobManager>()
             .As<IHostedService>()
             .As<IJobManager>()
+            .SingleInstance();
+
+        builder.RegisterType<CalcHashSumFactory>()
+            .As<ICalcHashSumFactory>()
             .SingleInstance();
     }
 }

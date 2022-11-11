@@ -9,6 +9,7 @@ public interface IJobManager
 
 class JobManager: IJobManager, IHostedService
 {
+    private static readonly object queueJobLock = new object();
     private readonly IEnumerable<IRepeatableJob> repeatableJobs;
     private readonly Dictionary<string, Task> runningTasks = new ();
     private readonly Dictionary<string, Queue<(IJob, CancellationToken)>> pendingJobs = new ();
@@ -47,21 +48,29 @@ class JobManager: IJobManager, IHostedService
     public void QueueJob(IJob job, CancellationToken cancellationToken)
     {
         var source = CancellationTokenSource.CreateLinkedTokenSource(serviceCancellationTokenSource.Token, cancellationToken);
-        if (runningTasks.TryGetValue(job.Name, out var runningJob))
+        InternalQueueJob(job, source.Token);
+    }
+
+    private void InternalQueueJob(IJob job, CancellationToken cancellationToken)
+    {
+        lock (queueJobLock)
         {
-            if (runningJob.IsCompleted)
+            if (runningTasks.TryGetValue(job.Name, out var runningJob))
             {
-                runningTasks.Remove(job.Name);
-                runningTasks.Add(job.Name, RunJob(job, source.Token));
+                if (runningJob.IsCompleted)
+                {
+                    runningTasks.Remove(job.Name);
+                    runningTasks.Add(job.Name, RunJob(job, cancellationToken));
+                }
+                else
+                {
+                    AddPendingJob(job, cancellationToken);
+                }
             }
             else
             {
-                AddPendingJob(job, source.Token);
+                runningTasks.Add(job.Name, RunJob(job, cancellationToken));
             }
-        }
-        else
-        {
-            runningTasks.Add(job.Name, RunJob(job, source.Token));
         }
     }
 
@@ -98,7 +107,7 @@ class JobManager: IJobManager, IHostedService
             {
                 if (!next.Item2.IsCancellationRequested)
                 {
-                    runningTasks.Add(job.Name, RunJob(next.Item1, next.Item2));
+                    InternalQueueJob(next.Item1, next.Item2);
                 }
             }
         }

@@ -3,6 +3,8 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="6.0.0" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\HomeSpace.Database\HomeSpace.Database.csproj" />
+    <ProjectReference Include="..\HomeSpace.Files\HomeSpace.Files.csproj" />
     <ProjectReference Include="..\HomeSpace.Infrastructure\HomeSpace.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

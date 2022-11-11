@@ -6,7 +6,7 @@ namespace HomeSpace.Database.Repository;
 public interface IVersionsRepository
 {
     IAsyncEnumerable<FileVersion> GetFileHistory(long userId, long id, SortDirection sortDirection, CancellationToken cancellationToken);
-    Task AddFileVersion(long userId, long id, int version, long size, string name);
+    Task AddFileVersion(long userId, long id, int version, long size, string name, byte[]? hashsum);
     Task CopyFileHistory(long sourceUserId, long sourceId, long destinationUserId, long destinationId, CancellationToken cancellationToken);
     Task DeleteFileHistory(long userId, long id, CancellationToken cancellationToken);
 }
@@ -31,17 +31,18 @@ order by node_version " + sortDirection.GetOrderByDirection();
             cancellationToken, DbParameter.Create(userId), DbParameter.Create(id));
     }
     
-    public Task AddFileVersion(long userId, long id, int version, long size, string name)
+    public Task AddFileVersion(long userId, long id, int version, long size, string name, byte[]? hashsum)
     {
-        const string sql = @"insert into file_versions (id, user_id, node_version, created_at, node_size, file_name) 
-values ($1, $2, $3, $4, $5, $6)";
+        const string sql = @"insert into file_versions (id, user_id, node_version, created_at, node_size, file_name, hashsum) 
+values ($1, $2, $3, $4, $5, $6, $7)";
         return dbAccess.ExecuteNonQuery(sql, CancellationToken.None,
             DbParameter.Create(id),
             DbParameter.Create(userId),
             DbParameter.Create(version),
             DbParameter.Create(DateTime.UtcNow),
             DbParameter.Create(size),
-            DbParameter.Create(name)
+            DbParameter.Create(name),
+            DbParameter.Create(hashsum)
         );
     }
 

@@ -37,11 +37,19 @@ internal partial class FilesManager
                 return new UploadFileResult(UploadFileResultType.FolderWithSameNameExist, null);
             }
             var updatedNode = await OverrideNode(fileStream, contentType, fileNode, cancellationToken);
+            QueueHashSumJob(user.Id, fileNode.Id);
             return new UploadFileResult(UploadFileResultType.Success, FileNodeResponse.Map(updatedNode));
         }
         var parentNode = await repository.GetNode(user.Id, parentId, cancellationToken);
         var node = await CreateFile(name, fileStream, contentType, parentNode, cancellationToken);
+        QueueHashSumJob(user.Id, node.Id);
         return new UploadFileResult(UploadFileResultType.Success, FileNodeResponse.Map(node));
+    }
+
+    private void QueueHashSumJob(long userId, long fileNodeId)
+    {
+        var calcHashSum = calcHashSumFactory.CreateCalcFileNodeHashSumJob(userId, fileNodeId);
+        jobManager.QueueJob(calcHashSum, CancellationToken.None);
     }
 
     public async Task<string> UploadFileChunk(string id, IFormFile file, int chunk, int totalChunks,
@@ -92,10 +100,12 @@ internal partial class FilesManager
                     return new UploadFileResult(UploadFileResultType.FolderWithSameNameExist, null);
                 }
                 var updatedNode = await OverrideNode(fileStream, mimeType, fileNode, cancellationToken);
+                QueueHashSumJob(user.Id, fileNode.Id);
                 return new UploadFileResult(UploadFileResultType.Success, FileNodeResponse.Map(updatedNode));
             }
             var parentNode = await repository.GetNode(user.Id, parentId, cancellationToken);
             var node = await CreateFile(fileName, fileStream, mimeType, parentNode, cancellationToken);
+            QueueHashSumJob(user.Id, node.Id);
             return new UploadFileResult(UploadFileResultType.Success, FileNodeResponse.Map(node));
         } finally {
             await fileStream.DisposeAsync();

@@ -66,6 +66,7 @@ create table file_nodes (
 	modified_at timestamptz not null,
 	node_size bigint not null,
 	node_version int not null,
+	hashsum bytea NULL,
 	constraint pk_file_nodes primary key (id, user_id),
 	constraint fk_file_nodes foreign key (parent_id, user_id) references file_nodes(id, user_id)
 );
@@ -80,6 +81,7 @@ create table file_versions (
 	created_at timestamptz not null,
 	node_size bigint not null,
 	file_name varchar not null,
+	hashsum bytea NULL;
 	constraint pk_file_versions primary key (id, user_id, node_version),
 	constraint fk_file_versions foreign key (id, user_id) references file_nodes(id, user_id)
 );

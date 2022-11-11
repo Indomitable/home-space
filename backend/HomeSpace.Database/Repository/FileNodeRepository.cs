@@ -34,6 +34,7 @@ public interface IFileNodeRepository
     Task Rename(FileNode source, FileNode destination, CancellationToken cancellationToken);
     Task DeleteNode(long userId, long id, CancellationToken cancellationToken);
     Task DeleteNodeRecursive(long userId, long id, CancellationToken cancellationToken);
+    Task UpdateNodeHashSum(long userId, long id, byte[] hashSum, CancellationToken cancellationToken);
 }
 
 internal sealed class FileNodeRepository : IFileNodeRepository
@@ -51,8 +52,8 @@ internal sealed class FileNodeRepository : IFileNodeRepository
             $"create sequence file_nodes_user_{userId} as bigint increment by 1 minvalue 1 NO MAXVALUE no cycle owned by file_nodes.id";
 
         const string insertSql = @"insert into file_nodes 
-            (id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size, node_version)
-            values (0, $1, 'ROOT', null, 0, '/', 'inode/directory', $2, 0, 1)";
+            (id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size, node_version, hashsum)
+            values (0, $1, 'ROOT', null, 0, '/', 'inode/directory', $2, 0, 1, null)";
 
         await access.ExecuteNonQuery(sequenceSql, CancellationToken.None);
         await access.ExecuteNonQuery(insertSql,
@@ -73,8 +74,8 @@ internal sealed class FileNodeRepository : IFileNodeRepository
             DbParameter.Create(parentId));
         var sql =
             $@"
-select f.id, f.user_id, f.title, f.parent_id, f.node_type, f.filesystem_path, f.mime_type, f.modified_at, f.node_size, f.node_version, f.is_favorite from (
-select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_path, fn.mime_type, fn.modified_at, fn.node_size, fn.node_version,
+select f.id, f.user_id, f.title, f.parent_id, f.node_type, f.filesystem_path, f.mime_type, f.modified_at, f.node_size, f.node_version, f.hashsum , f.is_favorite from (
+select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_path, fn.mime_type, fn.modified_at, fn.node_size, fn.node_version, fn.hashsum,
         case 
             when ffn.id is null then false
             else true
@@ -87,7 +88,7 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
         var pageData = new List<(FileNode, bool)>(pageSize);
         var offset = (page - 1) * pageSize;
         await foreach (var (node, isFavorite) in access.Query(sql,
-                           reader => (FileNode.FromReader(reader), reader.GetFieldValue<bool>(10)),
+                           reader => (FileNode.FromReader(reader), reader.GetFieldValue<bool>(11)),
                            cancellationToken,
                            DbParameter.Create(userId),
                            DbParameter.Create(parentId),
@@ -109,7 +110,7 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
             select n.*, lvl-1 as lev from file_nodes n
             INNER JOIN query p ON p.parent_id = n.id and p.user_id = n.user_id
         )
-        select id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size, node_version from query
+        select id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size, node_version, hashsum from query
         order by lvl";
         return access.Query(sql, FileNode.FromReader, cancellationToken, DbParameter.Create(userId),
             DbParameter.Create(id));
@@ -118,7 +119,7 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
     public IAsyncEnumerable<FileNode> GetChildNodes(long userId, long parentId, CancellationToken cancellationToken)
     {
         const string sql =
-            @"select f.id, f.user_id, f.title, f.parent_id, f.node_type, f.filesystem_path, f.mime_type, f.modified_at, f.node_size, f.node_version
+            @"select f.id, f.user_id, f.title, f.parent_id, f.node_type, f.filesystem_path, f.mime_type, f.modified_at, f.node_size, f.node_version, f.hashsum
     from file_nodes f
     where f.user_id = $1 and f.parent_id = $2";
         return access.Query(sql, FileNode.FromReader, cancellationToken,
@@ -129,7 +130,7 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
     public Task<FileNode> GetNode(long userId, long id, CancellationToken cancellationToken)
     {
         const string sql =
-            @"select f.id, f.user_id, f.title, f.parent_id, f.node_type, f.filesystem_path, f.mime_type, f.modified_at, f.node_size, f.node_version
+            @"select f.id, f.user_id, f.title, f.parent_id, f.node_type, f.filesystem_path, f.mime_type, f.modified_at, f.node_size, f.node_version, f.hashsum
     from file_nodes f
     where f.user_id = $1 and f.id = $2";
         return access.QueryOne(sql, FileNode.FromReader,
@@ -141,7 +142,7 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
     public Task<FileNode?> GetNode(long userId, long parentId, string name, CancellationToken cancellationToken)
     {
         const string sql =
-            @"select f.id, f.user_id, f.title, f.parent_id, f.node_type, f.filesystem_path, f.mime_type, f.modified_at, f.node_size, f.node_version
+            @"select f.id, f.user_id, f.title, f.parent_id, f.node_type, f.filesystem_path, f.mime_type, f.modified_at, f.node_size, f.node_version, f.hashsum
     from file_nodes f
     where f.user_id = $1 and f.parent_id = $2 and f.title = $3";
         return access.QueryOptional(sql, FileNode.FromReader,
@@ -155,8 +156,8 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
     public async Task<FileNode> CreateNode(long userId, long parentId, string name, NodeType nodeType, string path, string mimeType, long size)
     {
         var sql =
-            $@"insert into file_nodes (id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size, node_version)
-        values ({NextValSql(userId)}, $1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id";
+            $@"insert into file_nodes (id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size, node_version, hashsum)
+        values ({NextValSql(userId)}, $1, $2, $3, $4, $5, $6, $7, $8, $9, null) RETURNING id";
         var createTime = DateTime.UtcNow;
         var id = await access.ExecuteScalar<long>(sql,
             CancellationToken.None,
@@ -170,7 +171,7 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
             DbParameter.Create(size),
             DbParameter.Create(1)
         );
-        return new FileNode(id, userId, name, parentId, nodeType, path, mimeType, createTime, size, 1);
+        return new FileNode(id, userId, name, parentId, nodeType, path, mimeType, createTime, size, 1, null);
     }
 
     public Task UpdateNode(long userId, long id, long size, int version, string mimeType)
@@ -213,8 +214,7 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
                 UNION ALL
                 select n1.*, lvl + 1 as lvl from file_nodes n1
                 INNER JOIN query p ON p.id = n1.parent_id and p.user_id = n1.user_id
-            )
-            
+            )            
     update file_nodes fn
     set filesystem_path = $3 || substring(q.filesystem_path, $4)
     from query q
@@ -233,7 +233,7 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
 
     public Task DeleteNode(long userId, long id, CancellationToken cancellationToken)
     {
-        const string sql = "delete file_nodes where user_id = $1 and id = $2";
+        const string sql = "delete from file_nodes where user_id = $1 and id = $2";
         return access.ExecuteNonQuery(sql, CancellationToken.None,
             DbParameter.Create(userId),
             DbParameter.Create(id)
@@ -254,6 +254,15 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
         return access.ExecuteNonQuery(sql, CancellationToken.None,
             DbParameter.Create(userId),
             DbParameter.Create(id));
+    }
+
+    public async Task UpdateNodeHashSum(long userId, long id, byte[] hashSum, CancellationToken cancellationToken)
+    {
+        const string sql = "update file_nodes set hashsum = $3 where user_id = $1 and id = $2";
+        await access.ExecuteNonQuery(sql, cancellationToken, 
+            DbParameter.Create(userId),
+            DbParameter.Create(id),
+            DbParameter.Create(hashSum));
     }
 
     private string NextValSql(long userId)

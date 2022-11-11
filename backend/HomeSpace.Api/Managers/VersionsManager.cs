@@ -38,7 +38,7 @@ internal sealed class VersionsManager : IVersionsManager
         }
 
         var versionPath = await service.VersionFile(node.UserId, node.FileSystemPath, cancellationToken);
-        await repository.AddFileVersion(node.UserId, node.Id, node.Version, node.Size, versionPath);        
+        await repository.AddFileVersion(node.UserId, node.Id, node.Version, node.Size, versionPath, node.HashSum);        
         return VersionNodeResult.Success;
     }
 

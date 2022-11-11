@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { inject, ref } from "vue";
+import { inject, ref, onErrorCaptured } from "vue";
 
 import { userServiceInjectionToken } from "@/services/user/user-service";
 import TopHeader from "@/components/header/TopHeader.vue";
 import LeftNavigation from "@/components/navigation/LeftNavigation.vue";
 import JobsNotification from "@/components/jobs/JobsNotification.vue";
+import {useRouter} from "vue-router";
+import {NotAuthorizedError} from "@/errors/not-authorized-error";
 
 const userService = inject(userServiceInjectionToken)!;
 const loggedUser = userService.getLoggedUser();
@@ -14,6 +16,14 @@ const leftNavVisible = ref(false);
 function toggleLeftNavigation(value: boolean) {
     leftNavVisible.value = value;
 }
+
+const router = useRouter();
+onErrorCaptured((error) => {
+    if (error instanceof NotAuthorizedError) {
+        router.push({ name: 'login' });
+    }
+})
+
 </script>
 
 <template>

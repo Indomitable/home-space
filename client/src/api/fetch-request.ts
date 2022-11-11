@@ -2,6 +2,7 @@
 
 import { MimeTypes } from "./mime-types";
 import { type UserContext, UserContextStorage } from "@/services/user/user-context";
+import {NotAuthorizedError} from "@/errors/not-authorized-error";
 
 export interface ServerError extends Error {
     code: number;
@@ -52,6 +53,8 @@ export class FetchRequest<TResponse> {
                     retryRequest.headers.set("Authorization", `Bearer ${newContext.access_token}`);
                     return await fetch(retryRequest);
                 }
+            } else {
+                throw new NotAuthorizedError('Not Authorized. Token expired.');
             }
         }
         return originalResponse;

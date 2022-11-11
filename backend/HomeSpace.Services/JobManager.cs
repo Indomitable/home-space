@@ -2,12 +2,12 @@
 
 namespace HomeSpace.Services;
 
-public interface IJobManager: IHostedService
+public interface IJobManager
 {
     void QueueJob(IJob job, CancellationToken cancellationToken);
 } 
 
-class JobManager: IJobManager
+class JobManager: IJobManager, IHostedService
 {
     private readonly IEnumerable<IRepeatableJob> repeatableJobs;
     private readonly Dictionary<string, Task> runningTasks = new ();

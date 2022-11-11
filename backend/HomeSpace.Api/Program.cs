@@ -1,3 +1,5 @@
+using Autofac;
+using Autofac.Extensions.DependencyInjection;
 using FluentValidation.AspNetCore;
 using HomeSpace.Api;
 using HomeSpace.Api.Formatters;
@@ -7,6 +9,7 @@ using HomeSpace.Infrastructure.Configuration;
 using HomeSpace.Infrastructure.Json;
 using HomeSpace.Infrastructure.Logging;
 using HomeSpace.Security;
+using HomeSpace.Services;
 using Serilog;
 
 var configuration = ConfigurationFactory.Create();
@@ -18,9 +21,18 @@ try
 {
     var builder = WebApplication.CreateBuilder(args);
     builder.Host
+        .UseServiceProviderFactory(new AutofacServiceProviderFactory())
         .UseSerilog(Log.Logger)
         .UseSystemd();
     builder.Configuration.AddConfig(configuration);
+    builder.Host.ConfigureContainer<ContainerBuilder>((_, container) =>
+    {
+        container.RegisterModule<ServicesModule>();
+        container.RegisterModule<SecurityModule>();
+        container.RegisterModule<FilesModule>();
+        container.RegisterModule<DatabaseModule>();
+        container.RegisterModule<ApiModule>();
+    });
     builder.Services
         .AddControllers(o =>
         {
@@ -30,15 +42,13 @@ try
         {
             JsonSerializer.Configure(options.JsonSerializerOptions);
         });
+    
     builder.Services
         .AddEndpointsApiExplorer()
         .AddHttpContextAccessor()
         .AddSwagger()
         .AddFluentValidationAutoValidation()
-        .AddServices()
-        .AddHomeSpaceDb()
-        .AddHomeSpaceFiles()
-        .AddHomeSpaceSecurity(configuration);
+        .AddJwtAuthentication(configuration);
 
     var app = builder.Build();
     app.EnableSwagger(configuration);

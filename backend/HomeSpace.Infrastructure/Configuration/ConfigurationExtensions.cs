@@ -1,5 +1,5 @@
+using Autofac;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace HomeSpace.Infrastructure.Configuration;
@@ -14,20 +14,20 @@ public static class ConfigurationExtensions
         return configurationBuilder;
     }
     
-    public static void AddConfiguration<T>(this IServiceCollection services, string key)
+    public static void AddConfiguration<T>(this ContainerBuilder builder, string key)
         where T : class
     {
-        services.AddSingleton<T>(p =>
+        builder.Register<T>(p =>
         {
-            var configuration = p.GetRequiredService<IConfiguration>();
+            var configuration = p.Resolve<IConfiguration>();
             var options = configuration.GetSection(key).Get<T>();
             if (options is null)
             {
-                var logger = p.GetRequiredService<ILogger<T>>();
+                var logger = p.Resolve<ILogger<T>>();
                 logger.LogError("Configuration {key} can not be mapped. Check service config!", key);
                 throw new Exception($"Wrong configuration: {key}");
             }
             return options;
-        });
+        }).SingleInstance();
     }
 }

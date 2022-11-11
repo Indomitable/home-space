@@ -1,9 +1,6 @@
 using System.Text;
-using HomeSpace.Infrastructure.Configuration;
 using HomeSpace.Security.Configuration;
 using HomeSpace.Security.Jwt;
-using HomeSpace.Security.Password;
-using HomeSpace.Security.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,18 +10,7 @@ namespace HomeSpace.Security;
 
 public static class ServiceBuilder
 {
-    public static IServiceCollection AddHomeSpaceSecurity(this IServiceCollection serviceCollection,
-        IConfiguration configuration)
-    {
-        serviceCollection.AddConfiguration<AuthConfiguration>("Auth");
-        serviceCollection.AddJwtAuthentication(configuration);
-        serviceCollection.AddPasswordHashing();
-        serviceCollection.AddSingleton<IAuthenticationService, AuthenticationService>();
-        serviceCollection.AddScoped<ICurrentUserProvider, CurrentUserProvider>();
-        return serviceCollection;
-    }
-
-    private static void AddJwtAuthentication(this IServiceCollection serviceCollection, IConfiguration configuration)
+    public static void AddJwtAuthentication(this IServiceCollection serviceCollection, IConfiguration configuration)
     {
         var jwtConfig = configuration.GetSection("Security:Token").Get<JwtConfiguration>();
         serviceCollection.AddSingleton(jwtConfig);
@@ -77,11 +63,5 @@ public static class ServiceBuilder
                     }
                 };
             });
-    }
-
-    private static void AddPasswordHashing(this IServiceCollection serviceCollection)
-    {
-        serviceCollection.AddConfiguration<PasswordConfiguration>("Security:Password");
-        serviceCollection.AddSingleton<IPasswordHasher, PasswordHasher>();
     }
 }

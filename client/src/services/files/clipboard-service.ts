@@ -18,20 +18,15 @@ class ClipboardService {
     private state: ClipboardState;
     public hasItems: ComputedRef<boolean>;
 
-    constructor(private fileActionsService: FileActionService) {
-        this.state = reactive({
-            operation: ClipboardOperation.Copy,
-            parentId: 0,
-            items: [],
-            itemsIndex: {},
-        });
+    constructor(private fileActionsService: FileActionService) {        
+        this.state = reactive(this.loadInitialState());
         this.hasItems = computed(() => {
             return Object.keys(this.state.items).length > 0;
         });
     }
 
     /*
-     * Add nodes from one parent to the clipbard.
+     * Add nodes from one parent to the clipboard.
      */
     public addToClipboard(parentId: number, items: FileNode[], operation: ClipboardOperation): boolean {
         if (this.hasItems.value) {
@@ -39,11 +34,13 @@ class ClipboardService {
         }
         this.state.parentId = parentId;
         this.state.items = items;
-        this.state.itemsIndex = items.reduce((aggr, node) => {
+        const itemsIndex = items.reduce((aggr, node) => {
             aggr[node.id] = node;
             return aggr;
         }, {} as { [id: number]: FileNode });
+        this.state.itemsIndex = itemsIndex;
         this.state.operation = operation;
+        this.saveState(parentId, items, itemsIndex, operation);
         return true;
     }
 
@@ -56,6 +53,7 @@ class ClipboardService {
         this.state.items = [];
         this.state.itemsIndex = {};
         this.state.parentId = 0;
+        delete localStorage["clipboard"];
     }
 
     public get parentId(): number {
@@ -72,6 +70,25 @@ class ClipboardService {
 
     public get operation(): ClipboardOperation {
         return this.state.operation;
+    }
+    
+    private saveState(parentId: number, items: FileNode[], itemsIndex: { [p: number]: FileNode }, operation: ClipboardOperation) {
+        localStorage["clipboard"] = JSON.stringify({
+            parentId,
+            items,
+            itemsIndex,
+            operation
+        } as ClipboardState);
+    }
+    
+    private loadInitialState(): ClipboardState {
+        const clipboard = localStorage["clipboard"];
+        return  clipboard && JSON.parse(clipboard) || {
+            operation: ClipboardOperation.Copy,
+            parentId: 0,
+            items: [],
+            itemsIndex: {},
+        };
     }
 }
 

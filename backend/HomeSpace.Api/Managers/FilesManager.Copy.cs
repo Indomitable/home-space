@@ -59,13 +59,14 @@ internal partial class FilesManager
         };
         if (copyResult.Type == CopyNodeResultType.Success)
         {
-            var deleteResult = sourceNode.NodeType switch
+            var deleteTask = sourceNode.NodeType switch
             {
                 NodeType.Folder => PermanentDeleteFolder(sourceNode, cancellationToken),
                 NodeType.File => PermanentDeleteFile(sourceNode, cancellationToken),
                 _ => throw new ArgumentOutOfRangeException()
             };
-            
+            await deleteTask;
+            return new MoveNodeResult(copyResult.Type, true, null);
         }
         return new MoveNodeResult(copyResult.Type, false, null);
     }

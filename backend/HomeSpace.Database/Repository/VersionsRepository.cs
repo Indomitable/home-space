@@ -64,10 +64,10 @@ where fn.user_id = $1 and fn.id = $2";
 
     public Task DeleteFileHistory(long userId, long id, CancellationToken cancellationToken)
     {
-        const string sql = @"delete file_versions where user_id = $1 and fv.id = $2";
+        const string sql = @"delete from file_versions where user_id = $1 and id = $2";
         return dbAccess.ExecuteNonQuery(sql, cancellationToken,
-            DbParameter.Create(id),
-            DbParameter.Create(userId)
+            DbParameter.Create(userId),
+            DbParameter.Create(id)
         );
     }
 }

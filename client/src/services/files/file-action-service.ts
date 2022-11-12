@@ -6,12 +6,12 @@ import {HttpMethod, RequestBuilder} from "@/api/request-builder";
 import {resolveApiUrl} from "@/api/url-resolver";
 import {type FileNode, NodeType} from "@/models/file-node";
 import type {Sorting} from "@/models/sorting";
+import type {FileNodeResponse} from "@/dto/file-node-response";
 
 import type {UserService} from "../user/user-service";
 import type {FileSystemService} from "./file-system-service";
 import type {FileLoadService} from "./files-load-service";
-import type {ClipboardOperation} from "./clipboard-service";
-import type {FileNodeResponse} from "@/dto/file-node-response";
+import { ClipboardOperation } from "./clipboard-service";
 import type {JobService} from "../jobs-service";
 
 interface UploadItem {
@@ -224,13 +224,14 @@ export class FileActionService {
     }
 
     async pasteNodes(nodes: FileNode[], operation: ClipboardOperation, destination: number): Promise<void> {
-        const url = resolveApiUrl("files", "paste", destination);
+        const action = operation == ClipboardOperation.Cut ? "move" : "copy";
+        const url = resolveApiUrl("files", action);
         await RequestBuilder.create(url)
             .setMethod(HttpMethod.POST)
             .enhance(this.userService)
             .setJsonBody({
                 nodes: nodes.map(n => n.id),
-                operation,
+                parentId: destination
             })
             .build("")
             .execute();

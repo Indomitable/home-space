@@ -16,8 +16,8 @@ internal partial class FilesManager
     
     private async Task PermanentDeleteFolder(FileNode target, CancellationToken cancellationToken)
     {
+        // TODO: Delete versions too.
         await repository.DeleteNodeRecursive(target.UserId, target.Id, cancellationToken);
         await filesService.DeleteFolder(target.UserId, target.FileSystemPath, cancellationToken);
     }
-    
 }

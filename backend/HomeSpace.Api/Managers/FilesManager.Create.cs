@@ -23,29 +23,6 @@ internal partial class FilesManager
         return new CreateFolderResult(CreateFolderResultType.Success, FileNodeResponse.Map(node));
     }
 
-    public async Task<UploadFileResult> UploadFile(long parentId, IFormFile file, CancellationToken cancellationToken)
-    {
-        var user = currentUserProvider.RequireAuthorizedUser();
-        var name = file.FileName;
-        var contentType = file.ContentType;
-        var fileNode = await repository.GetNode(user.Id, parentId, name, cancellationToken);
-        await using var fileStream = file.OpenReadStream();
-        if (fileNode is not null)
-        {
-            if (fileNode.NodeType == NodeType.Folder)
-            {
-                return new UploadFileResult(UploadFileResultType.FolderWithSameNameExist, null);
-            }
-            var updatedNode = await OverrideNode(fileStream, contentType, fileNode, cancellationToken);
-            QueueHashSumJob(user.Id, fileNode.Id);
-            return new UploadFileResult(UploadFileResultType.Success, FileNodeResponse.Map(updatedNode));
-        }
-        var parentNode = await repository.GetNode(user.Id, parentId, cancellationToken);
-        var node = await CreateFile(name, fileStream, contentType, parentNode, cancellationToken);
-        QueueHashSumJob(user.Id, node.Id);
-        return new UploadFileResult(UploadFileResultType.Success, FileNodeResponse.Map(node));
-    }
-
     private void QueueHashSumJob(long userId, long fileNodeId)
     {
         var calcHashSum = calcHashSumFactory.CreateCalcFileNodeHashSumJob(userId, fileNodeId);

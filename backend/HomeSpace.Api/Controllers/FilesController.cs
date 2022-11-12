@@ -60,21 +60,6 @@ public class FilesController
     [RequestFormLimits(KeyLengthLimit = int.MaxValue, ValueLengthLimit = int.MaxValue, MultipartBodyLengthLimit = int.MaxValue)]
     [RequestSizeLimit(int.MaxValue)]
     [HttpPut]
-    [Route("file")]
-    public async Task<IActionResult> UploadFile([FromForm] UploadFileRequest request, CancellationToken cancellationToken)
-    {
-        var result = await manager.UploadFile(request.ParentId, request.File, cancellationToken);
-        return result.Type switch
-        {
-            UploadFileResultType.FolderWithSameNameExist => new ConflictObjectResult(result.Type),
-            UploadFileResultType.Success => new OkObjectResult(result.FileNode),
-            _ => throw new ArgumentOutOfRangeException()
-        };
-    }
-    
-    [RequestFormLimits(KeyLengthLimit = int.MaxValue, ValueLengthLimit = int.MaxValue, MultipartBodyLengthLimit = int.MaxValue)]
-    [RequestSizeLimit(int.MaxValue)]
-    [HttpPut]
     [Route("upload")]
     public async Task<IActionResult> UploadFileChunk([FromForm] UploadFileChunkRequest request, CancellationToken cancellationToken)
     {

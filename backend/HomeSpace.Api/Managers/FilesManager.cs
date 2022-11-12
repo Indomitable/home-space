@@ -17,7 +17,7 @@ public interface IFilesManager
     IAsyncEnumerable<FileNodeResponse> GetParents(long id, CancellationToken cancellationToken);
     Task<GetFileResult> GetFiles(long[] id, CancellationToken cancellationToken);
     Task<CreateFolderResult> CreateFolder(long parentId, string name);
-    Task<UploadFileResult> UploadFile(long parentId, IFormFile file, CancellationToken cancellationToken);
+    
     Task<IReadOnlyList<CopyNodeResult>> CopyNodes(IReadOnlyCollection<long> sourceIds, long destinationParentId, CancellationToken cancellationToken);
     Task<IReadOnlyList<MoveNodeResult>> MoveNodes(IReadOnlyCollection<long> sourceIds, long destinationParentId, CancellationToken cancellationToken);
     Task<RenameNodeResult> RenameNode(long id, string name, CancellationToken cancellationToken);

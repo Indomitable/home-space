@@ -6,7 +6,7 @@ namespace HomeSpace.Database.Repository;
 public interface IVersionsRepository
 {
     IAsyncEnumerable<FileVersion> GetFileHistory(long userId, long id, SortDirection sortDirection, CancellationToken cancellationToken);
-    Task AddFileVersion(long userId, long id, int version, long size, string name, byte[]? hashsum);
+    Task AddFileVersion(long userId, long id, string name);
     Task CopyFileHistory(long sourceUserId, long sourceId, long destinationUserId, long destinationId, CancellationToken cancellationToken);
     Task DeleteFileHistory(long userId, long id, CancellationToken cancellationToken);
 }
@@ -31,18 +31,20 @@ order by node_version " + sortDirection.GetOrderByDirection();
             cancellationToken, DbParameter.Create(userId), DbParameter.Create(id));
     }
     
-    public Task AddFileVersion(long userId, long id, int version, long size, string name, byte[]? hashsum)
+    public Task AddFileVersion(long userId, long id, string name)
     {
-        const string sql = @"insert into file_versions (id, user_id, node_version, created_at, node_size, file_name, hashsum) 
-values ($1, $2, $3, $4, $5, $6, $7)";
+        const string sql =
+            @"insert into file_versions (id, user_id, node_version, created_at, node_size, file_name, hashsum) 
+select fn.id, fn.user_id, 
+       coalesce((select max(fv.node_version) + 1 from file_versions fv where fv.user_id = fn.user_id and fv.id = fn.id), 1) as node_version, 
+       $3 as created_at, fn.node_size, $4 as file_name, fn.hashsum
+from file_nodes fn 
+where fn.user_id = $1 and fn.id = $2";
         return dbAccess.ExecuteNonQuery(sql, CancellationToken.None,
-            DbParameter.Create(id),
             DbParameter.Create(userId),
-            DbParameter.Create(version),
+            DbParameter.Create(id),
             DbParameter.Create(DateTime.UtcNow),
-            DbParameter.Create(size),
-            DbParameter.Create(name),
-            DbParameter.Create(hashsum)
+            DbParameter.Create(name)
         );
     }
 

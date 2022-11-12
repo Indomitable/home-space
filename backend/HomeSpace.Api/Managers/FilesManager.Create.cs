@@ -116,7 +116,7 @@ internal partial class FilesManager
     {
         await versionsManager.VersionNode(destination, cancellationToken);
         var size = await filesService.CreateFile(destination.UserId, destination.FileSystemPath, content, cancellationToken);
-        await repository.UpdateNode(destination.UserId, destination.Id, size, destination.Version + 1, contentType);
+        await repository.UpdateNode(destination.UserId, destination.Id, size, contentType);
         return destination with
         {
             Version = destination.Version + 1,

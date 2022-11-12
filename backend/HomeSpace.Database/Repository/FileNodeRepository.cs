@@ -13,20 +13,16 @@ public interface IFileNodeRepository
     /// <summary>
     /// Get node by id
     /// </summary>
-    /// <param name="userId">User Id</param>
-    /// <param name="id">Node id</param>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
     Task<FileNode> GetNode(long userId, long id, CancellationToken cancellationToken);
     /// <summary>
     /// Get node by name
     /// </summary>
-    /// <param name="userId">User id</param>
-    /// <param name="parentId">Parent node id</param>
-    /// <param name="name">Node name</param>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
     Task<FileNode?> GetNode(long userId, long parentId, string name, CancellationToken cancellationToken);
+    
+    /// <summary>
+    /// Get Node by path
+    /// </summary>
+    Task<FileNode?> GetNode(long userId, string path, CancellationToken cancellationToken);
     Task<FileNode> CreateNode(long userId, long parentId, string name, NodeType nodeType, string path, string mimeType, long size);
     Task UpdateNode(long userId, long id, long size, string mimeType);
     IAsyncEnumerable<FileNode> GetParentNodes(long userId, long id, CancellationToken cancellationToken);
@@ -166,6 +162,22 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
             DbParameter.Create(userId),
             DbParameter.Create(parentId),
             DbParameter.Create(name)
+        );
+    }
+
+    public Task<FileNode?> GetNode(long userId, string path, CancellationToken cancellationToken)
+    {
+        const string sql =
+            @"select f.id, f.user_id, f.title, f.parent_id, f.node_type, f.filesystem_path, 
+       f.mime_type, f.modified_at, f.node_size, max(coalesce(fv.node_version, 0)) + 1 as node_version, f.hashsum
+    from file_nodes f
+    left join file_versions fv on f.user_id = fv.user_id and f.id = fv.id
+    where f.user_id = $1 and f.filesystem_path = $2
+    group by f.user_id, f.id";
+        return access.QueryOptional(sql, FileNode.FromReader,
+            cancellationToken,
+            DbParameter.Create(userId),
+            DbParameter.Create(path)
         );
     }
     

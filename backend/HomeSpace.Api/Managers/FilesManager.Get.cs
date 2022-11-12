@@ -16,6 +16,20 @@ internal partial class FilesManager
         var files = await repository.GetNodes(user.Id, parentId, page, pageSize, sortField, sortDirection, cancellationToken);
         return files.Map(fn => DisplayFileNode.Map(fn.FileNode, fn.IsFavorite));
     }
+    
+    public async Task<FileNodeResponse> GetNodeById(long id, CancellationToken cancellationToken)
+    {
+        var user = currentUserProvider.RequireAuthorizedUser();
+        var node = await repository.GetNode(user.Id, id, cancellationToken);
+        return FileNodeResponse.Map(node);
+    }
+
+    public async Task<FileNodeResponse?> GetNodeByPath(string path, CancellationToken cancellationToken)
+    {
+        var user = currentUserProvider.RequireAuthorizedUser();
+        var node = await repository.GetNode(user.Id, path, cancellationToken);
+        return node is null ? null : FileNodeResponse.Map(node);
+    }
 
     private string ResolveSortColumn(FileNodeSort sort)
     {

@@ -16,7 +16,11 @@ public interface IFilesManager
     /// </summary>
     Task<PagedResult<DisplayFileNode>> GetNodes(long parentId, int page, int pageSize, FileNodeSort sortColumn,
         SortDirection sortDirection, CancellationToken cancellationToken);
+
+    Task<FileNodeResponse> GetNodeById(long id, CancellationToken cancellationToken);
     
+    Task<FileNodeResponse?> GetNodeByPath(string path, CancellationToken cancellationToken);
+
     /// <summary>
     /// Return files or folders content. When multiple ids or ids point to a folder then zip file is returned. 
     /// </summary>

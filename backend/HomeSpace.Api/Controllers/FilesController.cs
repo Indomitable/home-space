@@ -1,3 +1,4 @@
+using HomeSpace.Api.ActionFilters;
 using HomeSpace.Api.Managers;
 using HomeSpace.Api.Model.Files;
 using Microsoft.AspNetCore.Authorization;
@@ -22,6 +23,36 @@ public class FilesController
     public async Task<IActionResult> GetFiles([FromQuery] GetFilesRequest request, CancellationToken cancellationToken)
     {
         var result = await manager.GetNodes(request.ParentId, request.Page, request.PageSize, request.SortColumn, request.SortDirection, cancellationToken);
+        return new OkObjectResult(result);
+    }
+    
+    [HttpGet]
+    [QueryActionConstraint("id")]
+    [Route("node")]
+    public async Task<IActionResult> GetNodeById([FromQuery] long id, CancellationToken cancellationToken)
+    {
+        // We assume that the id should be always valid but since this is a public endpoint it can be invalid and to throw exception
+        try
+        {
+            var result = await manager.GetNodeById(id, cancellationToken);
+            return new OkObjectResult(result);
+        }
+        catch
+        {
+            return new NotFoundResult();
+        }
+    }
+    
+    [HttpGet]
+    [QueryActionConstraint("path")]
+    [Route("node")]
+    public async Task<IActionResult> GetNodeByPath([FromQuery] string path, CancellationToken cancellationToken)
+    {
+        var result = await manager.GetNodeByPath(path, cancellationToken);
+        if (result is null)
+        {
+            return new NotFoundResult();
+        }
         return new OkObjectResult(result);
     }
 

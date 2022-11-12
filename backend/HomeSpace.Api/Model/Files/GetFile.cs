@@ -3,6 +3,8 @@ using HomeSpace.Infrastructure.Model;
 
 namespace HomeSpace.Api.Model.Files;
 
+public record GetNodeByPathRequest(string Path);
+
 public record GetFileResult(Stream Content, string Name, string ContentType);
 
 public record FileNodeResponse

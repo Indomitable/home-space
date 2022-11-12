@@ -63,6 +63,7 @@ function nodeIcon(node: FileNode): string {
 
 .clipboard-container-items {
     flex: 1;
+    overflow-y: auto;
 }
 
 .clipboard-container-item {

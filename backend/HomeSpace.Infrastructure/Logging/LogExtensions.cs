@@ -26,6 +26,8 @@ public static class LogExtensions
         {
             loggerConfiguration.WriteTo.UseSink(logConfiguration.FileSink);
         }
+
+        loggerConfiguration.MinimumLevel.Is(logConfiguration.MinimumLevel);
         return loggerConfiguration;
     }
 

@@ -6,6 +6,7 @@ namespace HomeSpace.Infrastructure.Logging;
 
 public class LogConfiguration
 {
+    public LogEventLevel MinimumLevel { get; set; }
     public ConsoleSink? ConsoleSink { get; init; }
 
     public FileSink? FileSink { get; init; }

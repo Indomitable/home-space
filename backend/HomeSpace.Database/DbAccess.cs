@@ -1,5 +1,6 @@
 using System.Data;
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace HomeSpace.Database;
@@ -18,10 +19,12 @@ public interface IDbAccess
 internal sealed class DbAccess : IDbAccess
 {
     private readonly IDbCommandFactory commandFactory;
-    
-    public DbAccess(IDbCommandFactory commandFactory)
+    private readonly ILogger<DbAccess> logger;
+
+    public DbAccess(IDbCommandFactory commandFactory, ILogger<DbAccess> logger)
     {
         this.commandFactory = commandFactory;
+        this.logger = logger;
     }
 
     public Task<IDbTransaction> BeginTransaction()
@@ -31,6 +34,7 @@ internal sealed class DbAccess : IDbAccess
 
     public async Task ExecuteNonQuery(string sql, CancellationToken cancellationToken, params NpgsqlParameter[] parameters)
     {
+        logger.LogDebug("[ExecuteNonQuery] {sql}. Params: {params}", sql, parameters.Select(p => p.Value));
         await using var command = await commandFactory.Create(sql);
         command.AddParameters(parameters);
         await command.ExecuteNonQuery(cancellationToken);
@@ -38,6 +42,7 @@ internal sealed class DbAccess : IDbAccess
     
     public async Task<T?> ExecuteScalar<T>(string sql, CancellationToken cancellationToken, params NpgsqlParameter[] parameters)
     {
+        logger.LogDebug("[ExecuteScalar] {sql}. Params: {params}", sql, parameters.Select(p => p.Value));
         await using var command = await commandFactory.Create(sql);
         command.AddParameters(parameters);
         var result = await command.ExecuteScalar(cancellationToken);
@@ -46,6 +51,7 @@ internal sealed class DbAccess : IDbAccess
 
     public async Task<T> QueryOne<T>(string sql, Func<NpgsqlDataReader, T> factory, CancellationToken cancellationToken, params NpgsqlParameter[] parameters)
     {
+        logger.LogDebug("[QueryOne] {sql}. Params: {params}", sql, parameters.Select(p => p.Value));
         await using var command = await commandFactory.Create(sql);
         command.AddParameters(parameters);
         await using var reader = await command.ExecuteReader(CommandBehavior.SingleRow, cancellationToken);
@@ -56,6 +62,7 @@ internal sealed class DbAccess : IDbAccess
     public async Task<T?> QueryOptional<T>(string sql, Func<NpgsqlDataReader, T> factory, CancellationToken cancellationToken, params NpgsqlParameter[] parameters)
         where T: class
     {
+        logger.LogDebug("[QueryOptional] {sql}. Params: {params}", sql, parameters.Select(p => p.Value));
         await using var command = await commandFactory.Create(sql);
         command.AddParameters(parameters);
         await using var reader = await command.ExecuteReader(CommandBehavior.SingleRow, cancellationToken);
@@ -64,6 +71,7 @@ internal sealed class DbAccess : IDbAccess
     
     public async IAsyncEnumerable<T> Query<T>(string sql, Func<NpgsqlDataReader, T> factory, [EnumeratorCancellation] CancellationToken cancellationToken, params NpgsqlParameter[] parameters)
     {
+        logger.LogDebug("[Query] {sql}. Params: {params}", sql, parameters.Select(p => p.Value));
         await using var command = await commandFactory.Create(sql);
         command.AddParameters(parameters);
         await command.Prepare(cancellationToken);

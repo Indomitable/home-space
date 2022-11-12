@@ -21,7 +21,7 @@ public class FilesController
     [Route("")]
     public async Task<IActionResult> GetFiles([FromQuery] GetFilesRequest request, CancellationToken cancellationToken)
     {
-        var result = await manager.GetFiles(request.ParentId, request.Page, request.PageSize, request.SortColumn, request.SortDirection, cancellationToken);
+        var result = await manager.GetNodes(request.ParentId, request.Page, request.PageSize, request.SortColumn, request.SortDirection, cancellationToken);
         return new OkObjectResult(result);
     }
 
@@ -29,7 +29,7 @@ public class FilesController
     [Route("download")]
     public async Task<IActionResult> GetFile([FromQuery] long[] id, CancellationToken cancellationToken)
     {
-        var result = await manager.GetFiles(id, cancellationToken);
+        var result = await manager.GetNodesContent(id, cancellationToken);
         return new FileStreamResult(result.Content, result.ContentType)
         {
             FileDownloadName = result.Name

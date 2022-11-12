@@ -8,7 +8,7 @@ namespace HomeSpace.Api.Managers;
 
 internal partial class FilesManager
 {
-    public async Task<PagedResult<DisplayFileNode>> GetFiles(long parentId, int page, int pageSize, FileNodeSort sortColumn,
+    public async Task<PagedResult<DisplayFileNode>> GetNodes(long parentId, int page, int pageSize, FileNodeSort sortColumn,
         SortDirection sortDirection, CancellationToken cancellationToken)
     {
         var user = currentUserProvider.RequireAuthorizedUser();
@@ -45,7 +45,7 @@ internal partial class FilesManager
         }
     }
 
-    public async Task<GetFileResult> GetFiles(long[] ids, CancellationToken cancellationToken)
+    public async Task<GetFileResult> GetNodesContent(long[] ids, CancellationToken cancellationToken)
     {
         var user = currentUserProvider.RequireAuthorizedUser();
         if (ids.Length == 1)

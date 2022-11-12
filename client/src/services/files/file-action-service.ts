@@ -70,25 +70,6 @@ export class FileActionService {
         }
     }
 
-    /**
-     * Uploads a file. Obsolete use uploadFileChunks
-     * @obsolete
-     * @param parentId Parent Id
-     * @param file File
-     */
-    private async uploadFile(parentId: number, file: File): Promise<FileNodeResponse> {
-        const url = resolveApiUrl("files", "file");
-        const formData = new FormData();
-        formData.append("parentId", "" + parentId);
-        formData.append("file", file, file.name);
-        return await RequestBuilder.create(url)
-            .setMethod(HttpMethod.PUT)
-            .enhance(this.userService)
-            .setBody(formData)
-            .build<FileNodeResponse>()
-            .execute();
-    }
-
     private async uploadFileChunks(parentId: number, file: File): Promise<FileNodeResponse> {
         const uploadUrl = resolveApiUrl("files", "upload");
         const uploadLastUrl = resolveApiUrl("files", "upload-last");

@@ -9,7 +9,7 @@ namespace HomeSpace.Security.Jwt;
 public interface IJwtService
 {
     IReadOnlyList<Claim> GetTokenClaims(string token);
-    string GenerateAccessToken(params Claim[] claims);
+    (string token, int expiresIn) GenerateAccessToken(params Claim[] claims);
     (string token, DateTime expires) GenerateRefreshToken();
 }
 
@@ -34,10 +34,10 @@ internal sealed class JwtService : IJwtService
         };
     }
 
-    public string GenerateAccessToken(params Claim[] claims)
+    public (string token, int expiresIn) GenerateAccessToken(params Claim[] claims)
     {
         var expires = DateTime.UtcNow.Add(configuration.AccessTokenExpireTime);
-        return GenerateToken(expires, claims);
+        return (GenerateToken(expires, claims), (int)configuration.AccessTokenExpireTime.TotalSeconds);
     }
     
     public (string token, DateTime expires) GenerateRefreshToken()

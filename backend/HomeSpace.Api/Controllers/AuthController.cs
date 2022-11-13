@@ -38,7 +38,7 @@ public class AuthController
     [Consumes("application/x-www-form-urlencoded")]
     public async Task<IActionResult> LoginForm([FromForm] LoginRequest request, CancellationToken cancellationToken)
     {
-        var (result, accessToken, refreshToken) = await authenticationService.LoginUser(request.UserName, request.Password, cancellationToken);
+        var (result, tokenResult) = await authenticationService.LoginUser(request.UserName, request.Password, cancellationToken);
         if (result != LoginUserResult.Success)
         {
             return new ForbidResult();
@@ -50,8 +50,8 @@ public class AuthController
             SameSite = SameSiteMode.Strict,
             Path = "/",
         };
-        httpContextAccessor.HttpContext!.Response.Cookies.Append("at", accessToken, builder.Build(httpContextAccessor.HttpContext));
-        httpContextAccessor.HttpContext!.Response.Cookies.Append("rt", refreshToken, builder.Build(httpContextAccessor.HttpContext));
+        httpContextAccessor.HttpContext!.Response.Cookies.Append("at", tokenResult!.AccessToken, builder.Build(httpContextAccessor.HttpContext));
+        httpContextAccessor.HttpContext!.Response.Cookies.Append("rt", tokenResult.RefreshToken, builder.Build(httpContextAccessor.HttpContext));
         return new RedirectResult("/");
     }
 
@@ -60,20 +60,20 @@ public class AuthController
     [Consumes(MediaTypeNames.Text.Plain)]
     public async Task<IActionResult> RenewToken([FromBody, ]string refreshToken, CancellationToken cancellationToken)
     {
-        var (result, at, rt) = await authenticationService.RenewAccessToken(refreshToken, cancellationToken);
+        var (result, tokenResult) = await authenticationService.RenewAccessToken(refreshToken, cancellationToken);
         if (result == RenewTokenResult.Success)
         {
-            return new OkObjectResult(new LoginResponse(at, rt));
+            return new OkObjectResult(TokenResponse.FromTokenResult(tokenResult!));
         }
         return new UnauthorizedResult();    
     }
     
     private async Task<IActionResult> InternalLogin(LoginRequest request, CancellationToken cancellationToken)
     {
-        var (result, accessToken, refreshToken) = await authenticationService.LoginUser(request.UserName, request.Password, cancellationToken);
+        var (result, tokenResult) = await authenticationService.LoginUser(request.UserName, request.Password, cancellationToken);
         if (result == LoginUserResult.Success)
         {
-            return new OkObjectResult(new LoginResponse(accessToken, refreshToken));
+            return new OkObjectResult(TokenResponse.FromTokenResult(tokenResult!));
         }
         return new UnauthorizedResult();
     }
@@ -91,10 +91,10 @@ public class AuthController
                 StatusCode = StatusCodes.Status418ImATeapot
             };
         }
-        var (result, accessToken, refreshToken) = await authenticationService.RegisterUser(request.UserName, request.Password);
+        var (result, tokenResult) = await authenticationService.RegisterUser(request.UserName, request.Password);
         if (result == RegisterUserResult.Success)
         {
-            return new OkObjectResult(new RegisterResponse(accessToken, refreshToken));
+            return new OkObjectResult(TokenResponse.FromTokenResult(tokenResult!));
         }
         return new UnauthorizedResult();
     }

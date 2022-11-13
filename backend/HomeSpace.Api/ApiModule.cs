@@ -16,6 +16,7 @@ public class ApiModule: Module
         builder.RegisterType<FilesManager>().As<IFilesManager>().InstancePerLifetimeScope();
         builder.RegisterType<VersionsManager>().As<IVersionsManager>().InstancePerLifetimeScope();
         builder.RegisterType<FavoritesManager>().As<IFavoritesManager>().InstancePerLifetimeScope();
+        builder.RegisterType<TrashManager>().As<ITrashManager>().InstancePerLifetimeScope();
         AddValidations(builder);
     }
     

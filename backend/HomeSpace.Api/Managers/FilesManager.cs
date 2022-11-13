@@ -63,6 +63,12 @@ public interface IFilesManager
     /// </summary>
     Task<UploadFileResult> UploadLastFileChunk(string id, long requestId, IFormFile file, string fileName, string mimeType,
         long fileSize, int totalChunks, string hash, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Move nodes to trash
+    /// </summary>
+    Task<Dictionary<long, DeleteNodeResult>> MoveNodesToTrash(IReadOnlyCollection<long> nodeIds,
+        CancellationToken cancellationToken);
 }
 
 internal sealed partial class FilesManager : IFilesManager
@@ -75,6 +81,7 @@ internal sealed partial class FilesManager : IFilesManager
     private readonly IContentTypeProvider contentTypeProvider;
     private readonly IJobManager jobManager;
     private readonly ICalcHashSumFactory calcHashSumFactory;
+    private readonly ITrashManager trashManager;
     private readonly ILogger<FilesManager> logger;
 
     public FilesManager(
@@ -86,6 +93,7 @@ internal sealed partial class FilesManager : IFilesManager
         IContentTypeProvider contentTypeProvider,
         IJobManager jobManager,
         ICalcHashSumFactory calcHashSumFactory,
+        ITrashManager trashManager,
         ILogger<FilesManager> logger)
     {
         user = currentUserProvider.RequireAuthorizedUser();
@@ -96,6 +104,7 @@ internal sealed partial class FilesManager : IFilesManager
         this.contentTypeProvider = contentTypeProvider;
         this.jobManager = jobManager;
         this.calcHashSumFactory = calcHashSumFactory;
+        this.trashManager = trashManager;
         this.logger = logger;
     }
 }

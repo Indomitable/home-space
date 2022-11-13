@@ -15,12 +15,4 @@ public class TrashController
     {
         this.manager = manager;
     }
-    
-    [HttpDelete]
-    [Route("delete/{id}")]
-    public async Task<IActionResult> DeleteNode([FromRoute] long id, CancellationToken cancellationToken)
-    {
-        await manager.MoveToTrash(id, cancellationToken);
-        return new NoContentResult();
-    }
 }

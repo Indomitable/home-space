@@ -87,7 +87,7 @@ internal partial class FilesManager
             var deleteTask = sourceNode.NodeType switch
             {
                 NodeType.Folder => PermanentDeleteFolder(sourceNode, cancellationToken),
-                NodeType.File => PermanentDeleteFile(sourceNode, cancellationToken),
+                NodeType.File => DeleteMovedFile(sourceNode, cancellationToken),
                 _ => throw new ArgumentOutOfRangeException()
             };
             await deleteTask;

@@ -1,47 +1,54 @@
+using HomeSpace.Api.Model.Files;
 using HomeSpace.Database;
 using HomeSpace.Database.Model;
 using HomeSpace.Database.Repository;
 using HomeSpace.Files.Services;
 using HomeSpace.Infrastructure.Model;
+using HomeSpace.Security.Model;
 using HomeSpace.Security.Services;
 
 namespace HomeSpace.Api.Managers;
 
 public interface ITrashManager
 {
-    Task MoveToTrash(long id, CancellationToken cancellationToken);
+    Task<DeleteNodeResult> MoveToTrash(long id, CancellationToken cancellationToken);
 }
 
 internal sealed class TrashManager : ITrashManager
 {
-    private readonly ICurrentUserProvider userProvider;
+    private readonly HomeSpaceUser user;
     private readonly IFileNodeRepository fileNodeRepository;
     private readonly ITrashRepository trashRepository;
     private readonly IVersionsRepository versionsRepository;
     private readonly ITrashService trashService;
 
-    public TrashManager(ICurrentUserProvider userProvider, 
+    public TrashManager(ICurrentUserProvider currentUserProvider, 
         IFileNodeRepository fileNodeRepository,
         ITrashRepository trashRepository,
         IVersionsRepository versionsRepository,
         ITrashService trashService)
     {
-        this.userProvider = userProvider;
+        user = currentUserProvider.RequireAuthorizedUser();
         this.fileNodeRepository = fileNodeRepository;
         this.trashRepository = trashRepository;
         this.versionsRepository = versionsRepository;
         this.trashService = trashService;
     }
 
-    public async Task MoveToTrash(long id, CancellationToken cancellationToken)
+    public async Task<DeleteNodeResult> MoveToTrash(long id, CancellationToken cancellationToken)
     {
-        var user = userProvider.RequireAuthorizedUser();
-
         var deleteNode = await fileNodeRepository.GetNode(user.Id, id, cancellationToken);
+        if (deleteNode is null)
+        {
+            return DeleteNodeResult.NodeNotExist;
+        }
         if (deleteNode.NodeType == NodeType.File)
         {
             await MoveFileNodeToTrash(deleteNode, cancellationToken);
+            
         }
+
+        return DeleteNodeResult.Success;
         // TODO: add folder delete support
     }
 

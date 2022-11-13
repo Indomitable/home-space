@@ -1,4 +1,4 @@
-using HomeSpace.Api.ActionFilters;
+using System.Runtime.CompilerServices;
 using HomeSpace.Api.Managers;
 using HomeSpace.Api.Model.Files;
 using Microsoft.AspNetCore.Authorization;
@@ -27,9 +27,8 @@ public class FilesController
     }
     
     [HttpGet]
-    [QueryActionConstraint("id")]
-    [Route("node")]
-    public async Task<IActionResult> GetNodeById([FromQuery] long id, CancellationToken cancellationToken)
+    [Route("{id}")]
+    public async Task<IActionResult> GetNodeById([FromRoute] long id, CancellationToken cancellationToken)
     {
         var result = await manager.GetNodeById(id, cancellationToken);
         if (result is null)
@@ -40,7 +39,6 @@ public class FilesController
     }
     
     [HttpGet]
-    [QueryActionConstraint("path")]
     [Route("node")]
     public async Task<IActionResult> GetNodeByPath([FromQuery] string path, CancellationToken cancellationToken)
     {
@@ -172,7 +170,7 @@ public class FilesController
 
     [HttpDelete]
     [Route("")]
-    public async Task<IActionResult> DeleteNode([FromRoute] DeleteNodeRequest request, CancellationToken cancellationToken)
+    public async Task<IActionResult> DeleteNode([FromBody] DeleteNodeRequest request, CancellationToken cancellationToken)
     {
         var result = await manager.MoveNodesToTrash(request.Nodes, cancellationToken);
         if (result.All(r => r.Value == DeleteNodeResult.NodeNotExist))

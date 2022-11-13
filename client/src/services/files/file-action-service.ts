@@ -177,9 +177,17 @@ export class FileActionService {
         return count;
     }
 
-    async deleteNode(nodeId: number): Promise<void> {
-        const url = resolveApiUrl("trash", "delete", nodeId);
-        await RequestBuilder.create(url).setMethod(HttpMethod.DELETE).enhance(this.userService).build("").execute();
+    async deleteNode(nodeIds: number[]): Promise<void> {
+        const url = resolveApiUrl("file", "");
+        
+        await RequestBuilder.create(url)
+            .setMethod(HttpMethod.DELETE)
+            .enhance(this.userService)
+            .setJsonBody({
+                nodes: nodeIds,
+            })
+            .build("")
+            .execute();
     }
 
     async downloadNodes(nodes: FileNode[]): Promise<void> {

@@ -1,7 +1,9 @@
 using HomeSpace.Api.Model.Files;
+using HomeSpace.Database.Model;
 using HomeSpace.Database.Repository;
 using HomeSpace.Files.Services;
 using HomeSpace.Infrastructure.Model;
+using HomeSpace.Security.Model;
 using HomeSpace.Security.Services;
 using HomeSpace.Services;
 using HomeSpace.Services.Factories;
@@ -17,9 +19,9 @@ public interface IFilesManager
     Task<PagedResult<DisplayFileNode>> GetNodes(long parentId, int page, int pageSize, FileNodeSort sortColumn,
         SortDirection sortDirection, CancellationToken cancellationToken);
 
-    Task<FileNodeResponse> GetNodeById(long id, CancellationToken cancellationToken);
+    Task<FileNode?> GetNodeById(long id, CancellationToken cancellationToken);
     
-    Task<FileNodeResponse?> GetNodeByPath(string path, CancellationToken cancellationToken);
+    Task<FileNode?> GetNodeByPath(string path, CancellationToken cancellationToken);
 
     /// <summary>
     /// Return files or folders content. When multiple ids or ids point to a folder then zip file is returned. 
@@ -29,7 +31,7 @@ public interface IFilesManager
     /// <summary>
     /// Get node parents. Used to create navigation breadcrumbs
     /// </summary>
-    IAsyncEnumerable<FileNodeResponse> GetParents(long id, CancellationToken cancellationToken);
+    IAsyncEnumerable<FileNode> GetParents(long id, CancellationToken cancellationToken);
     
     /// <summary>
     /// Creates new folder
@@ -39,12 +41,12 @@ public interface IFilesManager
     /// <summary>
     /// Copy nodes into some location
     /// </summary>
-    Task<IReadOnlyList<CopyNodeResult>> CopyNodes(IReadOnlyCollection<long> sourceIds, long destinationParentId, CancellationToken cancellationToken);
+    Task<IReadOnlyDictionary<long, CopyNodeResult>> CopyNodes(IReadOnlyCollection<long> sourceIds, long destinationParentId, CancellationToken cancellationToken);
     
     /// <summary>
     /// Moves nodes to new location
     /// </summary>
-    Task<IReadOnlyList<MoveNodeResult>> MoveNodes(IReadOnlyCollection<long> sourceIds, long destinationParentId, CancellationToken cancellationToken);
+    Task<IReadOnlyDictionary<long, MoveNodeResult>> MoveNodes(IReadOnlyCollection<long> sourceIds, long destinationParentId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Rename node
@@ -65,8 +67,8 @@ public interface IFilesManager
 
 internal sealed partial class FilesManager : IFilesManager
 {
+    private readonly HomeSpaceUser user;
     private readonly IFileNodeRepository repository;
-    private readonly ICurrentUserProvider currentUserProvider;
     private readonly IFilesService filesService;
     private readonly IPathsService pathsService;
     private readonly IVersionsManager versionsManager;
@@ -86,7 +88,7 @@ internal sealed partial class FilesManager : IFilesManager
         ICalcHashSumFactory calcHashSumFactory,
         ILogger<FilesManager> logger)
     {
-        this.currentUserProvider = currentUserProvider;
+        user = currentUserProvider.RequireAuthorizedUser();
         this.repository = repository;
         this.filesService = filesService;
         this.pathsService = pathsService;

@@ -31,16 +31,12 @@ public class FilesController
     [Route("node")]
     public async Task<IActionResult> GetNodeById([FromQuery] long id, CancellationToken cancellationToken)
     {
-        // We assume that the id should be always valid but since this is a public endpoint it can be invalid and to throw exception
-        try
-        {
-            var result = await manager.GetNodeById(id, cancellationToken);
-            return new OkObjectResult(result);
-        }
-        catch
+        var result = await manager.GetNodeById(id, cancellationToken);
+        if (result is null)
         {
             return new NotFoundResult();
         }
+        return new OkObjectResult(FileNodeResponse.Map(result));
     }
     
     [HttpGet]
@@ -53,7 +49,7 @@ public class FilesController
         {
             return new NotFoundResult();
         }
-        return new OkObjectResult(result);
+        return new OkObjectResult(FileNodeResponse.Map(result));
     }
 
     [HttpGet]
@@ -69,9 +65,12 @@ public class FilesController
 
     [HttpGet]
     [Route("parents/{id}")]
-    public IAsyncEnumerable<FileNodeResponse> GetParentNodes([FromRoute] long id, CancellationToken cancellationToken)
+    public async IAsyncEnumerable<FileNodeResponse> GetParentNodes([FromRoute] long id, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        return manager.GetParents(id, cancellationToken);
+        await foreach (var node in manager.GetParents(id, cancellationToken))
+        {
+            yield return FileNodeResponse.Map(node);
+        }
     }
 
     [HttpPut]
@@ -83,7 +82,7 @@ public class FilesController
         {
             CreateFolderResultType.FileWithSameNameExist => new ConflictObjectResult(result),
             CreateFolderResultType.FolderWithSameNameExist => new ConflictObjectResult(result),
-            CreateFolderResultType.Success => new OkObjectResult(result.FileNode),
+            CreateFolderResultType.Success => new OkObjectResult(FileNodeResponse.Map(result.FileNode)),
             _ => throw new ArgumentOutOfRangeException()
         };
     }
@@ -117,9 +116,10 @@ public class FilesController
             request.FileSize, request.TotalChunks, request.FileHash, cancellationToken);
         return result.Type switch
         {
+            UploadFileResultType.ParentNotFound => new NotFoundResult(),
             UploadFileResultType.FolderWithSameNameExist => new ConflictObjectResult(result.Type),
             UploadFileResultType.UploadError => new BadRequestObjectResult(result.Type),
-            UploadFileResultType.Success => new OkObjectResult(result.FileNode),
+            UploadFileResultType.Success => new OkObjectResult(FileNodeResponse.Map(result.FileNode)),
             _ => throw new ArgumentOutOfRangeException()
         };
     }
@@ -131,8 +131,9 @@ public class FilesController
         var result = await manager.RenameNode(request.Id, request.Name, cancellationToken);
         return result.Type switch
         {
+            RenameNodeResultType.NodeNotFound => new NotFoundResult(),
             RenameNodeResultType.NodeWithSameNameExist => new ConflictObjectResult(result.Type),
-            RenameNodeResultType.Success => new OkObjectResult(result.Node),
+            RenameNodeResultType.Success => new OkObjectResult(FileNodeResponse.Map(result.Node)),
             _ => throw new ArgumentOutOfRangeException()
         };
     }
@@ -142,7 +143,15 @@ public class FilesController
     public async Task<IActionResult> CopyNodes([FromBody] CopyNodeRequest request, CancellationToken cancellationToken)
     {
         var result = await manager.CopyNodes(request.Nodes, request.ParentId, cancellationToken);
-        return new OkObjectResult(result);
+        if (result.All(r => r.Value.Type is CopyNodeResultType.SourceNotFound or CopyNodeResultType.DestinationNotFound))
+        {
+            return new NotFoundResult();
+        }
+        return new OkObjectResult(result.ToDictionary(_ => _.Key, _ => new
+        {
+            _.Value.Type,
+            Node = FileNodeResponse.Map(_.Value.Node)
+        }));
     }
 
     [HttpPost]
@@ -150,6 +159,26 @@ public class FilesController
     public async Task<IActionResult> MoveNodes([FromBody] MoveNodeRequest request, CancellationToken cancellationToken)
     {
         var result = await manager.MoveNodes(request.Nodes, request.ParentId, cancellationToken);
+        if (result.All(r => r.Value.CopyResultType is CopyNodeResultType.SourceNotFound or CopyNodeResultType.DestinationNotFound))
+        {
+            return new NotFoundResult();
+        }
+        return new OkObjectResult(result.ToDictionary(_ => _.Key, _ => new
+        {
+            Type = _.Value.CopyResultType,
+            Node = FileNodeResponse.Map(_.Value.Node)
+        }));
+    }
+
+    [HttpDelete]
+    [Route("")]
+    public async Task<IActionResult> DeleteNode([FromRoute] DeleteNodeRequest request, CancellationToken cancellationToken)
+    {
+        var result = await manager.MoveNodesToTrash(request.Nodes, cancellationToken);
+        if (result.All(r => r.Value == DeleteNodeResult.NodeNotExist))
+        {
+            return new NotFoundResult();
+        }
         return new OkObjectResult(result);
     }
 }

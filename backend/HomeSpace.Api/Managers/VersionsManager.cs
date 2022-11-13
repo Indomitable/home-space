@@ -3,6 +3,7 @@ using HomeSpace.Database.Model;
 using HomeSpace.Database.Repository;
 using HomeSpace.Files.Services;
 using HomeSpace.Infrastructure.Model;
+using HomeSpace.Security.Model;
 using HomeSpace.Security.Services;
 
 namespace HomeSpace.Api.Managers;
@@ -17,7 +18,7 @@ public interface IVersionsManager
 
 internal sealed class VersionsManager : IVersionsManager
 {
-    private readonly ICurrentUserProvider currentUserProvider;
+    private readonly HomeSpaceUser user;
     private readonly IVersionsService service;
     private readonly IVersionsRepository repository;
 
@@ -25,7 +26,7 @@ internal sealed class VersionsManager : IVersionsManager
         IVersionsService service,
         IVersionsRepository repository)
     {
-        this.currentUserProvider = currentUserProvider;
+        user = currentUserProvider.RequireAuthorizedUser();
         this.service = service;
         this.repository = repository;
     }

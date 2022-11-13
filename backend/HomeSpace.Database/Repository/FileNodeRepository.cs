@@ -13,7 +13,7 @@ public interface IFileNodeRepository
     /// <summary>
     /// Get node by id
     /// </summary>
-    Task<FileNode> GetNode(long userId, long id, CancellationToken cancellationToken);
+    Task<FileNode?> GetNode(long userId, long id, CancellationToken cancellationToken);
     /// <summary>
     /// Get node by name
     /// </summary>
@@ -132,7 +132,7 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
             DbParameter.Create(parentId));
     }
 
-    public Task<FileNode> GetNode(long userId, long id, CancellationToken cancellationToken)
+    public Task<FileNode?> GetNode(long userId, long id, CancellationToken cancellationToken)
     {
         const string sql =
             @"select f.id, f.user_id, f.title, f.parent_id, f.node_type,
@@ -142,7 +142,7 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
     left join file_versions fv on f.user_id = fv.user_id and f.id = fv.id
     where f.user_id = $1 and f.id = $2
     group by f.user_id, f.id";
-        return access.QueryOne(sql, FileNode.FromReader,
+        return access.QueryOptional(sql, FileNode.FromReader,
             cancellationToken,
             DbParameter.Create(userId),
             DbParameter.Create(id));

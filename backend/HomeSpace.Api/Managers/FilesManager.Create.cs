@@ -9,18 +9,21 @@ internal partial class FilesManager
 {
     public async Task<CreateFolderResult> CreateFolder(long parentId, string name)
     {
-        var user = currentUserProvider.RequireAuthorizedUser();
         var fileNode = await repository.GetNode(user.Id, parentId, name, CancellationToken.None);
         if (fileNode is not null)
         {
             return fileNode.NodeType == NodeType.Folder
-                ? new CreateFolderResult(CreateFolderResultType.FolderWithSameNameExist, FileNodeResponse.Map(fileNode))
-                : new CreateFolderResult(CreateFolderResultType.FileWithSameNameExist, FileNodeResponse.Map(fileNode));
+                ? new CreateFolderResult(CreateFolderResultType.FolderWithSameNameExist, fileNode)
+                : new CreateFolderResult(CreateFolderResultType.FileWithSameNameExist, fileNode);
         }
         
         var parentNode = await repository.GetNode(user.Id, parentId, CancellationToken.None);
+        if (parentNode is null)
+        {
+            return new CreateFolderResult(CreateFolderResultType.ParentNodeNotFound);
+        }
         var node = await CreateFolder(name, parentNode, CancellationToken.None);
-        return new CreateFolderResult(CreateFolderResultType.Success, FileNodeResponse.Map(node));
+        return new CreateFolderResult(CreateFolderResultType.Success, node);
     }
 
     private void QueueHashSumJob(long userId, long fileNodeId)
@@ -32,7 +35,6 @@ internal partial class FilesManager
     public async Task<string> UploadFileChunk(string id, IFormFile file, int chunk, int totalChunks,
         CancellationToken cancellationToken)
     {
-        var user = currentUserProvider.RequireAuthorizedUser();
         var fileId = chunk > 0 ? id : Guid.NewGuid().ToString("N");
         await using var fileStream = file.OpenReadStream();
         await filesService.UploadFileChunk(user.Id, fileId, fileStream, chunk, cancellationToken);
@@ -42,7 +44,6 @@ internal partial class FilesManager
     public async Task<UploadFileResult> UploadLastFileChunk(string id, long parentId, IFormFile file, string fileName, string mimeType,
         long fileSize, int totalChunks, string hash, CancellationToken cancellationToken)
     {
-        var user = currentUserProvider.RequireAuthorizedUser();
         var fileNode = await repository.GetNode(user.Id, parentId, fileName, cancellationToken);
         // If client can not resolve mime type then try to do it on server.
         if (mimeType == MediaTypeNames.Application.Octet)
@@ -78,12 +79,16 @@ internal partial class FilesManager
                 }
                 var updatedNode = await OverrideNode(fileStream, mimeType, fileNode, cancellationToken);
                 QueueHashSumJob(user.Id, fileNode.Id);
-                return new UploadFileResult(UploadFileResultType.Success, FileNodeResponse.Map(updatedNode));
+                return new UploadFileResult(UploadFileResultType.Success, updatedNode);
             }
             var parentNode = await repository.GetNode(user.Id, parentId, cancellationToken);
+            if (parentNode is null)
+            {
+                return new UploadFileResult(UploadFileResultType.ParentNotFound);
+            }
             var node = await CreateFile(fileName, fileStream, mimeType, parentNode, cancellationToken);
             QueueHashSumJob(user.Id, node.Id);
-            return new UploadFileResult(UploadFileResultType.Success, FileNodeResponse.Map(node));
+            return new UploadFileResult(UploadFileResultType.Success, node);
         } finally {
             await fileStream.DisposeAsync();
         }

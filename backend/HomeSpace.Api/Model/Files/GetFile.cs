@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using HomeSpace.Database.Model;
 using HomeSpace.Infrastructure.Model;
 
@@ -20,8 +21,13 @@ public record FileNodeResponse
     public long Size { get; set; }
     public int Version { get; set; }
 
-    public static FileNodeResponse Map(FileNode fileNode)
+    [return: NotNullIfNotNull("fileNode")]
+    public static FileNodeResponse? Map(FileNode? fileNode)
     {
+        if (fileNode is null)
+        {
+            return null;
+        }
         return new FileNodeResponse
         {
             Id = fileNode.Id,

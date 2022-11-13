@@ -1,5 +1,6 @@
 using HomeSpace.Api.Model.Files;
 using HomeSpace.Database.Model;
+using HomeSpace.Infrastructure.Collections;
 using HomeSpace.Infrastructure.Model;
 
 namespace HomeSpace.Api.Managers;
@@ -8,25 +9,33 @@ internal partial class FilesManager
 {
     private static readonly int CopyChunkSize = 3;
     
-    public async Task<IReadOnlyList<CopyNodeResult>> CopyNodes(IReadOnlyCollection<long> sourceIds, long destinationParentId,
+    public async Task<IReadOnlyDictionary<long, CopyNodeResult>> CopyNodes(IReadOnlyCollection<long> sourceIds, long destinationParentId,
         CancellationToken cancellationToken)
     {
-        var results = new List<CopyNodeResult>(sourceIds.Count);
+        var results = new Dictionary<long, CopyNodeResult>(sourceIds.Count);
         foreach (var chunk in sourceIds.Chunk(CopyChunkSize))
         {
-            var chunkResults = await Task.WhenAll(chunk.Select(id => CopyNode(id, destinationParentId, cancellationToken)));
+            var chunkResults = await Task.WhenAll(chunk.Select(async id =>
+            {
+                var result = await CopyNode(id, destinationParentId, cancellationToken);
+                return (id, result);
+            }));
             results.AddRange(chunkResults);
         }
         return results;
     }
 
-    public async Task<IReadOnlyList<MoveNodeResult>> MoveNodes(IReadOnlyCollection<long> sourceIds, long destinationParentId,
+    public async Task<IReadOnlyDictionary<long, MoveNodeResult>> MoveNodes(IReadOnlyCollection<long> sourceIds, long destinationParentId,
         CancellationToken cancellationToken)
     {
-        var results = new List<MoveNodeResult>(sourceIds.Count);
+        var results = new Dictionary<long, MoveNodeResult>(sourceIds.Count);
         foreach (var chunk in sourceIds.Chunk(CopyChunkSize))
         {
-            var chunkResults = await Task.WhenAll(chunk.Select(id => MoveNode(id, destinationParentId, cancellationToken)));
+            var chunkResults = await Task.WhenAll(chunk.Select(async id =>
+            {
+                var result = await MoveNode(id, destinationParentId, cancellationToken);
+                return (id, result);
+            }));
             results.AddRange(chunkResults);
         }
         return results;
@@ -34,23 +43,39 @@ internal partial class FilesManager
     
     private async Task<CopyNodeResult> CopyNode(long sourceId, long destinationParentId, CancellationToken cancellationToken)
     {
-        var user = currentUserProvider.RequireAuthorizedUser();
         var sourceNode = await repository.GetNode(user.Id, sourceId, cancellationToken);
+        if (sourceNode is null)
+        {
+            return new CopyNodeResult(CopyNodeResultType.SourceNotFound);
+        }
         var destinationParentNode = await repository.GetNode(user.Id, destinationParentId, cancellationToken);
+        if (destinationParentNode is null)
+        {
+            return new CopyNodeResult(CopyNodeResultType.DestinationNotFound);
+        }
+        
         var result = sourceNode.NodeType switch
         {
             NodeType.Folder => await CopyFolderNodeRecursive(sourceNode, destinationParentNode, cancellationToken),
             NodeType.File => await CopyFileNode(sourceNode, destinationParentNode, cancellationToken),
             _ => throw new ArgumentOutOfRangeException()
         };
-        return new CopyNodeResult(result.Type, result.Node is null ? null : FileNodeResponse.Map(result.Node));
+        return new CopyNodeResult(result.Type, result.Node);
     }
     
     private async Task<MoveNodeResult> MoveNode(long sourceId, long destinationParentId, CancellationToken cancellationToken)
     {
-        var user = currentUserProvider.RequireAuthorizedUser();
         var sourceNode = await repository.GetNode(user.Id, sourceId, cancellationToken);
+        if (sourceNode is null)
+        {
+            return new MoveNodeResult(CopyNodeResultType.SourceNotFound);
+        }
         var destinationParentNode = await repository.GetNode(user.Id, destinationParentId, cancellationToken);
+        if (destinationParentNode is null)
+        {
+            return new MoveNodeResult(CopyNodeResultType.DestinationNotFound);
+        }
+        
         var copyResult = sourceNode.NodeType switch
         {
             NodeType.Folder => await CopyFolderNodeRecursive(sourceNode, destinationParentNode, cancellationToken),
@@ -66,19 +91,22 @@ internal partial class FilesManager
                 _ => throw new ArgumentOutOfRangeException()
             };
             await deleteTask;
-            return new MoveNodeResult(copyResult.Type, true, null);
+            return new MoveNodeResult(copyResult.Type, copyResult.Node);
         }
-        return new MoveNodeResult(copyResult.Type, false, null);
+        return new MoveNodeResult(copyResult.Type);
     }
     
     public async Task<RenameNodeResult> RenameNode(long id, string name, CancellationToken cancellationToken)
     {
-        var user = currentUserProvider.RequireAuthorizedUser();
         var sourceNode = await repository.GetNode(user.Id, id, cancellationToken);
+        if (sourceNode is null)
+        {
+            return new RenameNodeResult(RenameNodeResultType.NodeNotFound);
+        }
         var sameNode = await repository.GetNode(user.Id, sourceNode.ParentId.GetValueOrDefault(0), name, cancellationToken);
         if (sameNode is not null)
         {
-            return new RenameNodeResult(RenameNodeResultType.NodeWithSameNameExist, null);
+            return new RenameNodeResult(RenameNodeResultType.NodeWithSameNameExist);
         }
         var destination = await filesService.Rename(user.Id, sourceNode.FileSystemPath, name, sourceNode.NodeType, cancellationToken);
         var destinationNode = sourceNode with
@@ -87,7 +115,7 @@ internal partial class FilesManager
             FileSystemPath = destination
         };
         await repository.Rename(sourceNode, destinationNode, cancellationToken);
-        return new RenameNodeResult(RenameNodeResultType.Success, FileNodeResponse.Map(destinationNode));
+        return new RenameNodeResult(RenameNodeResultType.Success, destinationNode);
     }
     
     public record CopyNodeResultInner(CopyNodeResultType Type, FileNode? Node);

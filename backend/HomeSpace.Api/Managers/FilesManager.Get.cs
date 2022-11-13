@@ -1,7 +1,7 @@
 using System.IO.Compression;
 using System.Net.Mime;
-using System.Runtime.CompilerServices;
 using HomeSpace.Api.Model.Files;
+using HomeSpace.Database.Model;
 using HomeSpace.Infrastructure.Model;
 
 namespace HomeSpace.Api.Managers;
@@ -11,24 +11,19 @@ internal partial class FilesManager
     public async Task<PagedResult<DisplayFileNode>> GetNodes(long parentId, int page, int pageSize, FileNodeSort sortColumn,
         SortDirection sortDirection, CancellationToken cancellationToken)
     {
-        var user = currentUserProvider.RequireAuthorizedUser();
         var sortField = ResolveSortColumn(sortColumn);
         var files = await repository.GetNodes(user.Id, parentId, page, pageSize, sortField, sortDirection, cancellationToken);
         return files.Map(fn => DisplayFileNode.Map(fn.FileNode, fn.IsFavorite));
     }
     
-    public async Task<FileNodeResponse> GetNodeById(long id, CancellationToken cancellationToken)
+    public Task<FileNode?> GetNodeById(long id, CancellationToken cancellationToken)
     {
-        var user = currentUserProvider.RequireAuthorizedUser();
-        var node = await repository.GetNode(user.Id, id, cancellationToken);
-        return FileNodeResponse.Map(node);
+        return repository.GetNode(user.Id, id, cancellationToken);
     }
 
-    public async Task<FileNodeResponse?> GetNodeByPath(string path, CancellationToken cancellationToken)
+    public Task<FileNode?> GetNodeByPath(string path, CancellationToken cancellationToken)
     {
-        var user = currentUserProvider.RequireAuthorizedUser();
-        var node = await repository.GetNode(user.Id, path, cancellationToken);
-        return node is null ? null : FileNodeResponse.Map(node);
+        return repository.GetNode(user.Id, path, cancellationToken);
     }
 
     private string ResolveSortColumn(FileNodeSort sort)
@@ -50,18 +45,13 @@ internal partial class FilesManager
         }
     }
 
-    public async IAsyncEnumerable<FileNodeResponse> GetParents(long id, [EnumeratorCancellation] CancellationToken cancellationToken)
+    public IAsyncEnumerable<FileNode> GetParents(long id, CancellationToken cancellationToken)
     {
-        var user = currentUserProvider.RequireAuthorizedUser();
-        await foreach (var node in repository.GetParentNodes(user.Id, id, cancellationToken))
-        {
-            yield return FileNodeResponse.Map(node);
-        }
+        return repository.GetParentNodes(user.Id, id, cancellationToken);
     }
 
     public async Task<GetFileResult> GetNodesContent(long[] ids, CancellationToken cancellationToken)
     {
-        var user = currentUserProvider.RequireAuthorizedUser();
         if (ids.Length == 1)
         {
             return await GetFile(user.Id, ids[0], cancellationToken);
@@ -102,6 +92,10 @@ internal partial class FilesManager
     private async Task<GetFileResult> GetFile(long userId, long id, CancellationToken cancellationToken)
     {
         var fileNode = await repository.GetNode(userId, id, cancellationToken);
+        if (fileNode is null)
+        {
+            throw new FileNotFoundException();
+        }
         var (stream, title, contentType) = fileNode.NodeType switch
         {
             NodeType.Folder => (filesService.ZipFolder(userId, fileNode.FileSystemPath), string.Concat(fileNode.Title, ".zip"), MediaTypeNames.Application.Zip),

@@ -1,6 +1,3 @@
-create user files with createdb password 'files';
-create database files_db owner files encoding utf8;
-
 create table users (
    id bigserial,
    name varchar not null,
@@ -15,7 +12,6 @@ create table authentication_type (
 );
 
 insert into authentication_type values ( 1, 'password' );
-
 
 create table authentication_password (
 	id bigserial,
@@ -90,7 +86,7 @@ create table file_versions (
 	created_at timestamptz not null,
 	node_size bigint not null,
 	file_name varchar not null,
-	hashsum bytea NULL;
+	hashsum bytea NULL,
 	constraint pk_file_versions primary key (id, user_id, node_version),
 	constraint fk_file_versions foreign key (id, user_id) references file_nodes(id, user_id)
 );
@@ -115,7 +111,7 @@ create table trash_box (
 
 create index idx_trash_box on trash_box (user_id);
 
-CREATE TABLE public.favorite_nodes (
+CREATE TABLE favorite_nodes (
 	id int8 NOT NULL,
 	user_id int8 NOT NULL,
 	CONSTRAINT pk_favorite_nodes PRIMARY KEY (id, user_id),

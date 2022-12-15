@@ -4,10 +4,11 @@ public interface IFileSystem
 {
     Task CopyFile(string source, string destination, CancellationToken cancellationToken);
     Task MoveFile(string source, string destination, CancellationToken cancellationToken);
-    Task DeleteFile(string target, CancellationToken cancellationToken);
+    void DeleteFile(string target);
     Task CopyDirectory(string source, string destination, CancellationToken cancellationToken);
     Task MoveDirectory(string source, string destination, CancellationToken cancellationToken);
     Task DeleteDir(string target, CancellationToken cancellationToken);
+    void DeleteEmptyDir(string target);
     void CreateDir(string target);
     Stream OpenReadFile(string target);
     Stream CreateFile(string target);
@@ -29,12 +30,12 @@ internal sealed class FileSystem : IFileSystem
     public async Task MoveFile(string source, string destination, CancellationToken cancellationToken)
     {
         await CopyFile(source, destination, cancellationToken);
-        await DeleteFile(source, cancellationToken);
+        DeleteFile(source);
     }
-
-    public async Task DeleteFile(string target, CancellationToken cancellationToken)
+    
+    public void DeleteFile(string target)
     {
-        await Task.Run(() => File.Delete(target), cancellationToken);
+        File.Delete(target);
     }
     
     public async Task CopyDirectory(string source, string destination, CancellationToken cancellationToken)
@@ -68,6 +69,11 @@ internal sealed class FileSystem : IFileSystem
         await Task.Run(() => Directory.Delete(target, true), cancellationToken);
     }
 
+    public void DeleteEmptyDir(string target)
+    {
+        Directory.Delete(target, false);
+    }
+    
     public void CreateDir(string target)
     {
         Directory.CreateDirectory(target);
@@ -100,5 +106,4 @@ internal sealed class FileSystem : IFileSystem
         await writeStream.FlushAsync(cancellationToken);
         return writeStream.Length;
     }
-
 }

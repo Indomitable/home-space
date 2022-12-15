@@ -23,9 +23,12 @@ internal sealed class CalcFileNodeHashSum: IJob
     public async Task Execute(CancellationToken cancellationToken)
     {
         var fileNode = await repository.GetNode(userId, fileNodeId, cancellationToken);
-        await using var stream = filesService.ReadFile(userId, fileNode.FileSystemPath);
-        using var sha256 = SHA256.Create();
-        var hashSum = await sha256.ComputeHashAsync(stream, cancellationToken);
-        await repository.UpdateNodeHashSum(userId, fileNodeId, hashSum, cancellationToken);
+        if (fileNode is not null)
+        {
+            await using var stream = filesService.ReadFile(userId, fileNode.FileSystemPath);
+            using var sha256 = SHA256.Create();
+            var hashSum = await sha256.ComputeHashAsync(stream, cancellationToken);
+            await repository.UpdateNodeHashSum(userId, fileNodeId, hashSum, cancellationToken);
+        }
     }
 }

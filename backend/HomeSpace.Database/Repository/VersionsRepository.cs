@@ -7,6 +7,7 @@ public interface IVersionsRepository
 {
     IAsyncEnumerable<FileVersion> GetFileHistory(long userId, long id, SortDirection sortDirection, CancellationToken cancellationToken);
     Task AddFileVersion(long userId, long id, string name);
+    Task AddFileVersion(IDbTransaction transaction, long userId, long id, string name);
     Task CopyFileHistory(long sourceUserId, long sourceId, long destinationUserId, long destinationId, CancellationToken cancellationToken);
     Task DeleteFileHistory(long userId, long id, CancellationToken cancellationToken);
 }
@@ -41,6 +42,23 @@ select fn.id, fn.user_id,
 from file_nodes fn 
 where fn.user_id = $1 and fn.id = $2";
         return dbAccess.ExecuteNonQuery(sql, CancellationToken.None,
+            DbParameter.Create(userId),
+            DbParameter.Create(id),
+            DbParameter.Create(DateTime.UtcNow),
+            DbParameter.Create(name)
+        );
+    }
+    
+    public Task AddFileVersion(IDbTransaction transaction, long userId, long id, string name)
+    {
+        const string sql =
+            @"insert into file_versions (id, user_id, node_version, created_at, node_size, file_name, hashsum) 
+select fn.id, fn.user_id, 
+       coalesce((select max(fv.node_version) + 1 from file_versions fv where fv.user_id = fn.user_id and fv.id = fn.id), 1) as node_version, 
+       $3 as created_at, fn.node_size, $4 as file_name, fn.hashsum
+from file_nodes fn 
+where fn.user_id = $1 and fn.id = $2";
+        return transaction.ExecuteNonQuery(sql, CancellationToken.None,
             DbParameter.Create(userId),
             DbParameter.Create(id),
             DbParameter.Create(DateTime.UtcNow),

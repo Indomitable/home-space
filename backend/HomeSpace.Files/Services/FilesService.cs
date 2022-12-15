@@ -68,10 +68,11 @@ internal sealed class FilesService : IFilesService
         return await fileSystem.WriteFile(absolutePath, contents, cancellationToken);
     }
 
-    public async Task DeleteFile(long userId, string path, CancellationToken cancellationToken)
+    public Task DeleteFile(long userId, string path, CancellationToken cancellationToken)
     {
         var absolutePath = pathsService.ResolveAbsolutePath(userId, path);
-        await fileSystem.DeleteFile(absolutePath, cancellationToken);
+        fileSystem.DeleteFile(absolutePath);
+        return Task.CompletedTask;
     }
 
     public async Task DeleteFolder(long userId, string path, CancellationToken cancellationToken)

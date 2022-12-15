@@ -74,6 +74,15 @@ create table file_nodes (
 create index idx_file_nodes on file_nodes (user_id);
 create index idx_file_nodes_paths on file_nodes (user_id, filesystem_path);
 
+create table file_node_locks (
+	id bigint not null,
+	user_id bigint not null,
+	write_lock boolean not null,
+	lock_type smallint not null, -- Copy, Move, Delete
+	constraint pk_file_node_locks primary key (id, user_id),
+	constraint fk_file_node_locks foreign key (id, user_id) references file_nodes(id, user_id)
+);
+
 create table file_versions (
 	id bigint not null,
 	user_id bigint not null,

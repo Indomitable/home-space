@@ -12,6 +12,7 @@ public class DatabaseModule: Module
         builder.AddConfiguration<DbConfiguration>("Storage:DB");
         builder.RegisterType<DbCommandFactory>().As<IDbCommandFactory>().SingleInstance();
         builder.RegisterType<DbAccess>().As<IDbAccess>().SingleInstance();
+        builder.RegisterType<DbFactory>().As<IDbFactory>().SingleInstance();
         builder.RegisterType<UserRepository>().As<IUserRepository>().SingleInstance();
         builder.RegisterType<AuthenticationRepository>().As<IAuthenticationRepository>().SingleInstance();
         builder.RegisterType<FileNodeRepository>().As<IFileNodeRepository>().SingleInstance();

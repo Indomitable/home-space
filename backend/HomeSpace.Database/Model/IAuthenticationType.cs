@@ -2,5 +2,5 @@ namespace HomeSpace.Database.Model;
 
 public interface IAuthenticationType
 {
-    Task<long> Add(IDbAccess dbAccess);
+    Task<long> Add(IDbTransaction transaction);
 }

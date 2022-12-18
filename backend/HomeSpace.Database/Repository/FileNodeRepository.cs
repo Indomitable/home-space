@@ -5,7 +5,7 @@ namespace HomeSpace.Database.Repository;
 
 public interface IFileNodeRepository
 {
-    Task CreateRootNode(long userId);
+    Task CreateRootNode(IDbTransaction transaction, long userId);
 
     Task<PagedResult<(FileNode FileNode, bool IsFavorite)>> GetNodes(
         long userId, long parentId, int page, int pageSize, string sortColumn, SortDirection sortDirection, CancellationToken cancellationToken);
@@ -27,7 +27,7 @@ public interface IFileNodeRepository
     Task UpdateNode(long userId, long id, long size, string mimeType);
     IAsyncEnumerable<FileNode> GetParentNodes(long userId, long id, CancellationToken cancellationToken);
     IAsyncEnumerable<FileNode> GetChildNodes(long userId, long parentId, CancellationToken cancellationToken);
-    Task Rename(FileNode source, FileNode destination, CancellationToken cancellationToken);
+    Task Rename(IDbTransaction transaction, FileNode source, FileNode destination, CancellationToken cancellationToken);
     Task DeleteNode(long userId, long id, CancellationToken cancellationToken);
     Task DeleteNodeRecursive(long userId, long id, CancellationToken cancellationToken);
     Task UpdateNodeHashSum(long userId, long id, byte[] hashSum, CancellationToken cancellationToken);
@@ -42,17 +42,17 @@ internal sealed class FileNodeRepository : IFileNodeRepository
         this.access = access;
     }
 
-    public async Task CreateRootNode(long userId)
+    public async Task CreateRootNode(IDbTransaction transaction, long userId)
     {
         var sequenceSql =
             $"create sequence file_nodes_user_{userId} as bigint increment by 1 minvalue 1 NO MAXVALUE no cycle owned by file_nodes.id";
 
         const string insertSql = @"insert into file_nodes 
-            (id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size, hashsum)
-            values (0, $1, 'ROOT', null, 0, '/', 'inode/directory', $2, 0, null)";
+            (id, user_id, title, parent_id, node_type, filesystem_path, mime_type, modified_at, node_size, node_version, hashsum)
+            values (0, $1, 'ROOT', null, 0, '/', 'inode/directory', $2, 0, 1, null)";
 
-        await access.ExecuteNonQuery(sequenceSql, CancellationToken.None);
-        await access.ExecuteNonQuery(insertSql,
+        await transaction.ExecuteNonQuery(sequenceSql, CancellationToken.None);
+        await transaction.ExecuteNonQuery(insertSql,
             CancellationToken.None,
             DbParameter.Create(userId),
             DbParameter.Create(DateTime.UtcNow)
@@ -217,9 +217,8 @@ select fn.id, fn.user_id, fn.title, fn.parent_id, fn.node_type, fn.filesystem_pa
         );
     }
     
-    public async Task Rename(FileNode source, FileNode destination, CancellationToken cancellationToken)
+    public async Task Rename(IDbTransaction transaction, FileNode source, FileNode destination, CancellationToken cancellationToken)
     {
-        var transaction = await access.BeginTransaction();
         const string updateRootNode = @"update file_nodes
         set title = $3,
             filesystem_path = $4

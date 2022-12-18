@@ -21,18 +21,21 @@ internal sealed class TrashManager : ITrashManager
     private readonly ITrashRepository trashRepository;
     private readonly IVersionsRepository versionsRepository;
     private readonly ITrashService trashService;
+    private readonly IDbFactory dbFactory;
 
     public TrashManager(ICurrentUserProvider currentUserProvider, 
         IFileNodeRepository fileNodeRepository,
         ITrashRepository trashRepository,
         IVersionsRepository versionsRepository,
-        ITrashService trashService)
+        ITrashService trashService,
+        IDbFactory dbFactory)
     {
         user = currentUserProvider.RequireAuthorizedUser();
         this.fileNodeRepository = fileNodeRepository;
         this.trashRepository = trashRepository;
         this.versionsRepository = versionsRepository;
         this.trashService = trashService;
+        this.dbFactory = dbFactory;
     }
 
     public async Task<DeleteNodeResult> MoveToTrash(long id, CancellationToken cancellationToken)
@@ -62,9 +65,9 @@ internal sealed class TrashManager : ITrashManager
         //    3. Moved to trash: version 1 and version 2.
         //    4. Creates: a.txt - version 1
         //    5. Moves to trash: creates trash entry for a.txt with version 3.
-        
+        await using var transaction = await dbFactory.BeginTransaction();
         // Search if there is already a file with same name from same parent in the trash.
-        var trashNodes = await trashRepository.GetFileTrashNodes(deleteNode.UserId, deleteNode.FileSystemPath, cancellationToken).ToList();
+        var trashNodes = await trashRepository.GetFileTrashNodes(transaction, deleteNode.UserId, deleteNode.FileSystemPath, cancellationToken).ToList();
         // Return the one list biggest version
         var lastTrashNode = trashNodes.MaxBy(n => n.Version);
         var initialVersion = (lastTrashNode?.Version).GetValueOrDefault(0);
@@ -81,10 +84,10 @@ internal sealed class TrashManager : ITrashManager
                 Size = fileVersion.Size,
                 Version = fileVersion.Version
             };
-            await trashRepository.MoveNodeFromVersionToTrash(nodeVersion, fileName, initialVersion, cancellationToken);
+            await trashRepository.MoveNodeFromVersionToTrash(transaction, nodeVersion, fileName, initialVersion, cancellationToken);
         }
 
         var trashName = await trashService.MoveFileToTrash(deleteNode.UserId, deleteNode.FileSystemPath, cancellationToken);
-        await trashRepository.MoveNodeToTrash(deleteNode, trashName, initialVersion, cancellationToken);
+        await trashRepository.MoveNodeToTrash(transaction, deleteNode, trashName, initialVersion, cancellationToken);
     }
 }

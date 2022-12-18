@@ -8,7 +8,7 @@ public interface IUserRepository
 {
     Task<User?> GetById(long userId, CancellationToken cancellationToken);
     Task<User?> GetByName(string userName, CancellationToken cancellationToken);
-    Task<User?> CreateUser(string userName);
+    Task<User?> CreateUser(IDbTransaction transaction, string userName);
 }
 
 internal sealed class UserRepository : IUserRepository
@@ -34,12 +34,12 @@ internal sealed class UserRepository : IUserRepository
         return await dbAccess.QueryOne(sql, User.FromReader, cancellationToken, DbParameter.Create(userName));
     }
 
-    public async Task<User?> CreateUser(string userName)
+    public async Task<User?> CreateUser(IDbTransaction transaction, string userName)
     {
         const string sql = "insert into users (name) values ($1) returning id";
         try
         {
-            var userId = await dbAccess.ExecuteScalar<long?>(sql, CancellationToken.None, DbParameter.Create(userName));
+            var userId = await transaction.ExecuteScalar<long?>(sql, CancellationToken.None, DbParameter.Create(userName));
             if (userId.HasValue)
             {
                 return new User { Id = userId.Value, Name = userName };

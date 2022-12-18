@@ -4,55 +4,46 @@ namespace HomeSpace.Database.Repository;
 
 public interface ITrashRepository
 {
-    Task MoveNodeFromVersionToTrash(FileNode node, string fileName, int trashVersion, CancellationToken cancellationToken);
+    Task MoveNodeFromVersionToTrash(IDbTransaction transaction, FileNode node, string fileName, int trashVersion, CancellationToken cancellationToken);
     
-    Task MoveNodeToTrash(FileNode node, string fileName, int trashVersion, CancellationToken cancellationToken);
+    Task MoveNodeToTrash(IDbTransaction transaction, FileNode node, string fileName, int trashVersion, CancellationToken cancellationToken);
 
     /// <summary>
     /// Return all trash items for a node located by its path
     /// </summary>
-    IAsyncEnumerable<TrashNode> GetFileTrashNodes(long userId, string path, CancellationToken cancellationToken);
+    IAsyncEnumerable<TrashNode> GetFileTrashNodes(IDbTransaction transaction, long userId, string path, CancellationToken cancellationToken);
 
 }
 
 public class TrashRepository : ITrashRepository
 {
-    private readonly IDbAccess dbAccess;
-
-    public TrashRepository(IDbAccess dbAccess)
-    {
-        this.dbAccess = dbAccess;
-    }
-
-    public async Task MoveNodeFromVersionToTrash(FileNode node, string fileName, int trashVersion,
+    public async Task MoveNodeFromVersionToTrash(IDbTransaction transaction, FileNode node, string fileName, int trashVersion,
         CancellationToken cancellationToken)
     {
-        await using var tran = await dbAccess.BeginTransaction();
-        await CreateTrashNodeFromFileNode(tran, node, fileName, trashVersion, cancellationToken);
+        await CreateTrashNodeFromFileNode(transaction, node, fileName, trashVersion, cancellationToken);
 
         const string deleteSql = @"delete from file_versions where user_id = $1 and id = $2 and node_version = $3";
-        await tran.ExecuteNonQuery(deleteSql, cancellationToken,
+        await transaction.ExecuteNonQuery(deleteSql, cancellationToken,
             DbParameter.Create(node.UserId),
             DbParameter.Create(node.Id),
             DbParameter.Create(node.Version)
         );
         
-        await tran.Commit(cancellationToken);
+        await transaction.Commit(cancellationToken);
 
     }
 
-    public async Task MoveNodeToTrash(FileNode node, string fileName, int trashVersion, CancellationToken cancellationToken)
+    public async Task MoveNodeToTrash(IDbTransaction transaction, FileNode node, string fileName, int trashVersion, CancellationToken cancellationToken)
     {
-        await using var tran = await dbAccess.BeginTransaction();
-        await CreateTrashNodeFromFileNode(tran, node, fileName, trashVersion, cancellationToken);
+        await CreateTrashNodeFromFileNode(transaction, node, fileName, trashVersion, cancellationToken);
 
         const string deleteSql = @"delete from file_nodes where user_id = $1 and id = $2";
-        await tran.ExecuteNonQuery(deleteSql, cancellationToken,
+        await transaction.ExecuteNonQuery(deleteSql, cancellationToken,
             DbParameter.Create(node.UserId),
             DbParameter.Create(node.Id)
         );
         
-        await tran.Commit(cancellationToken);
+        await transaction.Commit(cancellationToken);
     }
 
     private async Task CreateTrashNodeFromFileNode(IDbTransaction transaction, FileNode node, string fileName, int trashVersion,
@@ -77,13 +68,13 @@ public class TrashRepository : ITrashRepository
         );
     }
 
-    public IAsyncEnumerable<TrashNode> GetFileTrashNodes(long userId, string path, CancellationToken cancellationToken)
+    public IAsyncEnumerable<TrashNode> GetFileTrashNodes(IDbTransaction transaction, long userId, string path, CancellationToken cancellationToken)
     {
         const string sql =
             @"select id, user_id, title, parent_id, node_type, filesystem_path, mime_type, version_created_at, deleted_at, node_size, node_version, file_name
     from trash_box 
     where user_id = $1 and filesystem_path = $2";
-        return dbAccess.Query(sql, TrashNode.FromReader, cancellationToken,
+        return transaction.Query(sql, TrashNode.FromReader, cancellationToken,
             DbParameter.Create(userId),
             DbParameter.Create(path)
         );

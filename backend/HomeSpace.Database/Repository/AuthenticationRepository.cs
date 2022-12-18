@@ -4,9 +4,9 @@ namespace HomeSpace.Database.Repository;
 
 public interface IAuthenticationRepository
 {
-    Task AddAuthentication(UserAuthentication userAuthentication);
-    Task<IAuthenticationType?> GetAuthentication(long userId, AuthenticationType type, CancellationToken cancellationToken);
-    Task SaveRefreshToken(long userId, string refreshToken, DateTime validTo, CancellationToken cancellationToken);
+    Task AddAuthentication(IDbTransaction transaction, UserAuthentication userAuthentication);
+    Task<IAuthenticationType?> GetAuthentication(IDbTransaction transaction, long userId, AuthenticationType type, CancellationToken cancellationToken);
+    Task SaveRefreshToken(IDbTransaction transaction, long userId, string refreshToken, DateTime validTo, CancellationToken cancellationToken);
     Task<User?> GetUserByRefreshToken(string refreshToken, CancellationToken cancellationToken);
     Task DeleteRefreshToken(string refreshToken, CancellationToken cancellationToken);
 }
@@ -20,18 +20,18 @@ internal class AuthenticationRepository : IAuthenticationRepository
         this.dbAccess = dbAccess;
     }
     
-    public async Task AddAuthentication(UserAuthentication userAuthentication)
+    public async Task AddAuthentication(IDbTransaction transaction, UserAuthentication userAuthentication)
     {
-        var authId = await userAuthentication.AuthenticationType.Add(dbAccess);
+        var authId = await userAuthentication.AuthenticationType.Add(transaction);
         const string insertSql = "insert into authentication (user_id, auth_type_id, auth_id) values ($1, $2, $3)";
-        await dbAccess.ExecuteNonQuery(insertSql,
+        await transaction.ExecuteNonQuery(insertSql,
             CancellationToken.None,
             DbParameter.Create(userAuthentication.UserId),
             DbParameter.Create((short)userAuthentication.Type),
             DbParameter.Create(authId));
     }
     
-    public async Task<IAuthenticationType?> GetAuthentication(long userId, AuthenticationType type, CancellationToken cancellationToken)
+    public async Task<IAuthenticationType?> GetAuthentication(IDbTransaction transaction, long userId, AuthenticationType type, CancellationToken cancellationToken)
     {
         const string selectSql = "select auth_id from authentication where user_id = $1 and auth_type_id = $2";
         var authId = await dbAccess.ExecuteScalar<long?>(selectSql,
@@ -44,15 +44,15 @@ internal class AuthenticationRepository : IAuthenticationRepository
         }
         return type switch
         {
-            AuthenticationType.Password => await PasswordAuthentication.Create(dbAccess, authId.Value),
+            AuthenticationType.Password => await PasswordAuthentication.Create(transaction, authId.Value),
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
         };
     }
 
-    public async Task SaveRefreshToken(long userId, string refreshToken, DateTime validTo, CancellationToken cancellationToken)
+    public async Task SaveRefreshToken(IDbTransaction transaction, long userId, string refreshToken, DateTime validTo, CancellationToken cancellationToken)
     {
         const string sql = "insert into refresh_tokens (token, user_id, valid_to) values ($1, $2, $3)";
-        await dbAccess.ExecuteNonQuery(sql, cancellationToken,
+        await transaction.ExecuteNonQuery(sql, cancellationToken,
             DbParameter.Create(refreshToken),
             DbParameter.Create(userId),
             DbParameter.Create(validTo)

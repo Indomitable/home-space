@@ -13,7 +13,6 @@ public interface IDbAccess
     Task<T?> QueryOptional<T>(string sql, Func<NpgsqlDataReader, T> factory, CancellationToken cancellationToken, params NpgsqlParameter[] parameters)
         where T: class;
     IAsyncEnumerable<T> Query<T>(string sql, Func<NpgsqlDataReader, T> factory, CancellationToken cancellationToken, params NpgsqlParameter[] parameters);
-    Task<IDbTransaction> BeginTransaction();
 }
 
 internal sealed class DbAccess : IDbAccess
@@ -25,11 +24,6 @@ internal sealed class DbAccess : IDbAccess
     {
         this.commandFactory = commandFactory;
         this.logger = logger;
-    }
-
-    public Task<IDbTransaction> BeginTransaction()
-    {
-        return commandFactory.CreateTransaction();
     }
 
     public async Task ExecuteNonQuery(string sql, CancellationToken cancellationToken, params NpgsqlParameter[] parameters)

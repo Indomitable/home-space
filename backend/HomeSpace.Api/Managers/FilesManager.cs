@@ -1,4 +1,5 @@
 using HomeSpace.Api.Model.Files;
+using HomeSpace.Database;
 using HomeSpace.Database.Model;
 using HomeSpace.Database.Repository;
 using HomeSpace.Files.Services;
@@ -82,6 +83,7 @@ internal sealed partial class FilesManager : IFilesManager
     private readonly IJobManager jobManager;
     private readonly ICalcHashSumFactory calcHashSumFactory;
     private readonly ITrashManager trashManager;
+    private readonly IDbFactory dbFactory;
     private readonly ILogger<FilesManager> logger;
 
     public FilesManager(
@@ -94,6 +96,7 @@ internal sealed partial class FilesManager : IFilesManager
         IJobManager jobManager,
         ICalcHashSumFactory calcHashSumFactory,
         ITrashManager trashManager,
+        IDbFactory dbFactory,
         ILogger<FilesManager> logger)
     {
         user = currentUserProvider.RequireAuthorizedUser();
@@ -105,6 +108,7 @@ internal sealed partial class FilesManager : IFilesManager
         this.jobManager = jobManager;
         this.calcHashSumFactory = calcHashSumFactory;
         this.trashManager = trashManager;
+        this.dbFactory = dbFactory;
         this.logger = logger;
     }
 }

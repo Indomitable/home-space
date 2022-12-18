@@ -7,7 +7,6 @@ namespace HomeSpace.Database;
 internal interface IDbCommandFactory
 {
     Task<DbCommand> Create(string sql);
-    Task<IDbTransaction> CreateTransaction();
 }
 
 internal sealed class DbCommandFactory : IDbCommandFactory
@@ -37,14 +36,6 @@ internal sealed class DbCommandFactory : IDbCommandFactory
         var command = connection.CreateCommand();
         command.CommandText = sql;
         return new DbCommand(connection, command);
-    }
-
-    public async Task<IDbTransaction> CreateTransaction()
-    {
-        var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync();
-        var transaction = await connection.BeginTransactionAsync();
-        return new DbTransaction(connection, transaction);
     }
 }
 

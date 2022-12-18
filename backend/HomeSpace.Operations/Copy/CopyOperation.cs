@@ -8,19 +8,19 @@ namespace HomeSpace.Operations.Copy;
 
 public class CopyOperation
 {
-    private readonly IDbAccess dbAccess;
+    private readonly IDbFactory dbFactory;
     private readonly IPathsService pathsService;
     private readonly IFileLocksRepository fileLocksRepository;
     private readonly IFileNodeRepository fileNodeRepository;
     private readonly IVersionsRepository versionsRepository;
 
-    public CopyOperation(IDbAccess dbAccess,
+    public CopyOperation(IDbFactory dbFactory,
         IPathsService pathsService,
         IFileLocksRepository fileLocksRepository,
         IFileNodeRepository fileNodeRepository,
         IVersionsRepository versionsRepository)
     {
-        this.dbAccess = dbAccess;
+        this.dbFactory = dbFactory;
         this.pathsService = pathsService;
         this.fileLocksRepository = fileLocksRepository;
         this.fileNodeRepository = fileNodeRepository;
@@ -29,7 +29,7 @@ public class CopyOperation
     
     public async Task Execute(long userId, IReadOnlyCollection<long> sourceIds, long destinationParentId, CancellationToken cancellationToken)
     {
-        var transaction =  await dbAccess.BeginTransaction();
+        var transaction =  await dbFactory.BeginTransaction();
         try
         {
             foreach (var id in sourceIds)
@@ -64,7 +64,7 @@ public class CopyOperation
         }
         catch (Exception e)
         {
-            await transaction.Rollback(CancellationToken.None);
+            await transaction.Rollback();
         }
     }
 }

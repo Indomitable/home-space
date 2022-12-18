@@ -114,7 +114,8 @@ internal partial class FilesManager
             Title = name,
             FileSystemPath = destination
         };
-        await repository.Rename(sourceNode, destinationNode, cancellationToken);
+        await using var transaction = await dbFactory.BeginTransaction();
+        await repository.Rename(transaction, sourceNode, destinationNode, cancellationToken);
         return new RenameNodeResult(RenameNodeResultType.Success, destinationNode);
     }
     

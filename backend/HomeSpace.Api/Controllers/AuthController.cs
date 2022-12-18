@@ -80,18 +80,18 @@ public class AuthController
     
     [HttpPost]
     [Route("register")]
-    public async Task<IActionResult> Register([FromBody]RegisterRequest request)
+    public async Task<IActionResult> Register([FromBody]RegisterRequest request, CancellationToken cancellationToken)
     {
         if (!configuration.RegisterEnabled)
         {
             return new ContentResult
             {
                 Content = "Better luck next time!",
-                ContentType = "text/plain",
+                ContentType = MediaTypeNames.Text.Plain,
                 StatusCode = StatusCodes.Status418ImATeapot
             };
         }
-        var (result, tokenResult) = await authenticationService.RegisterUser(request.UserName, request.Password);
+        var (result, tokenResult) = await authenticationService.RegisterUser(request.UserName, request.Password, cancellationToken);
         if (result == RegisterUserResult.Success)
         {
             return new OkObjectResult(TokenResponse.FromTokenResult(tokenResult!));

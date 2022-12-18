@@ -3,9 +3,9 @@ using Microsoft.Extensions.Logging;
 
 namespace HomeSpace.Files.UserOperations;
 
-public record DeleteFolderOperation(long UserId, string Path) : IFileOperation
+public record DeleteFolderUserOperation(long UserId, string Path) : IFileUserOperation
 {
-    public ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IFileOperation> logger, CancellationToken cancellationToken)
+    public ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IFileUserOperation> logger, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
         {
@@ -25,15 +25,15 @@ public record DeleteFolderOperation(long UserId, string Path) : IFileOperation
         return ValueTask.FromResult(true);
     }
 
-    public IRevertFileOperation CreateRevertOperation()
+    public IRevertFileUserOperation CreateRevertOperation()
     {
-        return new RevertDeleteFolderOperation(UserId, Path);
+        return new RevertDeleteFolderUserOperation(UserId, Path);
     }
 }
 
-public record RevertDeleteFolderOperation(long UserId, string Path) : IRevertFileOperation
+public record RevertDeleteFolderUserOperation(long UserId, string Path) : IRevertFileUserOperation
 {
-    public ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IRevertFileOperation> logger)
+    public ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IRevertFileUserOperation> logger)
     {
         try
         {

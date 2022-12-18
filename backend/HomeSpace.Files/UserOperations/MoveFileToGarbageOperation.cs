@@ -3,12 +3,12 @@ using Microsoft.Extensions.Logging;
 
 namespace HomeSpace.Files.UserOperations;
 
-public record MoveFileToGarbageOperation(long UserId, string Path, string TrashFileName): IFileOperation
+public record MoveFileUserToGarbageOperation(long UserId, string Path, string TrashFileName): IFileUserOperation
 {
     private bool fileCopied = false;
     private bool fileDeleted = false;
     
-    public async ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IFileOperation> logger, CancellationToken cancellationToken)
+    public async ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IFileUserOperation> logger, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
         {
@@ -35,15 +35,15 @@ public record MoveFileToGarbageOperation(long UserId, string Path, string TrashF
     /// <summary>
     /// Revert operation of copy operation is to delete the destination file. 
     /// </summary>
-    public IRevertFileOperation CreateRevertOperation()
+    public IRevertFileUserOperation CreateRevertOperation()
     {
-        return new RevertMoveFileToGarbageOperation(UserId, Path, TrashFileName, fileCopied, fileDeleted);
+        return new RevertMoveFileUserToGarbageOperation(UserId, Path, TrashFileName, fileCopied, fileDeleted);
     }
 }
 
-public record RevertMoveFileToGarbageOperation(long UserId, string Path, string TrashFileName, bool FileCopied, bool FileDeleted) : IRevertFileOperation
+public record RevertMoveFileUserToGarbageOperation(long UserId, string Path, string TrashFileName, bool FileCopied, bool FileDeleted) : IRevertFileUserOperation
 {
-    public async ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IRevertFileOperation> logger)
+    public async ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IRevertFileUserOperation> logger)
     {
         try
         {

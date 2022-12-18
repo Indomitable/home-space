@@ -9,7 +9,7 @@ public interface IDbFactory
     Task<IDbTransaction> BeginTransaction();
 }
 
-internal sealed class DbFactory
+internal sealed class DbFactory: IDbFactory
 {
     private readonly ILogger<IDbTransaction> logger;
     private readonly string connectionString;

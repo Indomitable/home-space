@@ -6,9 +6,9 @@ namespace HomeSpace.Files.UserOperations;
 /// <summary>
 /// Copy File on path to history folder with VersionFileName
 /// </summary>
-public record CreateFileVersion(long UserId, string Path, string VersionFileName): IFileOperation
+public record CreateFileUserVersion(long UserId, string Path, string VersionFileName): IFileUserOperation
 {
-    public async ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IFileOperation> logger, CancellationToken cancellationToken)
+    public async ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IFileUserOperation> logger, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
         {
@@ -28,18 +28,18 @@ public record CreateFileVersion(long UserId, string Path, string VersionFileName
         return true;
     }
 
-    public IRevertFileOperation CreateRevertOperation()
+    public IRevertFileUserOperation CreateRevertOperation()
     {
-        return new RevertFileVersion(UserId, VersionFileName, Path);
+        return new RevertFileUserVersion(UserId, VersionFileName, Path);
     }
 }
 
 /// <summary>
 /// Move file with VersionFileName from history folder to Path 
 /// </summary>
-public record RevertFileVersion(long UserId, string VersionFileName, string Path): IRevertFileOperation
+public record RevertFileUserVersion(long UserId, string VersionFileName, string Path): IRevertFileUserOperation
 {
-    public async ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IRevertFileOperation> logger)
+    public async ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IRevertFileUserOperation> logger)
     {
         try
         {

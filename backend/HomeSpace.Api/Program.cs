@@ -8,6 +8,7 @@ using HomeSpace.Files;
 using HomeSpace.Infrastructure.Configuration;
 using HomeSpace.Infrastructure.Json;
 using HomeSpace.Infrastructure.Logging;
+using HomeSpace.Operations;
 using HomeSpace.Security;
 using HomeSpace.Services;
 using Serilog;
@@ -31,6 +32,7 @@ try
         container.RegisterModule<SecurityModule>();
         container.RegisterModule<FilesModule>();
         container.RegisterModule<DatabaseModule>();
+        container.RegisterModule<OperationsModule>();
         container.RegisterModule<ApiModule>();
     });
     builder.Services

@@ -8,5 +8,6 @@
       <ProjectReference Include="..\HomeSpace.Database\HomeSpace.Database.csproj" />
       <ProjectReference Include="..\HomeSpace.Files\HomeSpace.Files.csproj" />
       <ProjectReference Include="..\HomeSpace.Infrastructure\HomeSpace.Infrastructure.csproj" />
+      <ProjectReference Include="..\HomeSpace.Operations\HomeSpace.Operations.csproj" />
     </ItemGroup>
 </Project>

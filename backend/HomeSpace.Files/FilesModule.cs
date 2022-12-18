@@ -15,5 +15,6 @@ public class FilesModule: Module
         builder.RegisterType<FilesService>().As<IFilesService>().SingleInstance();
         builder.RegisterType<VersionsService>().As<IVersionsService>().SingleInstance();
         builder.RegisterType<TrashService>().As<ITrashService>().SingleInstance();
+        builder.RegisterType<FileOperationFactory>().As<IFileOperationFactory>().SingleInstance();
     }
 }

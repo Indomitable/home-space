@@ -11,6 +11,7 @@
         <ProjectReference Include="..\HomeSpace.Database\HomeSpace.Database.csproj" />
         <ProjectReference Include="..\HomeSpace.Files\HomeSpace.Files.csproj" />
         <ProjectReference Include="..\HomeSpace.Infrastructure\HomeSpace.Infrastructure.csproj" />
+        <ProjectReference Include="..\HomeSpace.Operations\HomeSpace.Operations.csproj" />
         <ProjectReference Include="..\HomeSpace.Security\HomeSpace.Security.csproj" />
         <ProjectReference Include="..\HomeSpace.Services\HomeSpace.Services.csproj" />
     </ItemGroup>

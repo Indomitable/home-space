@@ -6,30 +6,28 @@ namespace HomeSpace.Operations;
 
 public interface ITransactionFactory
 {
-    ITransaction BeginTransaction();
+    Task<ITransaction> BeginTransaction();
 }
 
 internal sealed class TransactionFactory : ITransactionFactory
 {
-    private readonly IDbTransaction dbTransaction;
-    private readonly IPathsService pathsService;
+    private readonly IDbFactory dbFactory;
     private readonly IFileSystem fileSystem;
     private readonly ILoggerFactory loggerFactory;
 
     public TransactionFactory(
-        IDbTransaction dbTransaction,
-        IPathsService pathsService,
+        IDbFactory dbFactory,
         IFileSystem fileSystem,
         ILoggerFactory loggerFactory)
     {
-        this.dbTransaction = dbTransaction;
-        this.pathsService = pathsService;
+        this.dbFactory = dbFactory;
         this.fileSystem = fileSystem;
         this.loggerFactory = loggerFactory;
     }
 
-    public ITransaction BeginTransaction()
+    public async Task<ITransaction> BeginTransaction()
     {
-        return new Transaction(dbTransaction, pathsService, fileSystem, loggerFactory);
+        var dbTransaction = await dbFactory.BeginTransaction();
+        return new Transaction(dbTransaction, fileSystem, loggerFactory);
     }
 }

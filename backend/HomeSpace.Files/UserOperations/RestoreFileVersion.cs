@@ -6,9 +6,9 @@ namespace HomeSpace.Files.UserOperations;
 /// <summary>
 /// Copy version file over path.
 /// </summary>
-public record RestoreFileVersion(long UserId, string Path, string VersionFileName): IFileOperation
+public record RestoreFileUserVersion(long UserId, string Path, string VersionFileName): IFileUserOperation
 {
-    public async ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IFileOperation> logger, CancellationToken cancellationToken)
+    public async ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IFileUserOperation> logger, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
         {
@@ -34,7 +34,7 @@ public record RestoreFileVersion(long UserId, string Path, string VersionFileNam
     /// </summary>
     /// <returns></returns>
     /// <exception cref="NotSupportedException"></exception>
-    public IRevertFileOperation CreateRevertOperation()
+    public IRevertFileUserOperation CreateRevertOperation()
     {
         throw new NotSupportedException();
     }

@@ -1,9 +1,9 @@
 using System.Globalization;
 using System.Security.Claims;
-using HomeSpace.Database;
 using HomeSpace.Database.Model;
 using HomeSpace.Database.Repository;
 using HomeSpace.Files.Services;
+using HomeSpace.Operations;
 using HomeSpace.Security.Jwt;
 using HomeSpace.Security.Password;
 using Microsoft.Extensions.Logging;
@@ -54,8 +54,8 @@ internal sealed class AuthenticationService : IAuthenticationService
     private readonly IFileNodeRepository fileNodeRepository;
     private readonly IPasswordHasher passwordHasher;
     private readonly IJwtService jwtService;
-    private readonly IPathsService pathsService;
-    private readonly IDbFactory dbFactory;
+    private readonly ITransactionFactory transactionFactory;
+    private readonly IOperationFactory operationFactory;
     private readonly ILogger<AuthenticationService> logger;
 
     public AuthenticationService(IUserRepository userRepository,
@@ -63,8 +63,8 @@ internal sealed class AuthenticationService : IAuthenticationService
         IFileNodeRepository fileNodeRepository,
         IPasswordHasher passwordHasher,
         IJwtService jwtService,
-        IPathsService pathsService,
-        IDbFactory dbFactory,
+        ITransactionFactory transactionFactory,
+        IOperationFactory operationFactory,
         ILogger<AuthenticationService> logger)
     {
         this.userRepository = userRepository;
@@ -72,15 +72,14 @@ internal sealed class AuthenticationService : IAuthenticationService
         this.fileNodeRepository = fileNodeRepository;
         this.passwordHasher = passwordHasher;
         this.jwtService = jwtService;
-        this.pathsService = pathsService;
-        this.dbFactory = dbFactory;
+        this.transactionFactory = transactionFactory;
+        this.operationFactory = operationFactory;
         this.logger = logger;
     }
     
-    public async Task<(LoginUserResult, TokenResult?)> 
-        LoginUser(string userName, string password, CancellationToken cancellationToken)
+    public async Task<(LoginUserResult, TokenResult?)> LoginUser(string userName, string password, CancellationToken cancellationToken)
     {
-        await using var transaction = await dbFactory.BeginTransaction();
+        using var transaction = await transactionFactory.BeginTransaction();
         try
         {
             var user = await userRepository.GetByName(userName, cancellationToken);
@@ -88,7 +87,7 @@ internal sealed class AuthenticationService : IAuthenticationService
             {
                 return (LoginUserResult.UnknownUser, null);
             }
-            var auth = await authenticationRepository.GetAuthentication(transaction, user.Id, AuthenticationType.Password, cancellationToken);
+            var auth = await authenticationRepository.GetAuthentication(transaction.DbTransaction, user.Id, AuthenticationType.Password, cancellationToken);
             if (auth is not PasswordAuthentication pass)
             {
                 return (LoginUserResult.WrongAuthentication, null);
@@ -100,7 +99,7 @@ internal sealed class AuthenticationService : IAuthenticationService
                     new Claim(ClaimTypes.NameIdentifier, user.Id.ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64)
                 );
                 var (refreshToken, refreshTokenExpires) = jwtService.GenerateRefreshToken();
-                await authenticationRepository.SaveRefreshToken(transaction, user.Id, refreshToken, refreshTokenExpires, cancellationToken);
+                await authenticationRepository.SaveRefreshToken(transaction.DbTransaction, user.Id, refreshToken, refreshTokenExpires, cancellationToken);
                 return (LoginUserResult.Success, new TokenResult(accessToken, refreshToken, accessTokenExpires));
             }
             return (LoginUserResult.WrongPassword, null);
@@ -115,10 +114,10 @@ internal sealed class AuthenticationService : IAuthenticationService
 
     public async Task<(RegisterUserResult, TokenResult?)> RegisterUser(string userName, string password, CancellationToken cancellationToken)
     {
-        await using var transaction = await dbFactory.BeginTransaction();
+        using var transaction = await transactionFactory.BeginTransaction();
         try
         {
-            var user = await userRepository.CreateUser(transaction, userName);
+            var user = await userRepository.CreateUser(transaction.DbTransaction, userName);
             if (user is null)
             {
                 return (RegisterUserResult.UnableToCreateUser, null);
@@ -130,14 +129,14 @@ internal sealed class AuthenticationService : IAuthenticationService
                 Type = AuthenticationType.Password,
                 AuthenticationType = new PasswordAuthentication(hash.Password, hash.Salt)
             };
-            await authenticationRepository.AddAuthentication(transaction, authentication);
-            await fileNodeRepository.CreateRootNode(transaction, user.Id);
-            pathsService.InitUserFileSystem(user.Id);
+            await authenticationRepository.AddAuthentication(transaction.DbTransaction, authentication);
+            await fileNodeRepository.CreateRootNode(transaction.DbTransaction, user.Id);
+            await operationFactory.CreateInitUserFileSystemOperation().Execute(transaction, user.Id, cancellationToken);
             var (accessToken, accessTokenExpires) = jwtService.GenerateAccessToken (
                 new Claim(ClaimTypes.NameIdentifier, user.Id.ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64)
             );
             var (refreshToken, refreshTokenExpires) = jwtService.GenerateRefreshToken();
-            await authenticationRepository.SaveRefreshToken(transaction, user.Id, refreshToken, refreshTokenExpires, cancellationToken);
+            await authenticationRepository.SaveRefreshToken(transaction.DbTransaction, user.Id, refreshToken, refreshTokenExpires, cancellationToken);
             await transaction.Commit(cancellationToken);
             return (RegisterUserResult.Success, new TokenResult(accessToken, refreshToken, accessTokenExpires));
         }
@@ -151,7 +150,7 @@ internal sealed class AuthenticationService : IAuthenticationService
     
     public async Task<(RenewTokenResult, TokenResult?)> RenewAccessToken(string refreshToken, CancellationToken cancellationToken)
     {
-        await using var transaction = await dbFactory.BeginTransaction();
+        using var transaction = await transactionFactory.BeginTransaction();
         try
         {
             var user = await authenticationRepository.GetUserByRefreshToken(refreshToken, cancellationToken);
@@ -167,7 +166,7 @@ internal sealed class AuthenticationService : IAuthenticationService
                 new Claim(ClaimTypes.NameIdentifier, user.Id.ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64)
             );
             var (newRefreshToken, refreshTokenExpires) = jwtService.GenerateRefreshToken();
-            await authenticationRepository.SaveRefreshToken(transaction, user.Id, newRefreshToken, refreshTokenExpires, cancellationToken);
+            await authenticationRepository.SaveRefreshToken(transaction.DbTransaction, user.Id, newRefreshToken, refreshTokenExpires, cancellationToken);
             return (RenewTokenResult.Success, new TokenResult(accessToken, refreshToken, accessTokenExpires));
         }
         catch (Exception e)

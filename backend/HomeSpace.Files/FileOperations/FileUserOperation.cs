@@ -1,13 +1,11 @@
 using HomeSpace.Files.Services;
 using Microsoft.Extensions.Logging;
 
-namespace HomeSpace.Files.UserOperations;
+namespace HomeSpace.Files.FileOperations;
 
 public interface IFileOperation
 {
-    long UserId { get; }
-
-    ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IFileOperation> logger, CancellationToken cancellationToken);
+    Task Execute(IFileSystem fileSystem, ILogger<IFileOperation> logger, CancellationToken cancellationToken);
 
     IRevertFileOperation CreateRevertOperation();
 }
@@ -18,7 +16,5 @@ public interface IFileOperation
 /// </summary>
 public interface IRevertFileOperation
 {
-    long UserId { get; }
-
-    ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IRevertFileOperation> logger);
+    ValueTask<bool> Execute(IFileSystem fileSystem, ILogger<IRevertFileOperation> logger);
 }

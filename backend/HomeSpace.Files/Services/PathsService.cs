@@ -5,7 +5,6 @@ namespace HomeSpace.Files.Services;
 
 public interface IPathsService
 {
-    void InitUserFileSystem(long userId);
     string UserDirectory(long userId);
     string UserTrashDirectory(long userId);
     string UserVersionsDirectory(long userId);
@@ -20,6 +19,7 @@ public interface IPathsService
     string GetTrashFile(long userId);
     string GetTrashFile(long userId, string fileName);
     string UserUploadsDirectory(long userId);
+    string UserSystemDirectory(long userId);
 }
 
 internal sealed class PathsService : IPathsService
@@ -30,25 +30,18 @@ internal sealed class PathsService : IPathsService
     private const string DownloadsDir = "downloads";
     private const string UploadsDir = "uploads";
     
-    private readonly FilesConfiguration configuration;
+    private readonly string basePath;
 
     public PathsService(FilesConfiguration configuration)
     {
-        this.configuration = configuration;
+        basePath = configuration.BaseLocation;
     }
 
-    public void InitUserFileSystem(long userId)
-    {
-        Directory.CreateDirectory(UserDirectory(userId));
-        Directory.CreateDirectory(UserSystemDirectory(userId));
-        Directory.CreateDirectory(UserTrashDirectory(userId));
-        Directory.CreateDirectory(UserVersionsDirectory(userId));
-        Directory.CreateDirectory(UserDownloadsDirectory(userId));
-        Directory.CreateDirectory(UserUploadsDirectory(userId));
-    }
-
-    public string UserDirectory(long userId) => 
-        Path.Join(configuration.BaseLocation, userId.ToString(CultureInfo.InvariantCulture));
+    public string UserDirectory(long userId) =>
+        Path.Join(basePath, userId.ToString(CultureInfo.InvariantCulture));
+    
+    public string UserSystemDirectory(long userId) =>
+        Path.Join(basePath, SystemDir, userId.ToString(CultureInfo.InvariantCulture));
 
     public string UserTrashDirectory(long userId) =>
         Path.Join(UserSystemDirectory(userId), TrashDir);
@@ -102,7 +95,4 @@ internal sealed class PathsService : IPathsService
     {
         return Path.Join(UserTrashDirectory(userId), fileName);
     }
-
-    private string UserSystemDirectory(long userId) =>
-        Path.Join(configuration.BaseLocation, SystemDir, userId.ToString(CultureInfo.InvariantCulture));
 }

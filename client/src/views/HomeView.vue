@@ -66,6 +66,7 @@ onErrorCaptured((error) => {
 @media (max-width: 900px) {
     .home-content {
         display: block;
+        position: relative;
     }
     .home-view-navigation {
         position: absolute;

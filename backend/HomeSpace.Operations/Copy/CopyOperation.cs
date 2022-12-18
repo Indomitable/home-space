@@ -34,7 +34,7 @@ public class CopyOperation
         {
             foreach (var id in sourceIds)
             {
-                var copyOperations = new List<IFileOperation>();
+                var copyOperations = new List<IFileUserOperation>();
                 var sourceNode = await fileNodeRepository.GetNode(userId, id, cancellationToken);
                 if (sourceNode is null)
                 {
@@ -55,7 +55,7 @@ public class CopyOperation
                     // there is existing file there so add first create file version operation
                     var versionFile = Guid.NewGuid().ToString("N");
                     await versionsRepository.AddFileVersion(transaction, userId, existingFile.Id, versionFile);
-                    copyOperations.Add(new CreateFileVersion(userId, existingFile.FileSystemPath, versionFile));
+                    copyOperations.Add(new CreateFileUserVersion(userId, existingFile.FileSystemPath, versionFile));
                 }
 
             }

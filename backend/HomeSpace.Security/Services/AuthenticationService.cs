@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Security.Claims;
 using HomeSpace.Database.Model;
 using HomeSpace.Database.Repository;
-using HomeSpace.Files.Services;
 using HomeSpace.Operations;
 using HomeSpace.Security.Jwt;
 using HomeSpace.Security.Password;
@@ -33,12 +32,6 @@ public enum RenewTokenResult
 }
 
 public record TokenResult(string AccessToken, string RefreshToken, int ExpiresIn);
-
-public record LoginUser
-{
-    public LoginUserResult Status { get; set; }
-    public TokenResult? TokenResult { get; set; }
-}
 
 public interface IAuthenticationService
 {
@@ -100,14 +93,15 @@ internal sealed class AuthenticationService : IAuthenticationService
                 );
                 var (refreshToken, refreshTokenExpires) = jwtService.GenerateRefreshToken();
                 await authenticationRepository.SaveRefreshToken(transaction.DbTransaction, user.Id, refreshToken, refreshTokenExpires, cancellationToken);
+                await transaction.Commit(cancellationToken);
                 return (LoginUserResult.Success, new TokenResult(accessToken, refreshToken, accessTokenExpires));
             }
             return (LoginUserResult.WrongPassword, null);
         }
         catch (Exception e)
         {
-            await transaction.Rollback();
             logger.LogError(e, "Unable to login user");
+            await transaction.Rollback();
             return (LoginUserResult.UnknownError, null);
         }
     }
@@ -142,8 +136,8 @@ internal sealed class AuthenticationService : IAuthenticationService
         }
         catch (Exception e)
         {
-            await transaction.Rollback();
             logger.LogError(e, "Unable to register user.");
+            await transaction.Rollback();
             return (RegisterUserResult.UnableToCreateUser, null);
         }
     }
@@ -153,26 +147,27 @@ internal sealed class AuthenticationService : IAuthenticationService
         using var transaction = await transactionFactory.BeginTransaction();
         try
         {
-            var user = await authenticationRepository.GetUserByRefreshToken(refreshToken, cancellationToken);
+            var user = await authenticationRepository.GetUserByRefreshToken(transaction.DbTransaction, refreshToken, cancellationToken);
             if (user is null)
             {
                 return (RenewTokenResult.TokenInvalid, null);
             }
 
             // Delete the old refresh token it can be used only once.
-            await authenticationRepository.DeleteRefreshToken(refreshToken, cancellationToken);
+            await authenticationRepository.DeleteRefreshToken(transaction.DbTransaction, refreshToken, cancellationToken);
 
             var (accessToken, accessTokenExpires) = jwtService.GenerateAccessToken (
                 new Claim(ClaimTypes.NameIdentifier, user.Id.ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64)
             );
             var (newRefreshToken, refreshTokenExpires) = jwtService.GenerateRefreshToken();
             await authenticationRepository.SaveRefreshToken(transaction.DbTransaction, user.Id, newRefreshToken, refreshTokenExpires, cancellationToken);
+            await transaction.Commit(cancellationToken);
             return (RenewTokenResult.Success, new TokenResult(accessToken, refreshToken, accessTokenExpires));
         }
         catch (Exception e)
         {
-            await transaction.Rollback();
             logger.LogError(e, "Unable to renew access token.");
+            await transaction.Rollback();
             return (RenewTokenResult.UnknownError, null);
         }
     }

@@ -7,19 +7,12 @@ public interface IAuthenticationRepository
     Task AddAuthentication(IDbTransaction transaction, UserAuthentication userAuthentication);
     Task<IAuthenticationType?> GetAuthentication(IDbTransaction transaction, long userId, AuthenticationType type, CancellationToken cancellationToken);
     Task SaveRefreshToken(IDbTransaction transaction, long userId, string refreshToken, DateTime validTo, CancellationToken cancellationToken);
-    Task<User?> GetUserByRefreshToken(string refreshToken, CancellationToken cancellationToken);
-    Task DeleteRefreshToken(string refreshToken, CancellationToken cancellationToken);
+    Task<User?> GetUserByRefreshToken(IDbTransaction transaction, string refreshToken, CancellationToken cancellationToken);
+    Task DeleteRefreshToken(IDbTransaction transaction, string refreshToken, CancellationToken cancellationToken);
 }
 
 internal class AuthenticationRepository : IAuthenticationRepository
 {
-    private readonly IDbAccess dbAccess;
-
-    public AuthenticationRepository(IDbAccess dbAccess)
-    {
-        this.dbAccess = dbAccess;
-    }
-    
     public async Task AddAuthentication(IDbTransaction transaction, UserAuthentication userAuthentication)
     {
         var authId = await userAuthentication.AuthenticationType.Add(transaction);
@@ -34,7 +27,7 @@ internal class AuthenticationRepository : IAuthenticationRepository
     public async Task<IAuthenticationType?> GetAuthentication(IDbTransaction transaction, long userId, AuthenticationType type, CancellationToken cancellationToken)
     {
         const string selectSql = "select auth_id from authentication where user_id = $1 and auth_type_id = $2";
-        var authId = await dbAccess.ExecuteScalar<long?>(selectSql,
+        var authId = await transaction.ExecuteScalar<long?>(selectSql,
             cancellationToken,
             DbParameter.Create(userId),
             DbParameter.Create((short)type));
@@ -59,21 +52,21 @@ internal class AuthenticationRepository : IAuthenticationRepository
         );
     }
 
-    public async Task<User?> GetUserByRefreshToken(string refreshToken, CancellationToken cancellationToken)
+    public async Task<User?> GetUserByRefreshToken(IDbTransaction transaction, string refreshToken, CancellationToken cancellationToken)
     {
         const string sql = @"select u.id, u.name from users u
     inner join refresh_tokens rt on u.id = rt.user_id
     where rt.token = $1 and rt.valid_to > $2";
-        var user = await dbAccess.QueryOptional(sql, User.FromReader, cancellationToken,
+        var user = await transaction.QueryOptional(sql, User.FromReader, cancellationToken,
             DbParameter.Create(refreshToken),
             DbParameter.Create(DateTime.UtcNow)
         );
         return user;
     }
 
-    public async Task DeleteRefreshToken(string refreshToken, CancellationToken cancellationToken)
+    public async Task DeleteRefreshToken(IDbTransaction transaction, string refreshToken, CancellationToken cancellationToken)
     {
         const string sql = "delete from refresh_tokens where token = $1";
-        await dbAccess.ExecuteNonQuery(sql, cancellationToken, DbParameter.Create(refreshToken));
+        await transaction.ExecuteNonQuery(sql, cancellationToken, DbParameter.Create(refreshToken));
     }
 }

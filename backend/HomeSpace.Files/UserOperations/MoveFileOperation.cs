@@ -1,9 +1,9 @@
 using HomeSpace.Files.Services;
 using Microsoft.Extensions.Logging;
 
-namespace HomeSpace.Files.Operations;
+namespace HomeSpace.Files.UserOperations;
 
-public record MoveFileToGarbageOperation(long UserId, string Path, string TrashFileName): IFileOperation
+public record MoveFileOperation(long UserId, string SourcePath, string DestinationPath): IFileOperation
 {
     private bool fileCopied = false;
     private bool fileDeleted = false;
@@ -16,8 +16,8 @@ public record MoveFileToGarbageOperation(long UserId, string Path, string TrashF
         }
         try
         {
-            var sourceAbsolutePath = pathsService.ResolveAbsolutePath(UserId, Path);
-            var destinationAbsolutePath = pathsService.GetTrashFile(UserId, TrashFileName);
+            var sourceAbsolutePath = pathsService.ResolveAbsolutePath(UserId, SourcePath);
+            var destinationAbsolutePath = pathsService.ResolveAbsolutePath(UserId, DestinationPath);
             await fileSystem.CopyFile(sourceAbsolutePath, destinationAbsolutePath, cancellationToken);
             fileCopied = true;
             fileSystem.DeleteFile(sourceAbsolutePath);
@@ -25,7 +25,7 @@ public record MoveFileToGarbageOperation(long UserId, string Path, string TrashF
         }
         catch (Exception e)
         {
-            logger.LogError(e, "Unable to move file to trash. [UserId: {userId}][Source: {source}][TrashFileName: {destination}]", UserId, Path, TrashFileName);
+            logger.LogError(e, "Unable to move file. [UserId: {userId}][Source: {source}][Destination: {destination}]", UserId, SourcePath, DestinationPath);
             // Unable to copy file or cancel requested
             return false;
         }
@@ -37,18 +37,18 @@ public record MoveFileToGarbageOperation(long UserId, string Path, string TrashF
     /// </summary>
     public IRevertFileOperation CreateRevertOperation()
     {
-        return new RevertMoveFileToGarbageOperation(UserId, Path, TrashFileName, fileCopied, fileDeleted);
+        return new RevertMoveFileOperation(UserId, SourcePath, DestinationPath, fileCopied, fileDeleted);
     }
 }
 
-public record RevertMoveFileToGarbageOperation(long UserId, string Path, string TrashFileName, bool FileCopied, bool FileDeleted) : IRevertFileOperation
+public record RevertMoveFileOperation(long UserId, string SourcePath, string DestinationPath, bool FileCopied, bool FileDeleted) : IRevertFileOperation
 {
     public async ValueTask<bool> Execute(IPathsService pathsService, IFileSystem fileSystem, ILogger<IRevertFileOperation> logger)
     {
         try
         {
-            var sourceAbsolutePath = pathsService.ResolveAbsolutePath(UserId, Path);
-            var destinationAbsolutePath = pathsService.GetTrashFile(UserId, TrashFileName);
+            var sourceAbsolutePath = pathsService.ResolveAbsolutePath(UserId, SourcePath);
+            var destinationAbsolutePath = pathsService.ResolveAbsolutePath(UserId, DestinationPath);
 
             if (FileDeleted)
             {
@@ -62,12 +62,12 @@ public record RevertMoveFileToGarbageOperation(long UserId, string Path, string 
             }
             catch (Exception e)
             {
-                logger.LogError(e, "Unable to revert move to trash operation. Unable to delete destination [UserId: {userId}][TrashFileName: {trashFileName}]", UserId, TrashFileName);    
+                logger.LogError(e, "Unable to revert move operation. Unable to delete destination [UserId: {userId}][Path: {destinationPath}]", UserId, DestinationPath);    
             }
         }
         catch (Exception e)
         {
-            logger.LogError(e, "Unable to revert move operation. [UserId: {userId}][Source: {source}][TrashFileName: {trashFileName}]", UserId, Path, TrashFileName);
+            logger.LogError(e, "Unable to revert move operation. [UserId: {userId}][Source: {source}][Destination: {destination}]", UserId, SourcePath, DestinationPath);
             return false;
         }
         return true;

@@ -1,7 +1,7 @@
 using HomeSpace.Files.Services;
 using Microsoft.Extensions.Logging;
 
-namespace HomeSpace.Files.Operations;
+namespace HomeSpace.Files.UserOperations;
 
 public record CopyFileOperation(long UserId, string SourcePath, string DestinationPath): IFileOperation
 {

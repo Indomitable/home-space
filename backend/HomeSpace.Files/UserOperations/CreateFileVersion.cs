@@ -1,7 +1,7 @@
 using HomeSpace.Files.Services;
 using Microsoft.Extensions.Logging;
 
-namespace HomeSpace.Files.Operations;
+namespace HomeSpace.Files.UserOperations;
 
 /// <summary>
 /// Copy File on path to history folder with VersionFileName

@@ -1,4 +1,3 @@
-mod app_bar;
 mod breadcrumbs;
 mod menu;
 mod node_table;
@@ -7,7 +6,7 @@ mod toolbar;
 use std::collections::HashSet;
 
 use leptos::{ev, html::Input, prelude::*, task::spawn_local};
-use leptos_router::{components::Redirect, hooks::use_params_map};
+use leptos_router::hooks::use_params_map;
 use web_sys::{DragEvent, File, FileList};
 
 use api_client::{
@@ -17,7 +16,6 @@ use api_client::{
 use protocol::{Event, Node, NodeId, TicketRequest};
 
 use self::{
-    app_bar::AppBar,
     breadcrumbs::Breadcrumbs,
     node_table::{NodeTable, TableActions},
     toolbar::Toolbar,
@@ -31,14 +29,7 @@ use crate::{
 
 #[component]
 pub fn Browser(auth: Auth) -> impl IntoView {
-    view! {
-        <Show
-            when=move || auth.user.get().is_some()
-            fallback=|| view! { <Redirect path="/login" /> }
-        >
-            <Explorer auth />
-        </Show>
-    }
+    view! { <Explorer auth /> }
 }
 
 async fn fetch(folder: Option<NodeId>) -> Result<(Vec<Node>, Vec<Node>), ApiError> {
@@ -301,9 +292,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
     };
 
     view! {
-        <div class="browser">
-            <AppBar auth />
-            <main class="explorer">
+        <main class="explorer">
                 <div class="explorer__header">
                     <Breadcrumbs crumbs />
                     <Toolbar
@@ -327,8 +316,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                         <p class="explorer__empty">"Nothing here yet. Drop files anywhere to upload."</p>
                     </Show>
                 </div>
-            </main>
-        </div>
+        </main>
         <Show when=move || dragging.get()>
             <div class="drop-overlay" aria-hidden="true">
                 <p class="drop-overlay__label">

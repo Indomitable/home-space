@@ -87,6 +87,7 @@ async fn create_folder(
         .files
         .create_folder(user.id, request.parent_id, &request.name)
         .await?;
+    state.index_name(&node).await;
     let node = Node::from(node);
     state
         .hub
@@ -111,6 +112,8 @@ async fn upload(
             body_stream(body),
         )
         .await?;
+    state.index_name(&node).await;
+    state.search.enqueue_content(user.id, node.id);
     let node = Node::from(node);
     state
         .hub
@@ -129,6 +132,7 @@ async fn replace_content(
         .files
         .replace_content(user.id, id, declared_type(&headers), body_stream(body))
         .await?;
+    state.search.enqueue_content(user.id, node.id);
     let node = Node::from(node);
     state
         .hub
@@ -176,7 +180,9 @@ async fn update(
         name: request.name,
         parent_id: request.parent_id,
     };
-    let node = Node::from(state.files.update(user.id, id, changes).await?);
+    let node = state.files.update(user.id, id, changes).await?;
+    state.index_name(&node).await;
+    let node = Node::from(node);
     state
         .hub
         .publish(user.id, Event::NodeUpdated { node: node.clone() });

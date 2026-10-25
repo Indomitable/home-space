@@ -1,5 +1,6 @@
 mod auth;
 mod nodes;
+mod search;
 mod ws;
 
 use axum::{Json, Router, routing::get};
@@ -12,6 +13,7 @@ pub fn routes() -> Router<AppState> {
         .route("/health", get(health))
         .merge(auth::routes())
         .merge(nodes::routes())
+        .merge(search::routes())
         .merge(ws::routes())
 }
 

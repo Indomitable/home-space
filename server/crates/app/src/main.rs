@@ -9,6 +9,7 @@ use auth::{AuthConfig, AuthService};
 use db::Db;
 use files::{BlobStore, FileService};
 use notifications::Hub;
+use search::SearchIndex;
 
 use config::Config;
 
@@ -31,6 +32,18 @@ enum Command {
     /// Manage users.
     #[command(subcommand)]
     User(UserCommand),
+    /// Manage the search index.
+    #[command(subcommand)]
+    Search(SearchCommand),
+}
+
+#[derive(Subcommand)]
+enum SearchCommand {
+    /// Index everything that is missing or outdated; `--all` drops the index first.
+    Reindex {
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -63,6 +76,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::User(command) => run_user_command(command, &db, &cli.config).await,
+        Command::Search(command) => run_search_command(command, db, &cli.config).await,
         Command::Serve => serve(db, &cli.config).await,
     }
 }
@@ -80,12 +94,24 @@ async fn serve(db: Db, config: &Config) -> Result<()> {
     let store = BlobStore::open(&config.storage_root)
         .await
         .context("opening storage root")?;
+    let (search, _worker) = SearchIndex::start(db.clone(), store.clone(), Vec::new());
     let state = AppState {
         auth: auth_service(&db, config)?,
         files: FileService::new(db.clone(), store, config.max_upload_bytes),
         hub: Hub::new(),
+        search: search.clone(),
         db,
     };
+    tokio::spawn(async move {
+        match search.catch_up().await {
+            Ok(report) => tracing::info!(
+                names_indexed = report.names_indexed,
+                content_queued = report.content_queued,
+                "search index is up to date"
+            ),
+            Err(err) => tracing::error!(error = %err, "search index catch-up failed"),
+        }
+    });
     let listener = tokio::net::TcpListener::bind(config.bind)
         .await
         .with_context(|| format!("binding {}", config.bind))?;
@@ -103,6 +129,30 @@ async fn serve(db: Db, config: &Config) -> Result<()> {
 async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
     tracing::info!("shutting down");
+}
+
+async fn run_search_command(command: SearchCommand, db: Db, config: &Config) -> Result<()> {
+    match command {
+        SearchCommand::Reindex { all } => {
+            let store = BlobStore::open(&config.storage_root)
+                .await
+                .context("opening storage root")?;
+            let (search, worker) = SearchIndex::start(db, store, Vec::new());
+            let report = if all {
+                search.rebuild().await
+            } else {
+                search.catch_up().await
+            }
+            .context("reindexing")?;
+            drop(search);
+            worker.await.context("waiting for content indexing")?;
+            println!(
+                "indexed {} names, extracted content of {} files",
+                report.names_indexed, report.content_queued
+            );
+        }
+    }
+    Ok(())
 }
 
 async fn run_user_command(command: UserCommand, db: &Db, config: &Config) -> Result<()> {

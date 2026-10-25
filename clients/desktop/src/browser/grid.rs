@@ -21,20 +21,20 @@ use crate::{
 };
 
 const CHECK_WIDTH: f32 = 24.0;
-const SIZE_WIDTH: f32 = 96.0;
-const DATE_WIDTH: f32 = 140.0;
-const CELL_SPACING: f32 = 12.0;
-const ROW_PADDING: Padding = Padding {
+pub(super) const SIZE_WIDTH: f32 = 96.0;
+pub(super) const DATE_WIDTH: f32 = 140.0;
+pub(super) const CELL_SPACING: f32 = 12.0;
+pub(super) const ROW_PADDING: Padding = Padding {
     top: 6.0,
     right: 12.0,
     bottom: 6.0,
     left: 8.0,
 };
-const SCROLLBAR_GUTTER: f32 = 14.0;
-const ROW_GAP: f32 = 2.0;
+pub(super) const SCROLLBAR_GUTTER: f32 = 14.0;
+pub(super) const ROW_GAP: f32 = 2.0;
 const HEADER_SIZE: f32 = 13.0;
 const SORT_ARROW_GAP: f32 = 8.0;
-const ROW_SIZE: f32 = 15.0;
+pub(super) const ROW_SIZE: f32 = 15.0;
 const EMPTY_PADDING: f32 = 32.0;
 
 /// Column titles with the select-all checkbox, aligned with [`rows`].

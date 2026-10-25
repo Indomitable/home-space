@@ -18,6 +18,7 @@ use auth::{AuthConfig, AuthService};
 use db::Db;
 use files::{BlobStore, FileService};
 use notifications::Hub;
+use search::SearchIndex;
 
 pub const PASSWORD: &str = "password-123";
 
@@ -42,6 +43,7 @@ pub async fn setup(pool: PgPool) -> TestApp {
     let db = Db::from_pool(pool);
     let storage = tempfile::tempdir().expect("tempdir");
     let store = BlobStore::open(storage.path()).await.expect("store");
+    let (search, _worker) = SearchIndex::start(db.clone(), store.clone(), Vec::new());
     let config = AuthConfig {
         jwt_secret: b"integration-test-secret-integration".to_vec(),
         access_ttl: time::Duration::minutes(15),
@@ -51,6 +53,7 @@ pub async fn setup(pool: PgPool) -> TestApp {
         auth: AuthService::new(db.clone(), config).expect("auth"),
         files: FileService::new(db.clone(), store, 1024 * 1024),
         hub: Hub::new(),
+        search,
         db,
     };
     TestApp {

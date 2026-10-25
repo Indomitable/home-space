@@ -7,6 +7,7 @@ use axum::{
 use auth::AuthError;
 use files::FilesError;
 use protocol::{ErrorBody, ErrorCode};
+use search::SearchError;
 
 /// Error returned by handlers, rendered as `{ "error": code, "message": text }`.
 #[derive(Debug, thiserror::Error)]
@@ -19,6 +20,8 @@ pub enum ApiError {
     Auth(#[from] AuthError),
     #[error(transparent)]
     Files(#[from] FilesError),
+    #[error(transparent)]
+    Search(#[from] SearchError),
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -43,7 +46,7 @@ impl ApiError {
             Self::Files(FilesError::TooLarge { .. }) => {
                 (StatusCode::PAYLOAD_TOO_LARGE, ErrorCode::PayloadTooLarge)
             }
-            Self::Auth(_) | Self::Files(_) | Self::Internal(_) => {
+            Self::Auth(_) | Self::Files(_) | Self::Search(_) | Self::Internal(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Internal)
             }
         }

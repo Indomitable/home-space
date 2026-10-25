@@ -13,6 +13,7 @@ db = { path = "crates/db" }
 auth = { path = "crates/auth" }
 files = { path = "crates/files" }
 notifications = { path = "crates/notifications" }
+search = { path = "crates/search" }
 api = { path = "crates/api" }
 protocol = { path = "../shared/protocol", features = ["server"] }
 

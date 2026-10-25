@@ -4,12 +4,14 @@ mod error;
 mod models;
 mod nodes;
 mod refresh_tokens;
+mod search;
 mod users;
 
 pub use error::DbError;
 pub use models::{Node, RefreshToken, User};
 pub use nodes::{NewNode, NodeUpdate};
 pub use protocol::{NodeId, NodeKind, UserId};
+pub use search::{ContentState, RankedNode};
 pub use sqlx::PgPool;
 
 use sqlx::postgres::PgPoolOptions;

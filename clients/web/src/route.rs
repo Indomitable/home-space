@@ -13,6 +13,24 @@ pub fn folder(id: NodeId) -> String {
     format!("/folder/{}", short_id(id))
 }
 
+pub const SEARCH_PATH: &str = "/search";
+pub const SEARCH_PARAM: &str = "q";
+
+/// The search page for `query`, with the query percent-encoded.
+pub fn search(query: &str) -> String {
+    let encoded = query
+        .bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+                char::from(byte).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect::<String>();
+    format!("{SEARCH_PATH}?{SEARCH_PARAM}={encoded}")
+}
+
 /// Parses a route id, accepting the short form and the legacy hex form.
 pub fn parse_id(value: &str) -> Option<NodeId> {
     URL_SAFE_NO_PAD
@@ -41,6 +59,11 @@ mod tests {
     #[test]
     fn legacy_hex_form_still_parses() {
         assert_eq!(parse_id(&id().to_string()), Some(id()));
+    }
+
+    #[test]
+    fn search_path_percent_encodes_the_query() {
+        assert_eq!(search("a b&c/ü"), "/search?q=a%20b%26c%2F%C3%BC");
     }
 
     #[test]

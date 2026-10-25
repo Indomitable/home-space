@@ -3,8 +3,8 @@
 ## Server
 
 Rust workspace in `server/`: `db` (sqlx/Postgres), `auth` (argon2 + JWT access/refresh tokens),
-`files` (blobs on disk + ownership-scoped tree), `notifications` (per-user websocket events),
-`api` (axum REST + `/ws`), `app` (the `homespace` binary).
+`files` (blobs on disk + ownership-scoped tree), `search` (full-text index), `notifications`
+(per-user websocket events), `api` (axum REST + `/ws`), `app` (the `homespace` binary).
 
 ```sh
 cd server
@@ -16,6 +16,20 @@ cargo run -p app -- serve       # http://127.0.0.1:8080/api/v1
 
 Tests need the database running and `DATABASE_URL` set (`.env` is picked up):
 `cargo test --workspace`.
+
+### Search
+
+Names are indexed in Postgres (`search_entries`: a weighted `tsvector` with a GIN index) when a
+node is created or renamed; deleting a node removes its entry. On startup the server indexes
+anything missing, and `cargo run -p app -- search reindex [--all]` does the same on demand
+(`--all` drops the index first).
+
+File content is indexed through `ContentProvider`s (`server/crates/search/src/provider.rs`). None
+are registered yet, so only names are searched. To add one, implement the trait (`id`, `version`,
+`accepts`, `extract`) and pass it to `SearchIndex::start` in `server/crates/app/src/main.rs`.
+Extraction runs in a background worker after upload or replace, and the startup/`reindex` pass
+re-extracts files whose content or provider version changed. Content matches rank below name
+matches.
 
 ### API (`/api/v1`)
 
@@ -29,6 +43,7 @@ Tests need the database running and `DATABASE_URL` set (`.env` is picked up):
 | POST | `/files?name=&parent_id=` | raw-body streaming upload |
 | GET / PUT | `/files/{id}/content` | download / replace content |
 | GET | `/nodes/{id}/ancestors` | path from the root down to the node's parent |
+| GET | `/search?q=&limit=` | full-text search; every word matches as a prefix, hits carry their `location` |
 | POST | `/tickets` | `{scope: "events"}` or `{scope: "download", node_id}` → 60 s ticket |
 | GET | `/ws` | live `node_created` / `node_updated` / `node_deleted` / `resync` events |
 | GET | `/health` | liveness + DB ping |

@@ -8,7 +8,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use protocol::UploadQuery;
 use protocol::{
     CreateFolderRequest, ErrorBody, ListQuery, LoginRequest, Me, Node, NodeId, RefreshRequest,
-    TicketRequest, TicketResponse, TokenPair, UpdateRequest, paths,
+    SearchHit, SearchQuery, TicketRequest, TicketResponse, TokenPair, UpdateRequest, paths,
 };
 
 use crate::ApiError;
@@ -157,6 +157,16 @@ impl Client {
     pub async fn list(&self, parent: Option<NodeId>) -> Result<Vec<Node>, ApiError> {
         let query = ListQuery { parent_id: parent };
         self.send_json(|| self.http.get(self.url(paths::NODES)).query(&query))
+            .await
+    }
+
+    /// Searches the signed-in user's files and folders by name.
+    pub async fn search(&self, query: &str) -> Result<Vec<SearchHit>, ApiError> {
+        let query = SearchQuery {
+            q: query.to_owned(),
+            limit: None,
+        };
+        self.send_json(|| self.http.get(self.url(paths::SEARCH)).query(&query))
             .await
     }
 

@@ -1,6 +1,7 @@
 mod context_menu;
 mod dialogs;
 mod grid;
+mod search;
 mod selection;
 mod toolbar;
 
@@ -13,7 +14,10 @@ use iced::{
     Alignment, Element, Event, Length, Point, Size, Subscription, Task, event,
     keyboard::{self, Key, Modifiers, key::Named},
     mouse,
-    widget::{button, center, column, container, mouse_area, opaque, pin, row, space, stack, text},
+    widget::{
+        button, center, column, container, mouse_area, opaque, pin, row, space, stack, text,
+        text_input,
+    },
     window,
 };
 
@@ -21,15 +25,18 @@ use api_client::{
     ApiError, Client,
     listing::{Sort, SortKey, affects_path, apply_event, collapsed_crumbs, sort_nodes},
 };
-use protocol::{Me, Node, NodeId, NodeKind};
+use protocol::{Me, Node, NodeId, NodeKind, SearchHit};
 
 use self::{
     dialogs::{Dialog, Outcome},
+    search::Search,
     selection::Selection,
     toolbar::Action,
 };
 use crate::{
-    events, theme,
+    events,
+    icons::{ICON_SIZE, Icon, Tint},
+    theme,
     transfers::{self, Batch, Direction, DownloadFile, Transfers, UploadPlan},
 };
 
@@ -37,6 +44,8 @@ const PAGE_PADDING: f32 = 16.0;
 const SPACING: f32 = 12.0;
 const GRID_SPACING: f32 = 4.0;
 const USERNAME_SIZE: f32 = 18.0;
+const SEARCH_WIDTH: f32 = 280.0;
+const SEARCH_PLACEHOLDER: &str = "Search files and folders";
 const DROP_PADDING: f32 = 32.0;
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 const DEFAULT_WINDOW: Size = Size::new(1024.0, 768.0);
@@ -88,6 +97,11 @@ pub enum Message {
     FileDropped(PathBuf),
     FilesHoveredLeft,
     Server(protocol::Event),
+    SearchChanged(String),
+    SearchDebounced(u64),
+    SearchLoaded(u64, Result<Vec<SearchHit>, ApiError>),
+    SearchOpen(usize),
+    SearchClear,
     SignOut,
     SignedOut,
 }
@@ -127,6 +141,7 @@ pub struct State {
     dialog: Option<Dialog>,
     transfers: Transfers,
     dropping: bool,
+    search: Search,
 }
 
 impl State {
@@ -151,6 +166,7 @@ impl State {
             dialog: None,
             transfers: Transfers::default(),
             dropping: false,
+            search: Search::default(),
         };
         let task = state.load();
         (state, task)
@@ -287,6 +303,39 @@ impl State {
                     Task::none()
                 }
             }
+            Message::SearchChanged(query) => match self.search.change(query) {
+                Some(seq) => Task::perform(
+                    async move {
+                        tokio::time::sleep(search::DEBOUNCE).await;
+                        seq
+                    },
+                    Message::SearchDebounced,
+                ),
+                None => Task::none(),
+            },
+            Message::SearchDebounced(seq) if self.search.accepts(seq) => {
+                self.search.start();
+                let client = self.client.clone();
+                let query = self.search.query().trim().to_owned();
+                Task::perform(async move { client.search(&query).await }, move |result| {
+                    Message::SearchLoaded(seq, result)
+                })
+            }
+            Message::SearchDebounced(_) => Task::none(),
+            Message::SearchLoaded(seq, result) => {
+                if self.search.accepts(seq) {
+                    self.search.finish(result);
+                }
+                Task::none()
+            }
+            Message::SearchOpen(index) => match self.search.hit(index).map(search::destination) {
+                Some(folder) => self.open_folder(folder),
+                None => Task::none(),
+            },
+            Message::SearchClear => {
+                self.search.clear();
+                Task::none()
+            }
             Message::SignOut => {
                 let client = self.client.clone();
                 Task::perform(
@@ -302,6 +351,7 @@ impl State {
 
     fn open_folder(&mut self, folder: Option<NodeId>) -> Task<Message> {
         self.folder = folder;
+        self.search.clear();
         self.loading = true;
         self.error = None;
         self.selection.clear();
@@ -399,6 +449,11 @@ impl State {
                 _ => Task::none(),
             }
         } else if self.menu.take().is_some() && shortcut == Shortcut::Escape {
+            Task::none()
+        } else if self.search.is_active() {
+            if shortcut == Shortcut::Escape {
+                self.search.clear();
+            }
             Task::none()
         } else {
             match shortcut {
@@ -503,6 +558,7 @@ impl State {
         let header = row![
             text(self.me.username.as_str()).size(USERNAME_SIZE),
             space::horizontal(),
+            self.search_box(),
             button("Sign out")
                 .style(button::secondary)
                 .on_press(Message::SignOut),
@@ -510,17 +566,22 @@ impl State {
         .spacing(SPACING)
         .align_y(Alignment::Center);
 
-        let mut page =
-            column![header, self.breadcrumbs(), toolbar::view(&selected)].spacing(SPACING);
-        if let Some(error) = &self.error {
-            page = page.push(container(text(error.as_str())).style(theme::error));
-        }
-        let grid = column![
-            grid::header(self.selection.coverage(&self.listing.nodes), self.sort),
-            grid::rows(&self.listing.nodes, &self.selection),
-        ]
-        .spacing(GRID_SPACING);
-        let page = container(page.push(grid))
+        let page = if self.search.is_active() {
+            column![header, self.search.view()].spacing(SPACING)
+        } else {
+            let mut page =
+                column![header, self.breadcrumbs(), toolbar::view(&selected)].spacing(SPACING);
+            if let Some(error) = &self.error {
+                page = page.push(container(text(error.as_str())).style(theme::error));
+            }
+            let grid = column![
+                grid::header(self.selection.coverage(&self.listing.nodes), self.sort),
+                grid::rows(&self.listing.nodes, &self.selection),
+            ]
+            .spacing(GRID_SPACING);
+            page.push(grid)
+        };
+        let page = container(page)
             .padding(PAGE_PADDING)
             .width(Length::Fill)
             .height(Length::Fill);
@@ -576,6 +637,21 @@ impl State {
             layers.push(center(label).style(theme::backdrop).into());
         }
         stack(layers).into()
+    }
+
+    fn search_box(&self) -> Element<'_, Message> {
+        let input = text_input(SEARCH_PLACEHOLDER, self.search.query())
+            .on_input(Message::SearchChanged)
+            .width(SEARCH_WIDTH);
+        let mut bar = row![input].spacing(GRID_SPACING).align_y(Alignment::Center);
+        if !self.search.query().is_empty() {
+            bar = bar.push(
+                button(Icon::Close.view(ICON_SIZE, Tint::Muted))
+                    .style(theme::tool)
+                    .on_press(Message::SearchClear),
+            );
+        }
+        bar.into()
     }
 
     fn hidden_crumbs(&self) -> &[Node] {
@@ -911,6 +987,105 @@ mod tests {
         }));
 
         assert!(state.selected().is_empty());
+    }
+
+    fn hit_for(node: Node) -> SearchHit {
+        SearchHit {
+            node,
+            location: Vec::new(),
+        }
+    }
+
+    fn searching(state: &mut State, query: &str) -> u64 {
+        let _ = state.update(Message::SearchChanged(query.to_owned()));
+        state.search.seq
+    }
+
+    #[test]
+    fn typing_a_query_schedules_a_debounced_search() {
+        let mut state = state_with_listing();
+
+        let update = state.update(Message::SearchChanged("rep".to_owned()));
+
+        assert!(matches!(update, Update::Task(task) if task.units() > 0));
+        assert!(state.search.is_active());
+    }
+
+    #[test]
+    fn a_blank_query_schedules_nothing() {
+        let mut state = state_with_listing();
+
+        let update = state.update(Message::SearchChanged("  ".to_owned()));
+
+        assert!(matches!(update, Update::Task(task) if task.units() == 0));
+    }
+
+    #[test]
+    fn results_of_an_outdated_query_are_ignored() {
+        let mut state = state_with_listing();
+        let stale = searching(&mut state, "a");
+        searching(&mut state, "ab");
+
+        let _ = state.update(Message::SearchLoaded(
+            stale,
+            Ok(vec![hit_for(node(FILE_NAME, NodeKind::File, FILE_ID))]),
+        ));
+
+        assert!(state.search.hit(0).is_none());
+    }
+
+    #[test]
+    fn results_of_the_current_query_are_shown() {
+        let mut state = state_with_listing();
+        let seq = searching(&mut state, "rep");
+
+        let _ = state.update(Message::SearchLoaded(
+            seq,
+            Ok(vec![hit_for(node(FILE_NAME, NodeKind::File, FILE_ID))]),
+        ));
+        let mut ui = simulator(state.view());
+
+        assert!(ui.find(FILE_NAME).is_ok());
+    }
+
+    #[test]
+    fn opening_a_folder_hit_leaves_the_search() {
+        let mut state = state_with_listing();
+        let seq = searching(&mut state, "folder");
+        let _ = state.update(Message::SearchLoaded(
+            seq,
+            Ok(vec![hit_for(node(
+                FOLDER_NAME,
+                NodeKind::Folder,
+                FOLDER_ID,
+            ))]),
+        ));
+
+        let _ = state.update(Message::SearchOpen(0));
+
+        assert_eq!(state.folder, Some(id(FOLDER_ID)));
+        assert!(!state.search.is_active());
+    }
+
+    #[test]
+    fn escape_clears_an_active_search() {
+        let mut state = state_with_listing();
+        searching(&mut state, "rep");
+
+        let _ = state.update(Message::Shortcut(Shortcut::Escape));
+
+        assert!(!state.search.is_active());
+    }
+
+    #[test]
+    fn folder_shortcuts_do_nothing_while_searching() {
+        let mut state = state_with_listing();
+        let _ = state.update(Message::Click(id(FILE_ID)));
+        searching(&mut state, "rep");
+
+        let _ = state.update(Message::Shortcut(Shortcut::Delete));
+
+        assert!(state.dialog.is_none());
     }
 
     #[test]

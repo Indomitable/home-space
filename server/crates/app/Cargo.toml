@@ -20,6 +20,7 @@ dotenvy.workspace = true
 files.workspace = true
 notifications.workspace = true
 rpassword.workspace = true
+search.workspace = true
 time.workspace = true
 tokio.workspace = true
 tracing.workspace = true

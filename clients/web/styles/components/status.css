@@ -1,0 +1,5 @@
+.status {
+  padding: var(--space-7) var(--space-4);
+  color: var(--color-muted);
+  text-align: center;
+}

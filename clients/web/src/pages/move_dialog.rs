@@ -48,26 +48,39 @@ pub fn MoveDialog(
     };
 
     view! {
-        <div class="backdrop" on:click=move |_| moving.set(None)>
-            <div class="dialog" role="dialog" on:click=|event| event.stop_propagation()>
-                <h2>{format!("Move “{}”", node.name)}</h2>
-                <p class="path">
-                    {move || {
-                        let names: Vec<String> = trail
-                            .read()
-                            .iter()
-                            .map(|folder| folder.name.clone())
-                            .collect();
-                        format!("/{}", names.join("/"))
-                    }}
-                </p>
-                <ul class="picker">
+        <div class="modal" on:click=move |_| moving.set(None)>
+            <div
+                class="modal__panel"
+                role="dialog"
+                aria-modal="true"
+                on:click=|event| event.stop_propagation()
+            >
+                <header class="modal__header">
+                    <h2 class="modal__title">{format!("Move “{}”", node.name)}</h2>
+                    <p class="modal__subtitle">
+                        {move || {
+                            let names: Vec<String> = trail
+                                .read()
+                                .iter()
+                                .map(|folder| folder.name.clone())
+                                .collect();
+                            format!("To /{}", names.join("/"))
+                        }}
+                    </p>
+                </header>
+                <ul class="folder-picker">
                     <Show when=move || !trail.read().is_empty()>
                         <li>
-                            <button on:click=move |_| trail.update(|path| { path.pop(); })>
+                            <button
+                                class="folder-picker__button folder-picker__button--up"
+                                on:click=move |_| trail.update(|path| { path.pop(); })
+                            >
                                 "↑ Up"
                             </button>
                         </li>
+                    </Show>
+                    <Show when=move || folders.read().is_empty()>
+                        <li class="folder-picker__empty">"No subfolders"</li>
                     </Show>
                     <For
                         each=move || folders.get()
@@ -76,20 +89,34 @@ pub fn MoveDialog(
                             let name = folder.name.clone();
                             view! {
                                 <li>
-                                    <button on:click=move |_| {
-                                        trail.update(|path| path.push(folder.clone()))
-                                    }>{format!("📁 {name}")}</button>
+                                    <button
+                                        class="folder-picker__button"
+                                        on:click=move |_| {
+                                            trail.update(|path| path.push(folder.clone()))
+                                        }
+                                    >
+                                        <span aria-hidden="true">"📁"</span>
+                                        {name}
+                                    </button>
                                 </li>
                             }
                         }
                     />
                 </ul>
                 {move || {
-                    error.get().map(|message| view! { <p class="error" role="alert">{message}</p> })
+                    error
+                        .get()
+                        .map(|message| {
+                            view! { <p class="alert alert--error" role="alert">{message}</p> }
+                        })
                 }}
-                <div class="dialog-actions">
-                    <button on:click=move |_| moving.set(None)>"Cancel"</button>
-                    <button class="primary" on:click=confirm>"Move here"</button>
+                <div class="modal__actions">
+                    <button class="button" on:click=move |_| moving.set(None)>
+                        "Cancel"
+                    </button>
+                    <button class="button button--primary" on:click=confirm>
+                        "Move here"
+                    </button>
                 </div>
             </div>
         </div>

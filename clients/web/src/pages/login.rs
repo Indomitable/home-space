@@ -31,35 +31,50 @@ pub fn Login(auth: Auth) -> impl IntoView {
             <Redirect path="/" />
         </Show>
         <main class="login">
-            <h1>"home-space"</h1>
-            <form on:submit=submit>
-                <label>
-                    "Username"
-                    <input
-                        type="text"
-                        autocomplete="username"
-                        required
-                        prop:value=move || username.get()
-                        on:input:target=move |event| username.set(event.target().value())
-                    />
-                </label>
-                <label>
-                    "Password"
-                    <input
-                        type="password"
-                        autocomplete="current-password"
-                        required
-                        prop:value=move || password.get()
-                        on:input:target=move |event| password.set(event.target().value())
-                    />
-                </label>
-                {move || {
-                    error.get().map(|message| view! { <p class="error" role="alert">{message}</p> })
-                }}
-                <button type="submit" class="primary" disabled=move || busy.get()>
-                    "Log in"
-                </button>
-            </form>
+            <section class="login__card">
+                <header class="login__header">
+                    <h1 class="login__title">"home-space"</h1>
+                    <p class="login__subtitle">"Sign in to your files"</p>
+                </header>
+                <form class="login__form" on:submit=submit>
+                    <label class="field">
+                        <span class="field__label">"Username"</span>
+                        <input
+                            class="field__input"
+                            type="text"
+                            autocomplete="username"
+                            required
+                            prop:value=move || username.get()
+                            on:input:target=move |event| username.set(event.target().value())
+                        />
+                    </label>
+                    <label class="field">
+                        <span class="field__label">"Password"</span>
+                        <input
+                            class="field__input"
+                            type="password"
+                            autocomplete="current-password"
+                            required
+                            prop:value=move || password.get()
+                            on:input:target=move |event| password.set(event.target().value())
+                        />
+                    </label>
+                    {move || {
+                        error
+                            .get()
+                            .map(|message| {
+                                view! { <p class="alert alert--error" role="alert">{message}</p> }
+                            })
+                    }}
+                    <button
+                        type="submit"
+                        class="button button--primary button--block"
+                        disabled=move || busy.get()
+                    >
+                        "Log in"
+                    </button>
+                </form>
+            </section>
         </main>
     }
 }

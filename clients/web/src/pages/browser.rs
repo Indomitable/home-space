@@ -222,11 +222,13 @@ fn Explorer(auth: Auth) -> impl IntoView {
     };
 
     view! {
-        <header class="bar">
-            <h1>"home-space"</h1>
-            <span class="grow"></span>
-            <span class="user">{move || auth.user.get().map(|user| user.username)}</span>
-            <button on:click=move |_| auth.logout()>"Log out"</button>
+        <header class="app-bar">
+            <h1 class="app-bar__brand">"home-space"</h1>
+            <span class="app-bar__spacer"></span>
+            <span class="app-bar__user">{move || auth.user.get().map(|user| user.username)}</span>
+            <button class="button button--ghost" on:click=move |_| auth.logout()>
+                "Log out"
+            </button>
         </header>
         <main
             class="explorer"
@@ -238,73 +240,107 @@ fn Explorer(auth: Auth) -> impl IntoView {
                 }
             }
         >
-            <nav class="crumbs" aria-label="Folder path">
-                <A href="/">"Home"</A>
-                <For
-                    each=move || crumbs.get()
-                    key=|folder| folder.id
-                    children=move |folder| {
-                        view! {
-                            <span>" / "</span>
-                            <A href=format!("/folder/{}", folder.id)>{folder.name.clone()}</A>
-                        }
-                    }
-                />
-            </nav>
-            <div class="toolbar">
-                <button on:click=new_folder>"New folder"</button>
-                <label class="button primary">
-                    "Upload files"
-                    <input
-                        type="file"
-                        multiple
-                        hidden
-                        on:change:target=move |event| {
-                            let input: HtmlInputElement = event.target();
-                            if let Some(list) = input.files() {
-                                start_upload(files_of(&list));
+            <div class="explorer__header">
+                <nav class="breadcrumbs" aria-label="Folder path">
+                    <A href="/" exact=true attr:class="breadcrumbs__link">
+                        "Home"
+                    </A>
+                    <For
+                        each=move || crumbs.get()
+                        key=|folder| folder.id
+                        children=move |folder| {
+                            view! {
+                                <span class="breadcrumbs__separator" aria-hidden="true">
+                                    "/"
+                                </span>
+                                <A
+                                    href=format!("/folder/{}", folder.id)
+                                    exact=true
+                                    attr:class="breadcrumbs__link"
+                                >
+                                    {folder.name.clone()}
+                                </A>
                             }
-                            input.set_value("");
                         }
                     />
-                </label>
+                </nav>
+                <div class="explorer__toolbar">
+                    <button class="button" on:click=new_folder>
+                        "New folder"
+                    </button>
+                    <label class="button button--primary">
+                        "Upload files"
+                        <input
+                            type="file"
+                            multiple
+                            hidden
+                            on:change:target=move |event| {
+                                let input: HtmlInputElement = event.target();
+                                if let Some(list) = input.files() {
+                                    start_upload(files_of(&list));
+                                }
+                                input.set_value("");
+                            }
+                        />
+                    </label>
+                </div>
             </div>
             {move || {
-                error.get().map(|message| view! { <p class="error" role="alert">{message}</p> })
+                error
+                    .get()
+                    .map(|message| {
+                        view! { <p class="alert alert--error" role="alert">{message}</p> }
+                    })
             }}
-            <ul class="uploads">
-                {move || {
-                    uploads
-                        .get()
-                        .into_iter()
-                        .map(|item| {
-                            let status = match &item.state {
-                                UploadState::Queued => "Waiting".to_owned(),
-                                UploadState::Active => "Uploading".to_owned(),
-                                UploadState::Done => "Done".to_owned(),
-                                UploadState::Failed(message) => format!("Failed: {message}"),
-                            };
-                            view! {
-                                <li>
-                                    <span class="upload-name">{item.name}</span>
-                                    <progress max="1" value=item.progress></progress>
-                                    <span class="upload-status">{status}</span>
-                                </li>
-                            }
-                        })
-                        .collect_view()
-                }}
-            </ul>
-            <table class="nodes">
-                <thead>
+            <Show when=move || !uploads.read().is_empty()>
+                <ul class="upload-list">
+                    {move || {
+                        uploads
+                            .get()
+                            .into_iter()
+                            .map(|item| {
+                                let (status, modifier) = match &item.state {
+                                    UploadState::Queued => ("Waiting".to_owned(), "queued"),
+                                    UploadState::Active => ("Uploading".to_owned(), "active"),
+                                    UploadState::Done => ("Done".to_owned(), "done"),
+                                    UploadState::Failed(message) => {
+                                        (format!("Failed: {message}"), "failed")
+                                    }
+                                };
+                                view! {
+                                    <li class=format!(
+                                        "upload-list__item upload-list__item--{modifier}",
+                                    )>
+                                        <span class="upload-list__name">{item.name}</span>
+                                        <progress
+                                            class="upload-list__progress"
+                                            max="1"
+                                            value=item.progress
+                                        ></progress>
+                                        <span class="upload-list__status">{status}</span>
+                                    </li>
+                                }
+                            })
+                            .collect_view()
+                    }}
+                </ul>
+            </Show>
+            <table class="node-table">
+                <thead class="node-table__head">
                     <tr>
-                        <th>"Name"</th>
-                        <th class="num">"Size"</th>
-                        <th class="when">"Modified"</th>
-                        <th></th>
+                        <th class="node-table__header-cell">"Name"</th>
+                        <th class="node-table__header-cell node-table__header-cell--size">
+                            "Size"
+                        </th>
+                        <th class="node-table__header-cell node-table__header-cell--modified">
+                            "Modified"
+                        </th>
+                        <th class="node-table__header-cell">
+                            <span class="visually-hidden">"Actions"</span>
+                        </th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody class="node-table__body">
                     <For
                         each=move || nodes.get()
                         key=|node| (node.id, node.updated_at.unix_timestamp_nanos())
@@ -325,37 +361,73 @@ fn Explorer(auth: Auth) -> impl IntoView {
                                 node,
                             );
                             view! {
-                                <tr>
-                                    <td class="name">
+                                <tr class="node-table__row">
+                                    <td class="node-table__cell">
                                         {if is_folder {
-                                            view! { <A href=href>{format!("📁 {name}")}</A> }.into_any()
+                                            view! {
+                                                <A
+                                                    href=href
+                                                    attr:class="node-table__name node-table__name--link"
+                                                >
+                                                    <span class="node-table__icon" aria-hidden="true">
+                                                        "📁"
+                                                    </span>
+                                                    {name}
+                                                </A>
+                                            }
+                                                .into_any()
                                         } else {
-                                            view! { <span>{format!("📄 {name}")}</span> }.into_any()
+                                            view! {
+                                                <span class="node-table__name">
+                                                    <span class="node-table__icon" aria-hidden="true">
+                                                        "📄"
+                                                    </span>
+                                                    {name}
+                                                </span>
+                                            }
+                                                .into_any()
                                         }}
                                     </td>
-                                    <td class="num">{size}</td>
-                                    <td class="when">{modified}</td>
-                                    <td class="actions">
-                                        {(!is_folder)
-                                            .then(|| {
-                                                view! {
-                                                    <button on:click=move |_| {
-                                                        download(for_download.clone())
-                                                    }>"Download"</button>
+                                    <td class="node-table__cell node-table__cell--size">{size}</td>
+                                    <td class="node-table__cell node-table__cell--modified">
+                                        {modified}
+                                    </td>
+                                    <td class="node-table__cell node-table__cell--actions">
+                                        <div class="node-table__actions">
+                                            {(!is_folder)
+                                                .then(|| {
+                                                    view! {
+                                                        <button
+                                                            class="button button--ghost button--small"
+                                                            on:click=move |_| {
+                                                                download(for_download.clone())
+                                                            }
+                                                        >
+                                                            "Download"
+                                                        </button>
+                                                    }
+                                                })}
+                                            <button
+                                                class="button button--ghost button--small"
+                                                on:click=move |_| rename(for_rename.clone())
+                                            >
+                                                "Rename"
+                                            </button>
+                                            <button
+                                                class="button button--ghost button--small"
+                                                on:click=move |_| {
+                                                    moving.set(Some(for_move.clone()))
                                                 }
-                                            })}
-                                        <button on:click=move |_| rename(for_rename.clone())>
-                                            "Rename"
-                                        </button>
-                                        <button on:click=move |_| {
-                                            moving.set(Some(for_move.clone()))
-                                        }>"Move"</button>
-                                        <button
-                                            class="danger"
-                                            on:click=move |_| delete(for_delete.clone())
-                                        >
-                                            "Delete"
-                                        </button>
+                                            >
+                                                "Move"
+                                            </button>
+                                            <button
+                                                class="button button--ghost button--small button--danger"
+                                                on:click=move |_| delete(for_delete.clone())
+                                            >
+                                                "Delete"
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             }
@@ -364,7 +436,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                 </tbody>
             </table>
             <Show when=move || nodes.read().is_empty() && error.read().is_none()>
-                <p class="empty">"Nothing here yet. Drop files anywhere to upload."</p>
+                <p class="explorer__empty">"Nothing here yet. Drop files anywhere to upload."</p>
             </Show>
         </main>
         {move || {

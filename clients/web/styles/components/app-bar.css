@@ -1,0 +1,27 @@
+.app-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) max(var(--space-4), calc((100% - var(--content-width)) / 2));
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--color-surface) 85%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.app-bar__brand {
+  font-size: var(--text-lg);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.app-bar__spacer {
+  flex: 1;
+}
+
+.app-bar__user {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}

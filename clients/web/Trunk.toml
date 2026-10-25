@@ -2,6 +2,10 @@
 target = "index.html"
 dist = "dist"
 
+[tools]
+# Sass only bundles the plain CSS files under styles/ (see styles/main.scss).
+sass = "1.104.1"
+
 [serve]
 address = "127.0.0.1"
 port = 8081

@@ -42,6 +42,28 @@
   background: var(--color-surface-hover);
 }
 
+.node-table__row--draft,
+.node-table__row--draft:hover {
+  background: var(--color-surface-hover);
+}
+
+.node-table__actions--editing,
+.node-table__row--draft .node-table__actions {
+  opacity: 1;
+}
+
+.node-table__row--draft .node-table__name,
+.node-table__name--editing {
+  display: flex;
+  width: 100%;
+}
+
+.node-table__input {
+  flex: 1;
+  min-width: 0;
+  padding-block: var(--space-1);
+}
+
 .node-table__header-cell--size,
 .node-table__cell--size {
   text-align: right;

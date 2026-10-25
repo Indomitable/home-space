@@ -1,11 +1,14 @@
 use std::rc::Rc;
 
-use leptos::{prelude::*, task::spawn_local};
+use leptos::{html::Input, prelude::*, task::spawn_local};
 use leptos_router::{
     components::{A, Redirect},
     hooks::use_params_map,
 };
-use web_sys::{DragEvent, File, FileList, HtmlInputElement};
+use web_sys::{DragEvent, File, FileList, HtmlInputElement, KeyboardEvent};
+
+const KEY_ENTER: &str = "Enter";
+const KEY_ESCAPE: &str = "Escape";
 
 use api_client::ApiError;
 use protocol::{Event, Node, NodeId, NodeKind, TicketRequest};
@@ -62,15 +65,6 @@ async fn fetch(folder: Option<NodeId>) -> Result<(Vec<Node>, Vec<Node>), ApiErro
     Ok((listing, path))
 }
 
-fn prompt(message: &str, default: &str) -> Option<String> {
-    web_sys::window()?
-        .prompt_with_message_and_default(message, default)
-        .ok()
-        .flatten()
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-}
-
 fn confirm(message: &str) -> bool {
     web_sys::window()
         .and_then(|window| window.confirm_with_message(message).ok())
@@ -110,6 +104,10 @@ fn Explorer(auth: Auth) -> impl IntoView {
     let reload = RwSignal::new(0_u32);
     let moving = RwSignal::new(None::<Node>);
     let uploads = RwSignal::new(Vec::<UploadItem>::new());
+    let draft = RwSignal::new(None::<String>);
+    let renaming = RwSignal::new(None::<(NodeId, String)>);
+    let saving = RwSignal::new(false);
+    let draft_input = NodeRef::<Input>::new();
 
     Effect::new(move |_| {
         let wanted = folder.get();
@@ -143,23 +141,66 @@ fn Explorer(auth: Auth) -> impl IntoView {
         reload.update(|count| *count += 1);
     };
 
+    Effect::new(move |_| {
+        folder.track();
+        draft.set(None);
+        renaming.set(None);
+    });
+    Effect::new(move |_| {
+        if let Some(input) = draft_input.get() {
+            let _ = input.focus();
+        }
+    });
+
     let new_folder = move |_| {
-        if let Some(name) = prompt("Folder name", "") {
+        if draft.get_untracked().is_none() {
+            draft.set(Some(String::new()));
+        } else if let Some(input) = draft_input.get_untracked() {
+            let _ = input.focus();
+        }
+    };
+    let cancel_folder = move || draft.set(None);
+    let create_folder = move || {
+        let name = draft.get_untracked().unwrap_or_default().trim().to_owned();
+        if name.is_empty() {
+            cancel_folder();
+        } else if !saving.get_untracked() {
+            saving.set(true);
             let parent = folder.get_untracked();
             spawn_local(async move {
-                settle(
-                    session::client()
-                        .create_folder(parent, &name)
-                        .await
-                        .map(drop),
-                );
+                let result = session::client()
+                    .create_folder(parent, &name)
+                    .await
+                    .map(drop);
+                if result.is_ok() {
+                    draft.set(None);
+                }
+                saving.set(false);
+                settle(result);
             });
         }
     };
-    let rename = move |node: Node| {
-        if let Some(name) = prompt("New name", &node.name) {
+    let cancel_rename = move || renaming.set(None);
+    let save_rename = move || {
+        let Some((id, name)) = renaming.get_untracked() else {
+            return;
+        };
+        let name = name.trim().to_owned();
+        let unchanged = nodes
+            .read_untracked()
+            .iter()
+            .any(|node| node.id == id && node.name == name);
+        if name.is_empty() || unchanged {
+            cancel_rename();
+        } else if !saving.get_untracked() {
+            saving.set(true);
             spawn_local(async move {
-                settle(session::client().rename(node.id, &name).await.map(drop));
+                let result = session::client().rename(id, &name).await.map(drop);
+                if result.is_ok() {
+                    renaming.set(None);
+                }
+                saving.set(false);
+                settle(result);
             });
         }
     };
@@ -341,6 +382,56 @@ fn Explorer(auth: Auth) -> impl IntoView {
                     </tr>
                 </thead>
                 <tbody class="node-table__body">
+                    <Show when=move || draft.read().is_some()>
+                        <tr class="node-table__row node-table__row--draft">
+                            <td class="node-table__cell">
+                                <span class="node-table__name">
+                                    <span class="node-table__icon" aria-hidden="true">
+                                        "📁"
+                                    </span>
+                                    <input
+                                        node_ref=draft_input
+                                        class="field__input node-table__input"
+                                        type="text"
+                                        placeholder="Folder name"
+                                        aria-label="Folder name"
+                                        prop:value=move || draft.get().unwrap_or_default()
+                                        disabled=move || saving.get()
+                                        on:input:target=move |event| {
+                                            draft.set(Some(event.target().value()))
+                                        }
+                                        on:keydown=move |event: KeyboardEvent| {
+                                            match event.key().as_str() {
+                                                KEY_ENTER => create_folder(),
+                                                KEY_ESCAPE => cancel_folder(),
+                                                _ => {}
+                                            }
+                                        }
+                                    />
+                                </span>
+                            </td>
+                            <td class="node-table__cell node-table__cell--size"></td>
+                            <td class="node-table__cell node-table__cell--modified"></td>
+                            <td class="node-table__cell node-table__cell--actions">
+                                <div class="node-table__actions">
+                                    <button
+                                        class="button button--primary button--small"
+                                        disabled=move || saving.get()
+                                        on:click=move |_| create_folder()
+                                    >
+                                        "Create"
+                                    </button>
+                                    <button
+                                        class="button button--ghost button--small"
+                                        disabled=move || saving.get()
+                                        on:click=move |_| cancel_folder()
+                                    >
+                                        "Cancel"
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </Show>
                     <For
                         each=move || nodes.get()
                         key=|node| (node.id, node.updated_at.unix_timestamp_nanos())
@@ -354,16 +445,55 @@ fn Explorer(auth: Auth) -> impl IntoView {
                             };
                             let modified = short_date(node.updated_at);
                             let href = format!("/folder/{}", node.id);
-                            let (for_download, for_rename, for_move, for_delete) = (
-                                node.clone(),
-                                node.clone(),
-                                node.clone(),
-                                node,
-                            );
+                            let node_id = node.id;
+                            let editing = move || {
+                                renaming.read().as_ref().is_some_and(|(id, _)| *id == node_id)
+                            };
+                            let rename_input = NodeRef::<Input>::new();
+                            Effect::new(move |_| {
+                                if let Some(input) = rename_input.get() {
+                                    let _ = input.focus();
+                                    input.select();
+                                }
+                            });
                             view! {
                                 <tr class="node-table__row">
                                     <td class="node-table__cell">
-                                        {if is_folder {
+                                        {move || if editing() {
+                                            view! {
+                                                <span class="node-table__name node-table__name--editing">
+                                                    <span class="node-table__icon" aria-hidden="true">
+                                                        {if is_folder { "📁" } else { "📄" }}
+                                                    </span>
+                                                    <input
+                                                        node_ref=rename_input
+                                                        class="field__input node-table__input"
+                                                        type="text"
+                                                        aria-label="New name"
+                                                        prop:value=move || {
+                                                            renaming
+                                                                .read()
+                                                                .as_ref()
+                                                                .map(|(_, name)| name.clone())
+                                                                .unwrap_or_default()
+                                                        }
+                                                        disabled=move || saving.get()
+                                                        on:input:target=move |event| {
+                                                            renaming.set(Some((node_id, event.target().value())))
+                                                        }
+                                                        on:keydown=move |event: KeyboardEvent| {
+                                                            match event.key().as_str() {
+                                                                KEY_ENTER => save_rename(),
+                                                                KEY_ESCAPE => cancel_rename(),
+                                                                _ => {}
+                                                            }
+                                                        }
+                                                    />
+                                                </span>
+                                            }
+                                                .into_any()
+                                        } else if is_folder {
+                                            let (href, name) = (href.clone(), name.clone());
                                             view! {
                                                 <A
                                                     href=href
@@ -382,7 +512,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                                                     <span class="node-table__icon" aria-hidden="true">
                                                         "📄"
                                                     </span>
-                                                    {name}
+                                                    {name.clone()}
                                                 </span>
                                             }
                                                 .into_any()
@@ -393,6 +523,34 @@ fn Explorer(auth: Auth) -> impl IntoView {
                                         {modified}
                                     </td>
                                     <td class="node-table__cell node-table__cell--actions">
+                                        {move || if editing() {
+                                            view! {
+                                                <div class="node-table__actions node-table__actions--editing">
+                                                    <button
+                                                        class="button button--primary button--small"
+                                                        disabled=move || saving.get()
+                                                        on:click=move |_| save_rename()
+                                                    >
+                                                        "Save"
+                                                    </button>
+                                                    <button
+                                                        class="button button--ghost button--small"
+                                                        disabled=move || saving.get()
+                                                        on:click=move |_| cancel_rename()
+                                                    >
+                                                        "Cancel"
+                                                    </button>
+                                                </div>
+                                            }
+                                                .into_any()
+                                        } else {
+                                            let (for_download, for_rename, for_move, for_delete) = (
+                                                node.clone(),
+                                                node.clone(),
+                                                node.clone(),
+                                                node.clone(),
+                                            );
+                                            view! {
                                         <div class="node-table__actions">
                                             {(!is_folder)
                                                 .then(|| {
@@ -409,7 +567,9 @@ fn Explorer(auth: Auth) -> impl IntoView {
                                                 })}
                                             <button
                                                 class="button button--ghost button--small"
-                                                on:click=move |_| rename(for_rename.clone())
+                                                on:click=move |_| {
+                                                    renaming.set(Some((for_rename.id, for_rename.name.clone())))
+                                                }
                                             >
                                                 "Rename"
                                             </button>
@@ -428,6 +588,9 @@ fn Explorer(auth: Auth) -> impl IntoView {
                                                 "Delete"
                                             </button>
                                         </div>
+                                            }
+                                                .into_any()
+                                        }}
                                     </td>
                                 </tr>
                             }
@@ -435,7 +598,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                     />
                 </tbody>
             </table>
-            <Show when=move || nodes.read().is_empty() && error.read().is_none()>
+            <Show when=move || nodes.read().is_empty() && error.read().is_none() && draft.read().is_none()>
                 <p class="explorer__empty">"Nothing here yet. Drop files anywhere to upload."</p>
             </Show>
         </main>

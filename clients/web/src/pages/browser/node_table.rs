@@ -4,11 +4,11 @@ use leptos::{html::Input, prelude::*};
 use leptos_router::components::A;
 use web_sys::KeyboardEvent;
 
+use api_client::format::{human_size, short_date};
 use protocol::{Node, NodeId, NodeKind};
 
 use super::menu::{Menu, MenuItem};
 use crate::{
-    format::{human_size, short_date},
     icon::{Icon, node_icon},
     route,
 };

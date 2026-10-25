@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <style>
+    .tile { fill: #2563eb; }
+    .glyph { fill: #fff; }
+    .door { fill: #2563eb; }
+    @media (prefers-color-scheme: dark) {
+      .tile { fill: #6d9eff; }
+      .glyph { fill: #0a1220; }
+      .door { fill: #6d9eff; }
+    }
+  </style>
+  <rect class="tile" width="64" height="64" rx="14"/>
+  <!-- house silhouette with a door cut-out -->
+  <path class="glyph" d="M32 11 54 30.500l-3 3.500-3-2.600V47a4 4 0 0 1-4 4H18a4 4 0 0 1-4-4V31.400L11 34l-3-3.500z"/>
+  <rect class="door" x="26" y="33" width="12" height="17" rx="3"/>
+</svg>

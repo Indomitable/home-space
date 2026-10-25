@@ -2,9 +2,10 @@ use std::collections::HashSet;
 
 use leptos::{prelude::*, task::spawn_local};
 
+use api_client::listing::sort_nodes;
 use protocol::{Node, NodeId, NodeKind};
 
-use crate::{icon::Icon, listing::sort_nodes, session, session::Auth};
+use crate::{icon::Icon, session, session::Auth};
 
 #[component]
 pub fn MoveDialog(

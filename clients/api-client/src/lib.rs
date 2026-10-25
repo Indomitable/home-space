@@ -2,6 +2,8 @@
 
 mod client;
 mod error;
+pub mod format;
+pub mod listing;
 
 pub use client::{Client, TokenListener};
 pub use error::ApiError;

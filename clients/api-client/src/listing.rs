@@ -1,4 +1,9 @@
+use std::ops::Range;
+
 use protocol::{Event, Node, NodeId, NodeKind};
+
+/// How many breadcrumb folders are shown before the middle ones collapse.
+pub const MAX_VISIBLE_CRUMBS: usize = 3;
 
 /// Orders nodes folders first, then by case-insensitive name.
 pub fn sort_nodes(nodes: &mut [Node]) {
@@ -27,6 +32,12 @@ pub fn affects_path(path: &[Node], event: &Event) -> bool {
         Event::NodeDeleted { id, .. } => path.iter().any(|folder| folder.id == *id),
         Event::NodeCreated { .. } | Event::Resync => false,
     }
+}
+
+/// The indices of breadcrumb folders hidden behind an overflow menu once a path of
+/// `len` folders is deeper than [`MAX_VISIBLE_CRUMBS`]; the first and last stay visible.
+pub fn collapsed_crumbs(len: usize) -> Option<Range<usize>> {
+    (len > MAX_VISIBLE_CRUMBS).then(|| 1..len - 1)
 }
 
 #[cfg(test)]
@@ -135,5 +146,18 @@ mod tests {
         };
         assert!(affects_path(&[folder], &event));
         assert!(!affects_path(&[], &event));
+    }
+
+    #[test]
+    fn short_paths_are_not_collapsed() {
+        assert_eq!((collapsed_crumbs(0), collapsed_crumbs(3)), (None, None));
+    }
+
+    #[test]
+    fn deep_paths_hide_the_middle_folders() {
+        assert_eq!(
+            (collapsed_crumbs(4), collapsed_crumbs(6)),
+            (Some(1..3), Some(1..5))
+        );
     }
 }

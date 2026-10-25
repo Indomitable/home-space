@@ -4,6 +4,8 @@ use reqwest::{RequestBuilder, Response, StatusCode};
 use serde::de::DeserializeOwned;
 use tokio::sync::Mutex as AsyncMutex;
 
+#[cfg(not(target_arch = "wasm32"))]
+use protocol::UploadQuery;
 use protocol::{
     CreateFolderRequest, ErrorBody, ListQuery, LoginRequest, Me, Node, NodeId, RefreshRequest,
     TicketRequest, TicketResponse, TokenPair, UpdateRequest, paths,
@@ -20,6 +22,14 @@ pub struct Client {
     http: reqwest::Client,
     base_url: String,
     shared: Arc<Shared>,
+}
+
+impl std::fmt::Debug for Client {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Client")
+            .field("base_url", &self.base_url)
+            .finish_non_exhaustive()
+    }
 }
 
 struct Shared {
@@ -206,6 +216,46 @@ impl Client {
             .send(|| self.http.delete(self.url(&paths::node(id))))
             .await?;
         expect_success(response).await
+    }
+
+    /// Uploads a file under `parent` (or the root).
+    ///
+    /// `body` is called once per attempt, so an expired token can be refreshed and the
+    /// upload retried with a fresh stream.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn upload<B>(
+        &self,
+        parent: Option<NodeId>,
+        name: &str,
+        body: B,
+    ) -> Result<Node, ApiError>
+    where
+        B: Fn() -> reqwest::Body,
+    {
+        let query = UploadQuery {
+            parent_id: parent,
+            name: name.to_owned(),
+        };
+        self.send_json(|| {
+            self.http
+                .post(self.url(paths::FILES))
+                .query(&query)
+                .body(body())
+        })
+        .await
+    }
+
+    /// Starts downloading a file; the caller streams the body of the returned response.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn download(&self, id: NodeId) -> Result<Response, ApiError> {
+        let response = self
+            .send(|| self.http.get(self.url(&paths::file_content(id))))
+            .await?;
+        if response.status().is_success() {
+            Ok(response)
+        } else {
+            Err(error_from(response).await)
+        }
     }
 
     /// Requests a short-lived ticket for a websocket or a browser download.

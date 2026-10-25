@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Home Space
+Comment=Browse and transfer your home-space files
+Exec=desktop
+Icon=home-space
+Categories=Network;FileTransfer;
+StartupWMClass=home-space

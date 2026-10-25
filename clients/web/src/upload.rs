@@ -7,6 +7,8 @@ use web_sys::{File, ProgressEvent, XmlHttpRequest};
 use api_client::{ApiError, Client};
 use protocol::{ErrorBody, Node, NodeId, paths};
 
+const CONTENT_TYPE: &str = "Content-Type";
+const FALLBACK_MIME: &str = "application/octet-stream";
 const STATUS_CREATED: u16 = 201;
 const STATUS_UNAUTHORIZED: u16 = 401;
 
@@ -85,6 +87,14 @@ async fn send(
     let xhr = XmlHttpRequest::new().map_err(transport)?;
     xhr.open_with_async("POST", &url, true).map_err(transport)?;
     xhr.set_request_header("Authorization", &format!("Bearer {token}"))
+        .map_err(transport)?;
+    let mime = file.type_();
+    let mime = if mime.is_empty() {
+        FALLBACK_MIME
+    } else {
+        &mime
+    };
+    xhr.set_request_header(CONTENT_TYPE, mime)
         .map_err(transport)?;
 
     let (done_tx, done) = oneshot::channel::<bool>();

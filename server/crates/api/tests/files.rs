@@ -31,6 +31,20 @@ async fn uploaded_file_downloads_with_same_content(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
+async fn declared_content_type_is_stored_as_mime(pool: PgPool) {
+    let app = setup(pool).await;
+    let token = app.user_token("alice").await;
+
+    let image = app
+        .upload_as(&token, "name=photo.bin", "x", "image/png")
+        .await;
+    let text = app.upload(&token, "name=notes.txt", "x").await;
+
+    assert_eq!(image.json()["mime"], "image/png");
+    assert_eq!(text.json()["mime"], "text/plain");
+}
+
+#[sqlx::test(migrations = "../../migrations")]
 async fn listing_returns_children_of_a_folder(pool: PgPool) {
     let app = setup(pool).await;
     let token = app.user_token("alice").await;

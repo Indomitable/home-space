@@ -46,6 +46,12 @@ fn body_stream(body: Body) -> impl futures_util::Stream<Item = io::Result<axum::
     body.into_data_stream().map_err(io::Error::other)
 }
 
+fn declared_type(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+}
+
 async fn list(
     State(state): State<AppState>,
     user: AuthUser,
@@ -91,12 +97,19 @@ async fn create_folder(
 async fn upload(
     State(state): State<AppState>,
     user: AuthUser,
+    headers: HeaderMap,
     Query(query): Query<UploadQuery>,
     body: Body,
 ) -> Result<(StatusCode, Json<Node>), ApiError> {
     let node = state
         .files
-        .upload(user.id, query.parent_id, &query.name, body_stream(body))
+        .upload(
+            user.id,
+            query.parent_id,
+            &query.name,
+            declared_type(&headers),
+            body_stream(body),
+        )
         .await?;
     let node = Node::from(node);
     state
@@ -108,12 +121,13 @@ async fn upload(
 async fn replace_content(
     State(state): State<AppState>,
     user: AuthUser,
+    headers: HeaderMap,
     Path(id): Path<NodeId>,
     body: Body,
 ) -> Result<Json<Node>, ApiError> {
     let node = state
         .files
-        .replace_content(user.id, id, body_stream(body))
+        .replace_content(user.id, id, declared_type(&headers), body_stream(body))
         .await?;
     let node = Node::from(node);
     state

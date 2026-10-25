@@ -1,6 +1,7 @@
 mod app;
 mod events;
 mod format;
+mod icon;
 mod listing;
 mod pages;
 mod route;

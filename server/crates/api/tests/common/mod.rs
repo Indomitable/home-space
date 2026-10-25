@@ -136,12 +136,23 @@ impl TestApp {
     }
 
     pub async fn upload(&self, token: &str, query: &str, content: &'static str) -> Response {
+        self.upload_as(token, query, content, "application/octet-stream")
+            .await
+    }
+
+    pub async fn upload_as(
+        &self,
+        token: &str,
+        query: &str,
+        content: &'static str,
+        content_type: &str,
+    ) -> Response {
         self.send(
             Method::POST,
             &format!("/api/v1/files?{query}"),
             Some(token),
             Body::from(content),
-            Some("application/octet-stream"),
+            Some(content_type),
         )
         .await
     }

@@ -1,12 +1,32 @@
 use leptos::prelude::*;
 use web_sys::{File, HtmlInputElement};
 
-use super::files_of;
+use super::{
+    files_of,
+    menu::{Menu, MenuItem},
+};
 
 #[component]
-pub fn Toolbar(on_new_folder: Callback<()>, on_upload: Callback<Vec<File>>) -> impl IntoView {
+pub fn Toolbar(
+    selected_count: Signal<usize>,
+    on_move: Callback<()>,
+    on_delete: Callback<()>,
+    on_new_folder: Callback<()>,
+    on_upload: Callback<Vec<File>>,
+) -> impl IntoView {
     view! {
         <div class="explorer__toolbar">
+            <Show when=move || selected_count.get() != 0>
+                <Menu
+                    id="bulk-menu".to_owned()
+                    label="Actions for selected items"
+                    text=Signal::derive(move || format!("{} selected", selected_count.get()))
+                    icon="more_horiz"
+                >
+                    <MenuItem icon="drive_file_move" label="Move" on_select=on_move />
+                    <MenuItem icon="delete" label="Delete" danger=true on_select=on_delete />
+                </Menu>
+            </Show>
             <button class="button" on:click=move |_| on_new_folder.run(())>
                 "New folder"
             </button>

@@ -26,10 +26,13 @@ version = "0.3.106"
 features = [
     "Blob",
     "CloseEvent",
+    "CssStyleDeclaration",
     "DataTransfer",
+    "DomRect",
     "DragEvent",
     "File",
     "FileList",
+    "HtmlElement",
     "HtmlInputElement",
     "Location",
     "MessageEvent",

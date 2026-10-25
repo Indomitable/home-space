@@ -8,6 +8,8 @@ use db::{Db, NewNode, Node, NodeId, NodeKind, NodeUpdate, UserId};
 
 use crate::{BlobStore, FilesError, store::StagedBlob};
 
+const FALLBACK_MIME: &str = "application/octet-stream";
+
 /// Ownership-scoped operations on a user's folders and files.
 #[derive(Clone, Debug)]
 pub struct FileService {
@@ -50,6 +52,7 @@ impl FileService {
         owner: UserId,
         parent: Option<NodeId>,
         name: &str,
+        content_type: Option<&str>,
         body: S,
     ) -> Result<Node, FilesError>
     where
@@ -66,7 +69,7 @@ impl FileService {
             name: name.to_owned(),
             size: size_as_i64(&staged),
             sha256: Some(staged.sha256.clone()),
-            mime: guess_mime(name),
+            mime: Some(resolve_mime(content_type, name)),
         };
         let id = new.id;
         match self.db.create_node(owner, new).await {
@@ -89,6 +92,7 @@ impl FileService {
         &self,
         owner: UserId,
         id: NodeId,
+        content_type: Option<&str>,
         body: S,
     ) -> Result<Node, FilesError>
     where
@@ -104,7 +108,13 @@ impl FileService {
         self.store.commit(staged, owner, id).await?;
         Ok(self
             .db
-            .replace_file_content(owner, id, size, sha256, guess_mime(&current.name))
+            .replace_file_content(
+                owner,
+                id,
+                size,
+                sha256,
+                Some(resolve_mime(content_type, &current.name)),
+            )
             .await?)
     }
 
@@ -175,10 +185,21 @@ fn size_as_i64(staged: &StagedBlob) -> i64 {
     i64::try_from(staged.size).unwrap_or(i64::MAX)
 }
 
-fn guess_mime(name: &str) -> Option<String> {
-    mime_guess::from_path(name)
-        .first()
+/// Picks the MIME type to store for a file.
+///
+/// The type declared by the client wins unless it is missing, invalid or the generic
+/// `application/octet-stream`, in which case it is guessed from the file name.
+fn resolve_mime(declared: Option<&str>, name: &str) -> String {
+    declared
+        .and_then(|value| value.parse::<mime_guess::mime::Mime>().ok())
         .map(|mime| mime.essence_str().to_owned())
+        .filter(|essence| essence != FALLBACK_MIME)
+        .or_else(|| {
+            mime_guess::from_path(name)
+                .first()
+                .map(|mime| mime.essence_str().to_owned())
+        })
+        .unwrap_or_else(|| FALLBACK_MIME.to_owned())
 }
 
 #[cfg(test)]
@@ -219,7 +240,7 @@ mod tests {
         let fx = fixture(pool, 1024).await;
         let node = fx
             .files
-            .upload(fx.alice, None, "note.txt", body("hello"))
+            .upload(fx.alice, None, "note.txt", None, body("hello"))
             .await
             .expect("upload");
         let (meta, mut file) = fx
@@ -248,7 +269,7 @@ mod tests {
             .expect("b");
         let file = fx
             .files
-            .upload(fx.alice, Some(b.id), "f.txt", body("x"))
+            .upload(fx.alice, Some(b.id), "f.txt", None, body("x"))
             .await
             .expect("file");
         let names = fx
@@ -288,7 +309,7 @@ mod tests {
         let fx = fixture(pool, 1024).await;
         let node = fx
             .files
-            .upload(fx.alice, None, "note.txt", body("hello"))
+            .upload(fx.alice, None, "note.txt", None, body("hello"))
             .await
             .expect("upload");
         assert!(matches!(
@@ -315,7 +336,7 @@ mod tests {
             .expect("folder");
         let result = fx
             .files
-            .upload(fx.bob, Some(folder.id), "x.txt", body("hi"))
+            .upload(fx.bob, Some(folder.id), "x.txt", None, body("hi"))
             .await;
         assert!(matches!(result, Err(FilesError::NotFound)));
     }
@@ -324,10 +345,13 @@ mod tests {
     async fn duplicate_name_is_a_conflict(pool: PgPool) {
         let fx = fixture(pool, 1024).await;
         fx.files
-            .upload(fx.alice, None, "a.txt", body("1"))
+            .upload(fx.alice, None, "a.txt", None, body("1"))
             .await
             .expect("first");
-        let result = fx.files.upload(fx.alice, None, "a.txt", body("2")).await;
+        let result = fx
+            .files
+            .upload(fx.alice, None, "a.txt", None, body("2"))
+            .await;
         assert!(matches!(result, Err(FilesError::Conflict)));
     }
 
@@ -336,7 +360,7 @@ mod tests {
         let fx = fixture(pool, 3).await;
         let result = fx
             .files
-            .upload(fx.alice, None, "a.txt", body("hello"))
+            .upload(fx.alice, None, "a.txt", None, body("hello"))
             .await;
         assert!(matches!(result, Err(FilesError::TooLarge { limit: 3 })));
     }
@@ -379,7 +403,7 @@ mod tests {
             .expect("folder");
         let file = fx
             .files
-            .upload(fx.alice, Some(folder.id), "a.txt", body("hi"))
+            .upload(fx.alice, Some(folder.id), "a.txt", None, body("hi"))
             .await
             .expect("upload");
         fx.files.delete(fx.alice, folder.id).await.expect("delete");
@@ -395,15 +419,54 @@ mod tests {
         let fx = fixture(pool, 1024).await;
         let file = fx
             .files
-            .upload(fx.alice, None, "a.txt", body("hi"))
+            .upload(fx.alice, None, "a.txt", None, body("hi"))
             .await
             .expect("upload");
         let updated = fx
             .files
-            .replace_content(fx.alice, file.id, body("longer"))
+            .replace_content(fx.alice, file.id, None, body("longer"))
             .await
             .expect("replace");
         assert_eq!(updated.size, 6);
         assert_ne!(updated.sha256, file.sha256);
+    }
+
+    #[test]
+    fn declared_type_wins_over_the_file_name() {
+        assert_eq!(resolve_mime(Some("image/png"), "note.txt"), "image/png");
+    }
+
+    #[test]
+    fn declared_parameters_are_dropped() {
+        assert_eq!(
+            resolve_mime(Some("text/plain; charset=utf-8"), "a"),
+            "text/plain"
+        );
+    }
+
+    #[test]
+    fn octet_stream_falls_back_to_the_file_name() {
+        assert_eq!(
+            resolve_mime(Some("application/octet-stream"), "note.txt"),
+            "text/plain"
+        );
+    }
+
+    #[test]
+    fn missing_type_is_guessed_from_the_file_name() {
+        assert_eq!(resolve_mime(None, "note.txt"), "text/plain");
+    }
+
+    #[test]
+    fn unknown_extension_stays_octet_stream() {
+        assert_eq!(
+            resolve_mime(Some("application/octet-stream"), "blob.zzzz"),
+            FALLBACK_MIME
+        );
+    }
+
+    #[test]
+    fn invalid_declared_type_is_ignored() {
+        assert_eq!(resolve_mime(Some("not a mime"), "note.txt"), "text/plain");
     }
 }

@@ -5,8 +5,12 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use protocol::NodeId;
 use uuid::Uuid;
 
+pub fn short_id(id: NodeId) -> String {
+    URL_SAFE_NO_PAD.encode(id.0.as_bytes())
+}
+
 pub fn folder(id: NodeId) -> String {
-    format!("/folder/{}", URL_SAFE_NO_PAD.encode(id.0.as_bytes()))
+    format!("/folder/{}", short_id(id))
 }
 
 /// Parses a route id, accepting the short form and the legacy hex form.

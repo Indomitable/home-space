@@ -1,4 +1,5 @@
 mod browser;
+mod delete_dialog;
 mod login;
 mod move_dialog;
 

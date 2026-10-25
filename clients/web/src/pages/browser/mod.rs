@@ -1,7 +1,10 @@
 mod app_bar;
 mod breadcrumbs;
+mod menu;
 mod node_table;
 mod toolbar;
+
+use std::collections::HashSet;
 
 use leptos::{ev, html::Input, prelude::*, task::spawn_local};
 use leptos_router::{components::Redirect, hooks::use_params_map};
@@ -16,7 +19,7 @@ use self::{
     node_table::{NodeTable, TableActions},
     toolbar::Toolbar,
 };
-use super::move_dialog::MoveDialog;
+use super::{delete_dialog::DeleteDialog, move_dialog::MoveDialog};
 use crate::{
     events,
     listing::{affects_path, apply_event, sort_nodes},
@@ -52,12 +55,6 @@ async fn fetch(folder: Option<NodeId>) -> Result<(Vec<Node>, Vec<Node>), ApiErro
     Ok((listing, path))
 }
 
-fn confirm(message: &str) -> bool {
-    web_sys::window()
-        .and_then(|window| window.confirm_with_message(message).ok())
-        .unwrap_or(false)
-}
-
 const FILES_TYPE: &str = "Files";
 const DROP_EFFECT_COPY: &str = "copy";
 
@@ -81,7 +78,9 @@ fn Explorer(auth: Auth) -> impl IntoView {
     let crumbs = RwSignal::new(Vec::<Node>::new());
     let error = RwSignal::new(None::<String>);
     let reload = RwSignal::new(0_u32);
-    let moving = RwSignal::new(None::<Node>);
+    let moving = RwSignal::new(None::<Vec<Node>>);
+    let deleting = RwSignal::new(None::<Vec<Node>>);
+    let selected = RwSignal::new(HashSet::<NodeId>::new());
     let uploads = expect_context::<RwSignal<Vec<UploadItem>>>();
     let draft = RwSignal::new(None::<String>);
     let renaming = RwSignal::new(None::<(NodeId, String)>);
@@ -124,6 +123,11 @@ fn Explorer(auth: Auth) -> impl IntoView {
         folder.track();
         draft.set(None);
         renaming.set(None);
+        selected.update(HashSet::clear);
+    });
+    Effect::new(move |_| {
+        let listing = nodes.read();
+        selected.update(|ids| ids.retain(|id| listing.iter().any(|node| node.id == *id)));
     });
     Effect::new(move |_| {
         if let Some(input) = draft_input.get() {
@@ -183,13 +187,33 @@ fn Explorer(auth: Auth) -> impl IntoView {
             });
         }
     });
-    let delete = Callback::new(move |node: Node| {
-        if confirm(&format!("Delete “{}”? This cannot be undone.", node.name)) {
-            spawn_local(async move {
-                settle(session::client().delete(node.id).await);
-            });
-        }
+    let delete = Callback::new(move |targets: Vec<Node>| deleting.set(Some(targets)));
+    let confirm_delete = Callback::new(move |targets: Vec<Node>| {
+        spawn_local(async move {
+            let client = session::client();
+            let mut outcome = Ok(());
+            for node in targets {
+                outcome = client.delete(node.id).await;
+                if outcome.is_err() {
+                    break;
+                }
+            }
+            selected.update(HashSet::clear);
+            settle(outcome);
+        });
     });
+    let selected_nodes = move || -> Vec<Node> {
+        let ids = selected.read();
+        nodes
+            .read()
+            .iter()
+            .filter(|node| ids.contains(&node.id))
+            .cloned()
+            .collect()
+    };
+    let move_selected = Callback::new(move |()| moving.set(Some(selected_nodes())));
+    let delete_selected = Callback::new(move |()| delete.run(selected_nodes()));
+    let selected_count = Signal::derive(move || selected.read().len());
     let download = Callback::new(move |node: Node| {
         spawn_local(async move {
             let client = session::client();
@@ -250,6 +274,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
         renaming,
         saving,
         moving,
+        selected,
         create_folder,
         cancel_folder,
         save_rename,
@@ -264,7 +289,13 @@ fn Explorer(auth: Auth) -> impl IntoView {
             <main class="explorer">
                 <div class="explorer__header">
                     <Breadcrumbs crumbs />
-                    <Toolbar on_new_folder=new_folder on_upload=upload />
+                    <Toolbar
+                        selected_count
+                        on_move=move_selected
+                        on_delete=delete_selected
+                        on_new_folder=new_folder
+                        on_upload=upload
+                    />
                 </div>
                 {move || {
                     error
@@ -295,7 +326,14 @@ fn Explorer(auth: Auth) -> impl IntoView {
             </div>
         </Show>
         {move || {
-            moving.get().map(|node| view! { <MoveDialog node moving reload auth /> })
+            moving
+                .get()
+                .map(|nodes| view! { <MoveDialog nodes moving selected reload auth /> })
+        }}
+        {move || {
+            deleting
+                .get()
+                .map(|nodes| view! { <DeleteDialog nodes deleting on_confirm=confirm_delete /> })
         }}
     }
 }

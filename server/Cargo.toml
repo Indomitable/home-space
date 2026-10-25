@@ -14,6 +14,7 @@ auth = { path = "crates/auth" }
 files = { path = "crates/files" }
 notifications = { path = "crates/notifications" }
 api = { path = "crates/api" }
+protocol = { path = "../shared/protocol", features = ["server"] }
 
 anyhow = "1.0.104"
 argon2 = "0.6.0"
@@ -39,7 +40,7 @@ tokio = { version = "1.54.1", features = ["full"] }
 tokio-tungstenite = "0.30.0"
 tokio-util = { version = "0.7.20", features = ["io"] }
 tower = { version = "0.5.3", features = ["util"] }
-tower-http = { version = "0.7.1", features = ["trace", "limit"] }
+tower-http = { version = "0.7.1", features = ["trace", "limit", "fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 uuid = { version = "1.29.0", features = ["v7", "serde"] }

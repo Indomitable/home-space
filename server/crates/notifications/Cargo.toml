@@ -7,8 +7,5 @@ publish.workspace = true
 
 [dependencies]
 db.workspace = true
-serde.workspace = true
+protocol.workspace = true
 tokio.workspace = true
-
-[dev-dependencies]
-serde_json.workspace = true

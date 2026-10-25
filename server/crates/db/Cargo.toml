@@ -6,7 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-serde.workspace = true
+protocol.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 time.workspace = true

@@ -90,7 +90,11 @@ async fn serve(db: Db, config: &Config) -> Result<()> {
         .await
         .with_context(|| format!("binding {}", config.bind))?;
     tracing::info!(address = %config.bind, "listening");
-    axum::serve(listener, api::router(state))
+    let router = match &config.web_root {
+        Some(web_root) => api::router_with_web(state, web_root),
+        None => api::router(state),
+    };
+    axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("serving")

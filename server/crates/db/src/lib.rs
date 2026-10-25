@@ -1,16 +1,15 @@
 //! Postgres access for home-space: pool setup, migrations, models and repositories.
 
 mod error;
-mod ids;
 mod models;
 mod nodes;
 mod refresh_tokens;
 mod users;
 
 pub use error::DbError;
-pub use ids::{NodeId, UserId};
-pub use models::{Node, NodeKind, RefreshToken, User};
+pub use models::{Node, RefreshToken, User};
 pub use nodes::{NewNode, NodeUpdate};
+pub use protocol::{NodeId, NodeKind, UserId};
 pub use sqlx::PgPool;
 
 use sqlx::postgres::PgPoolOptions;

@@ -3,28 +3,45 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use axum::{
     Router,
     extract::{
-        State, WebSocketUpgrade,
+        Query, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
+    http::HeaderMap,
     response::Response,
     routing::get,
 };
 use tokio::sync::broadcast::{Receiver, error::RecvError};
 
 use notifications::Event;
+use protocol::TicketRequest;
 
-use crate::{AppState, extract::AuthUser};
-
-const RESYNC_MESSAGE: &str = r#"{"type":"resync"}"#;
+use crate::{
+    ApiError, AppState,
+    extract::{AuthUser, TicketQuery},
+};
 
 pub fn routes() -> Router<AppState> {
     Router::new().route("/ws", get(upgrade))
 }
 
-async fn upgrade(State(state): State<AppState>, user: AuthUser, ws: WebSocketUpgrade) -> Response {
-    let events = state.hub.subscribe(user.id);
-    let lifetime = remaining_lifetime(user.token_exp);
-    ws.on_upgrade(move |socket| session(socket, events, lifetime))
+async fn upgrade(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<TicketQuery>,
+    ws: WebSocketUpgrade,
+) -> Result<Response, ApiError> {
+    let (user_id, lifetime) = match query.ticket {
+        Some(ticket) => (
+            state.auth.verify_ticket(&ticket, &TicketRequest::Events)?,
+            state.auth.access_ttl().unsigned_abs(),
+        ),
+        None => {
+            let user = AuthUser::from_headers(&headers, &state)?;
+            (user.id, remaining_lifetime(user.token_exp))
+        }
+    };
+    let events = state.hub.subscribe(user_id);
+    Ok(ws.on_upgrade(move |socket| session(socket, events, lifetime)))
 }
 
 fn remaining_lifetime(token_exp: i64) -> Duration {
@@ -42,7 +59,7 @@ async fn session(mut socket: WebSocket, mut events: Receiver<Event>, lifetime: D
             () = &mut expiry => break,
             event = events.recv() => match event {
                 Ok(event) => serde_json::to_string(&event).ok(),
-                Err(RecvError::Lagged(_)) => Some(RESYNC_MESSAGE.to_owned()),
+                Err(RecvError::Lagged(_)) => serde_json::to_string(&Event::Resync).ok(),
                 Err(RecvError::Closed) => break,
             },
             incoming = socket.recv() => match incoming {

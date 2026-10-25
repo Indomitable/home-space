@@ -1,16 +1,22 @@
-use serde::Serialize;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use db::{Db, DbError, User, UserId};
+use protocol::{NodeId, TicketRequest, TicketResponse, TokenPair};
 
 use crate::{
     AuthError, Claims, password,
-    token::{decode_access, encode_access, hash_refresh_token, new_refresh_token},
+    token::{
+        decode_access, decode_ticket, encode_access, encode_ticket, hash_refresh_token,
+        new_refresh_token,
+    },
 };
 
 const MAX_USERNAME_LEN: usize = 64;
 const MIN_PASSWORD_LEN: usize = 8;
+const TICKET_TTL_SECS: i64 = 60;
+const SCOPE_EVENTS: &str = "events";
+const SCOPE_DOWNLOAD_PREFIX: &str = "download:";
 const DUMMY_PASSWORD: &str = "dummy-password-for-timing";
 
 /// Token settings.
@@ -19,14 +25,6 @@ pub struct AuthConfig {
     pub jwt_secret: Vec<u8>,
     pub access_ttl: Duration,
     pub refresh_ttl: Duration,
-}
-
-/// Access and refresh token returned on login and refresh.
-#[derive(Clone, Debug, Serialize)]
-pub struct TokenPair {
-    pub access_token: String,
-    pub refresh_token: String,
-    pub expires_in: i64,
 }
 
 /// Login, refresh, logout and user management.
@@ -135,6 +133,33 @@ impl AuthService {
         decode_access(&self.config.jwt_secret, token)
     }
 
+    /// Lifetime of access tokens.
+    pub fn access_ttl(&self) -> Duration {
+        self.config.access_ttl
+    }
+
+    /// Issues a short-lived ticket limited to `request`'s scope.
+    pub fn issue_ticket(
+        &self,
+        user_id: UserId,
+        request: &TicketRequest,
+    ) -> Result<TicketResponse, AuthError> {
+        let ttl = Duration::seconds(TICKET_TTL_SECS);
+        Ok(TicketResponse {
+            ticket: encode_ticket(&self.config.jwt_secret, user_id, &scope_of(request), ttl)?,
+            expires_in: TICKET_TTL_SECS,
+        })
+    }
+
+    /// Validates a ticket for `request`'s scope and returns its user.
+    pub fn verify_ticket(
+        &self,
+        ticket: &str,
+        request: &TicketRequest,
+    ) -> Result<UserId, AuthError> {
+        decode_ticket(&self.config.jwt_secret, ticket, &scope_of(request))
+    }
+
     async fn issue(&self, user_id: UserId, family_id: Uuid) -> Result<TokenPair, AuthError> {
         let refresh_token = new_refresh_token();
         self.db
@@ -156,6 +181,17 @@ impl AuthService {
         let password = password.to_owned();
         tokio::task::spawn_blocking(move || password::hash(&password)).await?
     }
+}
+
+fn scope_of(request: &TicketRequest) -> String {
+    match request {
+        TicketRequest::Events => SCOPE_EVENTS.to_owned(),
+        TicketRequest::Download { node_id } => download_scope(*node_id),
+    }
+}
+
+fn download_scope(node_id: NodeId) -> String {
+    format!("{SCOPE_DOWNLOAD_PREFIX}{node_id}")
 }
 
 #[cfg(test)]

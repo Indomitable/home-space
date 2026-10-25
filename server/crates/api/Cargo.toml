@@ -12,6 +12,7 @@ db.workspace = true
 files.workspace = true
 futures-util.workspace = true
 notifications.workspace = true
+protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

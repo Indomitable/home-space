@@ -5,28 +5,13 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
-use serde::Serialize;
 use tokio::sync::broadcast;
 
-use db::{Node, NodeId, UserId};
+use db::UserId;
+
+pub use protocol::Event;
 
 const CHANNEL_CAPACITY: usize = 256;
-
-/// A change to a user's tree.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum Event {
-    NodeCreated {
-        node: Node,
-    },
-    NodeUpdated {
-        node: Node,
-    },
-    NodeDeleted {
-        id: NodeId,
-        parent_id: Option<NodeId>,
-    },
-}
 
 /// Fan-out of events to the connected sessions of each user.
 #[derive(Clone, Debug, Default)]
@@ -65,6 +50,8 @@ impl Hub {
 
 #[cfg(test)]
 mod tests {
+    use db::NodeId;
+
     use super::*;
 
     fn deleted() -> Event {
@@ -99,11 +86,5 @@ mod tests {
         drop(hub.subscribe(user));
         hub.publish(user, deleted());
         assert!(hub.lock().is_empty());
-    }
-
-    #[test]
-    fn events_serialize_with_a_type_tag() {
-        let json = serde_json::to_value(deleted()).expect("json");
-        assert_eq!(json["type"], "node_deleted");
     }
 }

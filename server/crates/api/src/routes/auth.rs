@@ -4,10 +4,7 @@ use axum::{
     http::StatusCode,
     routing::{get, post},
 };
-use serde::{Deserialize, Serialize};
-
-use auth::TokenPair;
-use db::UserId;
+use protocol::{LoginRequest, Me, RefreshRequest, TicketRequest, TicketResponse, TokenPair};
 
 use crate::{ApiError, AppState, extract::AuthUser};
 
@@ -17,23 +14,7 @@ pub fn routes() -> Router<AppState> {
         .route("/auth/refresh", post(refresh))
         .route("/auth/logout", post(logout))
         .route("/me", get(me))
-}
-
-#[derive(Deserialize)]
-struct LoginRequest {
-    username: String,
-    password: String,
-}
-
-#[derive(Deserialize)]
-struct RefreshRequest {
-    refresh_token: String,
-}
-
-#[derive(Serialize)]
-struct MeResponse {
-    id: UserId,
-    username: String,
+        .route("/tickets", post(ticket))
 }
 
 async fn login(
@@ -63,15 +44,26 @@ async fn logout(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn me(State(state): State<AppState>, user: AuthUser) -> Result<Json<MeResponse>, ApiError> {
+async fn me(State(state): State<AppState>, user: AuthUser) -> Result<Json<Me>, ApiError> {
     let found = state
         .db
         .find_user(user.id)
         .await
         .map_err(|err| ApiError::Internal(err.to_string()))?
         .ok_or(ApiError::Unauthorized)?;
-    Ok(Json(MeResponse {
+    Ok(Json(Me {
         id: found.id,
         username: found.username,
     }))
+}
+
+async fn ticket(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(request): Json<TicketRequest>,
+) -> Result<Json<TicketResponse>, ApiError> {
+    if let TicketRequest::Download { node_id } = request {
+        state.files.get(user.id, node_id).await?;
+    }
+    Ok(Json(state.auth.issue_ticket(user.id, &request)?))
 }

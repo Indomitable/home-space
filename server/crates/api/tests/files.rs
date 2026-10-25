@@ -189,3 +189,44 @@ async fn replace_content_changes_downloaded_bytes(pool: PgPool) {
 
     assert_eq!(app.get(&uri, &token).await.body, b"new content");
 }
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn ancestors_endpoint_returns_the_chain_and_hides_foreign_nodes(pool: PgPool) {
+    let app = setup(pool).await;
+    let alice = app.user_token("alice").await;
+    let bob = app.user_token("bob").await;
+    let parent = app
+        .json(
+            Method::POST,
+            "/api/v1/folders",
+            Some(&alice),
+            json!({ "name": "docs" }),
+        )
+        .await
+        .json()["id"]
+        .as_str()
+        .expect("id")
+        .to_owned();
+    let child = app
+        .json(
+            Method::POST,
+            "/api/v1/folders",
+            Some(&alice),
+            json!({ "name": "inner", "parent_id": parent }),
+        )
+        .await
+        .json()["id"]
+        .as_str()
+        .expect("id")
+        .to_owned();
+
+    let own = app
+        .get(&format!("/api/v1/nodes/{child}/ancestors"), &alice)
+        .await;
+    let foreign = app
+        .get(&format!("/api/v1/nodes/{child}/ancestors"), &bob)
+        .await;
+
+    assert_eq!(own.json()[0]["name"], "docs");
+    assert_eq!(foreign.status, StatusCode::NOT_FOUND);
+}

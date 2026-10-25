@@ -128,6 +128,11 @@ impl FileService {
         Ok(self.db.get_node(owner, id).await?)
     }
 
+    /// Lists the ancestors of a node from the root down to its parent.
+    pub async fn ancestors(&self, owner: UserId, id: NodeId) -> Result<Vec<Node>, FilesError> {
+        Ok(self.db.list_ancestors(owner, id).await?)
+    }
+
     /// Lists a folder (or the root when `parent` is `None`).
     pub async fn list(
         &self,
@@ -226,6 +231,56 @@ mod tests {
         file.read_to_string(&mut content).await.expect("read");
         assert_eq!((content.as_str(), meta.size), ("hello", 5));
         assert_eq!(meta.mime.as_deref(), Some("text/plain"));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn ancestors_run_from_root_to_parent(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let a = fx
+            .files
+            .create_folder(fx.alice, None, "a")
+            .await
+            .expect("a");
+        let b = fx
+            .files
+            .create_folder(fx.alice, Some(a.id), "b")
+            .await
+            .expect("b");
+        let file = fx
+            .files
+            .upload(fx.alice, Some(b.id), "f.txt", body("x"))
+            .await
+            .expect("file");
+        let names = fx
+            .files
+            .ancestors(fx.alice, file.id)
+            .await
+            .expect("ancestors")
+            .into_iter()
+            .map(|node| node.name)
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["a", "b"]);
+        assert!(
+            fx.files
+                .ancestors(fx.alice, a.id)
+                .await
+                .expect("root level")
+                .is_empty()
+        );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn ancestors_of_another_users_node_are_not_found(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let a = fx
+            .files
+            .create_folder(fx.alice, None, "a")
+            .await
+            .expect("a");
+        assert!(matches!(
+            fx.files.ancestors(fx.bob, a.id).await,
+            Err(FilesError::NotFound)
+        ));
     }
 
     #[sqlx::test(migrations = "../../migrations")]

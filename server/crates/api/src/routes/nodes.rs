@@ -5,20 +5,25 @@ use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{
-        HeaderValue, StatusCode,
+        HeaderMap, HeaderValue, StatusCode,
         header::{CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE},
     },
     response::Response,
     routing::{get, post, put},
 };
 use futures_util::TryStreamExt;
-use serde::{Deserialize, Deserializer};
 use tokio_util::io::ReaderStream;
 
-use db::{Node, NodeId, NodeUpdate};
+use db::NodeUpdate;
 use notifications::Event;
+use protocol::{
+    CreateFolderRequest, ListQuery, Node, NodeId, TicketRequest, UpdateRequest, UploadQuery,
+};
 
-use crate::{ApiError, AppState, extract::AuthUser};
+use crate::{
+    ApiError, AppState,
+    extract::{AuthUser, TicketQuery},
+};
 
 const FALLBACK_MIME: &str = "application/octet-stream";
 
@@ -26,6 +31,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/nodes", get(list))
         .route("/nodes/{id}", get(get_node).patch(update).delete(delete))
+        .route("/nodes/{id}/ancestors", get(ancestors))
         .route("/folders", post(create_folder))
         .route("/files", post(upload).layer(DefaultBodyLimit::disable()))
         .route(
@@ -34,37 +40,6 @@ pub fn routes() -> Router<AppState> {
                 .layer(DefaultBodyLimit::disable())
                 .get(download),
         )
-}
-
-#[derive(Deserialize)]
-struct ListQuery {
-    parent_id: Option<NodeId>,
-}
-
-#[derive(Deserialize)]
-struct CreateFolderRequest {
-    parent_id: Option<NodeId>,
-    name: String,
-}
-
-#[derive(Deserialize)]
-struct UploadQuery {
-    parent_id: Option<NodeId>,
-    name: String,
-}
-
-#[derive(Deserialize)]
-struct UpdateRequest {
-    name: Option<String>,
-    #[serde(default, deserialize_with = "present")]
-    parent_id: Option<Option<NodeId>>,
-}
-
-fn present<'de, D>(deserializer: D) -> Result<Option<Option<NodeId>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Option::<NodeId>::deserialize(deserializer).map(Some)
 }
 
 fn body_stream(body: Body) -> impl futures_util::Stream<Item = io::Result<axum::body::Bytes>> {
@@ -76,7 +51,8 @@ async fn list(
     user: AuthUser,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<Vec<Node>>, ApiError> {
-    Ok(Json(state.files.list(user.id, query.parent_id).await?))
+    let nodes = state.files.list(user.id, query.parent_id).await?;
+    Ok(Json(nodes.into_iter().map(Node::from).collect()))
 }
 
 async fn get_node(
@@ -84,7 +60,16 @@ async fn get_node(
     user: AuthUser,
     Path(id): Path<NodeId>,
 ) -> Result<Json<Node>, ApiError> {
-    Ok(Json(state.files.get(user.id, id).await?))
+    Ok(Json(state.files.get(user.id, id).await?.into()))
+}
+
+async fn ancestors(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<NodeId>,
+) -> Result<Json<Vec<Node>>, ApiError> {
+    let nodes = state.files.ancestors(user.id, id).await?;
+    Ok(Json(nodes.into_iter().map(Node::from).collect()))
 }
 
 async fn create_folder(
@@ -96,6 +81,7 @@ async fn create_folder(
         .files
         .create_folder(user.id, request.parent_id, &request.name)
         .await?;
+    let node = Node::from(node);
     state
         .hub
         .publish(user.id, Event::NodeCreated { node: node.clone() });
@@ -112,6 +98,7 @@ async fn upload(
         .files
         .upload(user.id, query.parent_id, &query.name, body_stream(body))
         .await?;
+    let node = Node::from(node);
     state
         .hub
         .publish(user.id, Event::NodeCreated { node: node.clone() });
@@ -128,6 +115,7 @@ async fn replace_content(
         .files
         .replace_content(user.id, id, body_stream(body))
         .await?;
+    let node = Node::from(node);
     state
         .hub
         .publish(user.id, Event::NodeUpdated { node: node.clone() });
@@ -136,10 +124,17 @@ async fn replace_content(
 
 async fn download(
     State(state): State<AppState>,
-    user: AuthUser,
+    headers: HeaderMap,
+    Query(query): Query<TicketQuery>,
     Path(id): Path<NodeId>,
 ) -> Result<Response, ApiError> {
-    let (node, file) = state.files.download(user.id, id).await?;
+    let owner = match query.ticket {
+        Some(ticket) => state
+            .auth
+            .verify_ticket(&ticket, &TicketRequest::Download { node_id: id })?,
+        None => AuthUser::from_headers(&headers, &state)?.id,
+    };
+    let (node, file) = state.files.download(owner, id).await?;
     let content_type = node.mime.as_deref().unwrap_or(FALLBACK_MIME);
     let disposition = format!(
         "attachment; filename*=UTF-8''{}",
@@ -167,7 +162,7 @@ async fn update(
         name: request.name,
         parent_id: request.parent_id,
     };
-    let node = state.files.update(user.id, id, changes).await?;
+    let node = Node::from(state.files.update(user.id, id, changes).await?);
     state
         .hub
         .publish(user.id, Event::NodeUpdated { node: node.clone() });

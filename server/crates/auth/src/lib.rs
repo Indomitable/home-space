@@ -7,5 +7,6 @@ mod service;
 mod token;
 
 pub use error::AuthError;
-pub use service::{AuthConfig, AuthService, TokenPair};
+pub use protocol::TokenPair;
+pub use service::{AuthConfig, AuthService};
 pub use token::Claims;

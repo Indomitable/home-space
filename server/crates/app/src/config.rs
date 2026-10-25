@@ -20,6 +20,9 @@ pub struct Config {
     #[arg(long, env = "HOMESPACE_BIND", default_value = "127.0.0.1:8080")]
     pub bind: SocketAddr,
 
+    #[arg(long, env = "HOMESPACE_WEB_ROOT")]
+    pub web_root: Option<PathBuf>,
+
     #[arg(long, env = "HOMESPACE_MAX_UPLOAD_BYTES", default_value_t = 10 * 1024 * 1024 * 1024)]
     pub max_upload_bytes: u64,
 

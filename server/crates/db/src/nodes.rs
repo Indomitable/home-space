@@ -85,6 +85,30 @@ impl Db {
         Ok(nodes)
     }
 
+    /// Lists the ancestors of a node from the root down to its parent.
+    pub async fn list_ancestors(&self, owner: UserId, id: NodeId) -> Result<Vec<Node>, DbError> {
+        let node = self.get_node(owner, id).await?;
+        let ancestors = sqlx::query_as::<_, Node>(concat!(
+            "WITH RECURSIVE chain AS ( \
+                 SELECT ",
+            node_columns!(),
+            ", 1 AS depth FROM nodes WHERE id = $1 AND owner_id = $2 \
+                 UNION ALL \
+                 SELECT ",
+            "n.id, n.owner_id, n.parent_id, n.kind, n.name, n.size, n.sha256, n.mime, \
+                 n.created_at, n.updated_at, c.depth + 1 \
+                 FROM nodes n JOIN chain c ON n.id = c.parent_id AND n.owner_id = $2 \
+             ) SELECT ",
+            node_columns!(),
+            " FROM chain ORDER BY depth DESC"
+        ))
+        .bind(node.parent_id)
+        .bind(owner)
+        .fetch_all(self.pool())
+        .await?;
+        Ok(ancestors)
+    }
+
     /// Renames and/or moves a node.
     ///
     /// Returns `Cycle` when moving a folder into itself or a descendant.

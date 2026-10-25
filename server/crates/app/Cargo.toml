@@ -1,0 +1,26 @@
+[package]
+name = "app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "homespace"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+api.workspace = true
+auth.workspace = true
+axum.workspace = true
+clap.workspace = true
+db.workspace = true
+dotenvy.workspace = true
+files.workspace = true
+notifications.workspace = true
+rpassword.workspace = true
+time.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

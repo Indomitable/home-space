@@ -18,6 +18,7 @@ use crate::{
     events,
     format::{human_size, short_date},
     listing::{affects_path, apply_event, sort_nodes},
+    route,
     session::{self, Auth},
     upload,
 };
@@ -92,12 +93,7 @@ fn update_upload(
 #[component]
 fn Explorer(auth: Auth) -> impl IntoView {
     let params = use_params_map();
-    let folder = Memo::new(move |_| {
-        params
-            .read()
-            .get("id")
-            .and_then(|id| id.parse::<NodeId>().ok())
-    });
+    let folder = Memo::new(move |_| params.read().get("id").and_then(|id| route::parse_id(&id)));
     let nodes = RwSignal::new(Vec::<Node>::new());
     let crumbs = RwSignal::new(Vec::<Node>::new());
     let error = RwSignal::new(None::<String>);
@@ -295,7 +291,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                                     "/"
                                 </span>
                                 <A
-                                    href=format!("/folder/{}", folder.id)
+                                    href=route::folder(folder.id)
                                     exact=true
                                     attr:class="breadcrumbs__link"
                                 >
@@ -444,7 +440,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                                 human_size(node.size)
                             };
                             let modified = short_date(node.updated_at);
-                            let href = format!("/folder/{}", node.id);
+                            let href = route::folder(node.id);
                             let node_id = node.id;
                             let editing = move || {
                                 renaming.read().as_ref().is_some_and(|(id, _)| *id == node_id)

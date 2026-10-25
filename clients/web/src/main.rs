@@ -3,6 +3,7 @@ mod events;
 mod format;
 mod listing;
 mod pages;
+mod route;
 mod session;
 mod upload;
 

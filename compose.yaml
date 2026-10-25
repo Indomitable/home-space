@@ -1,0 +1,60 @@
+# Start the app:   HOMESPACE_JWT_SECRET=<32+ chars> podman compose up --build
+# Add a user:      podman compose run --rm app user add <name>
+# Run all tests:   podman compose run --rm test
+services:
+  db:
+    image: docker.io/library/postgres:latest
+    environment:
+      POSTGRES_USER: homespace
+      POSTGRES_PASSWORD: homespace
+      POSTGRES_DB: homespace
+    ports:
+      - "127.0.0.1:${HOMESPACE_DB_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U homespace -d homespace"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build:
+      context: .
+      target: runtime
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://homespace:homespace@db:5432/homespace
+      HOMESPACE_JWT_SECRET: ${HOMESPACE_JWT_SECRET:-}
+      RUST_LOG: info
+    ports:
+      - "127.0.0.1:${HOMESPACE_PORT:-8080}:8080"
+    volumes:
+      - files:/data
+    restart: unless-stopped
+
+  test:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://homespace:homespace@db:5432/homespace
+    working_dir: /workspace
+    volumes:
+      - .:/workspace:z
+      - server-target:/workspace/server/target
+      - clients-target:/workspace/clients/target
+      - cargo-registry:/usr/local/cargo/registry
+
+volumes:
+  pgdata:
+  files:
+  server-target:
+  clients-target:
+  cargo-registry:

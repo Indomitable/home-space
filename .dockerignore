@@ -1,0 +1,6 @@
+.git
+.idea
+**/target
+**/dist
+**/.env
+server/data

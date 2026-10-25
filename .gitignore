@@ -27,3 +27,4 @@ rustc-ice-*.txt
 .env
 server/data/
 .idea/
+dist

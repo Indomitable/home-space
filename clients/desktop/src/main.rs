@@ -2,6 +2,7 @@ mod app;
 mod browser;
 mod events;
 mod icons;
+mod locale;
 mod login;
 mod session;
 mod theme;

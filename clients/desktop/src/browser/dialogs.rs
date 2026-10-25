@@ -3,7 +3,10 @@ use iced::{
     widget::{button, column, container, operation, row, scrollable, space, text, text_input},
 };
 
-use api_client::{ApiError, Client, listing::sort_nodes};
+use api_client::{
+    ApiError, Client,
+    listing::{Sort, sort_nodes},
+};
 use protocol::{Node, NodeId, NodeKind};
 
 use crate::{
@@ -324,7 +327,7 @@ fn pickable(listing: Vec<Node>, moving: &[Node]) -> Vec<Node> {
             entry.kind == NodeKind::Folder && !moving.iter().any(|node| node.id == entry.id)
         })
         .collect();
-    sort_nodes(&mut folders);
+    sort_nodes(&mut folders, Sort::default());
     folders
 }
 

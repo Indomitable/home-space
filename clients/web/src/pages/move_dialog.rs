@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use leptos::{prelude::*, task::spawn_local};
 
-use api_client::listing::sort_nodes;
+use api_client::listing::{Sort, sort_nodes};
 use protocol::{Node, NodeId, NodeKind};
 
 use crate::{icon::Icon, session, session::Auth};
@@ -38,7 +38,7 @@ pub fn MoveDialog(
                             entry.kind == NodeKind::Folder && !moving_ids.contains(&entry.id)
                         })
                         .collect();
-                    sort_nodes(&mut listing);
+                    sort_nodes(&mut listing, Sort::default());
                     folders.set(listing);
                 }
                 Err(err) => error.set(Some(auth.fail(&err))),

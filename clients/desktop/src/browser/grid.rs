@@ -3,7 +3,10 @@ use iced::{
     widget::{button, column, container, mouse_area, row, scrollable, text},
 };
 
-use api_client::format::{human_size, short_date};
+use api_client::{
+    format::human_size,
+    listing::{Sort, SortKey},
+};
 use protocol::{Node, NodeKind};
 
 use super::{
@@ -12,6 +15,7 @@ use super::{
 };
 use crate::{
     icons::{ICON_SIZE, Icon, Tint, node_icon},
+    locale::short_date,
     theme,
 };
 
@@ -28,11 +32,13 @@ const ROW_PADDING: Padding = Padding {
 const SCROLLBAR_GUTTER: f32 = 14.0;
 const ROW_GAP: f32 = 2.0;
 const HEADER_SIZE: f32 = 13.0;
+const SORT_ARROW_GAP: f32 = 8.0;
+const SORT_LABEL_HEIGHT: f32 = 20.0;
 const ROW_SIZE: f32 = 15.0;
 const EMPTY_PADDING: f32 = 32.0;
 
 /// Column titles with the select-all checkbox, aligned with [`rows`].
-pub fn header<'a>(coverage: Coverage) -> Element<'a, Message> {
+pub fn header<'a>(coverage: Coverage, sort: Sort) -> Element<'a, Message> {
     let icon = match coverage {
         Coverage::None => Icon::Unchecked,
         Coverage::Some => Icon::Mixed,
@@ -40,17 +46,56 @@ pub fn header<'a>(coverage: Coverage) -> Element<'a, Message> {
     };
     let cells = row![
         check(icon, Message::ToggleAll),
-        text("Name").size(HEADER_SIZE).width(Length::Fill),
-        text("Size")
-            .size(HEADER_SIZE)
-            .width(SIZE_WIDTH)
-            .align_x(Alignment::End),
-        text("Modified").size(HEADER_SIZE).width(DATE_WIDTH),
+        sort_button("Name", SortKey::Name, sort, Length::Fill, Alignment::Start),
+        sort_button(
+            "Size",
+            SortKey::Size,
+            sort,
+            SIZE_WIDTH.into(),
+            Alignment::End
+        ),
+        sort_button(
+            "Modified",
+            SortKey::Modified,
+            sort,
+            DATE_WIDTH.into(),
+            Alignment::Start
+        ),
     ]
     .spacing(CELL_SPACING)
     .align_y(Alignment::Center);
     container(container(cells).padding(ROW_PADDING).style(theme::header))
         .padding(Padding::default().right(SCROLLBAR_GUTTER))
+        .into()
+}
+
+/// A column title that sorts by `key` when pressed, with an arrow while it is active.
+fn sort_button<'a>(
+    title: &'a str,
+    key: SortKey,
+    sort: Sort,
+    width: Length,
+    align: Alignment,
+) -> Element<'a, Message> {
+    let arrow = match (sort.key == key, sort.descending) {
+        (false, _) => None,
+        (true, false) => Some("\u{2191}"),
+        (true, true) => Some("\u{2193}"),
+    };
+    let cell = |content| {
+        text(content)
+            .size(HEADER_SIZE)
+            .height(SORT_LABEL_HEIGHT)
+            .align_y(Alignment::Center)
+    };
+    let label = row![cell(title), arrow.map(cell)]
+        .spacing(SORT_ARROW_GAP)
+        .align_y(Alignment::Center);
+    button(container(label).width(Length::Fill).align_x(align))
+        .padding(0)
+        .width(width)
+        .style(button::text)
+        .on_press(Message::SortBy(key))
         .into()
 }
 

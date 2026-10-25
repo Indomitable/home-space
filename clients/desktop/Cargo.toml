@@ -8,18 +8,21 @@ publish.workspace = true
 [dependencies]
 api-client.workspace = true
 iced = { version = "0.14.0", features = ["svg", "tokio"] }
+icu_datetime = "2.4.0"
+icu_locale = "2.4.0"
 keyring = "4.2.0"
 protocol.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 rfd = "0.17.2"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+sys-locale = "0.3.2"
+time.workspace = true
 tokio = { workspace = true, features = ["fs", "macros", "rt", "time"] }
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
 tokio-util = { version = "0.7.20", features = ["io"] }
 
 [dev-dependencies]
 iced_test = "0.14.0"
-time.workspace = true
 tokio = { workspace = true, features = ["fs", "macros", "rt"] }
 uuid = "1.29.0"

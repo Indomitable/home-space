@@ -12,7 +12,7 @@ use web_sys::{DragEvent, File, FileList};
 
 use api_client::{
     ApiError,
-    listing::{affects_path, apply_event, sort_nodes},
+    listing::{Sort, affects_path, apply_event, sort_nodes},
 };
 use protocol::{Event, Node, NodeId, TicketRequest};
 
@@ -43,8 +43,7 @@ pub fn Browser(auth: Auth) -> impl IntoView {
 
 async fn fetch(folder: Option<NodeId>) -> Result<(Vec<Node>, Vec<Node>), ApiError> {
     let client = session::client();
-    let mut listing = client.list(folder).await?;
-    sort_nodes(&mut listing);
+    let listing = client.list(folder).await?;
     let path = match folder {
         Some(id) => {
             let mut path = client.ancestors(id).await?;
@@ -76,6 +75,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
     let params = use_params_map();
     let folder = Memo::new(move |_| params.read().get("id").and_then(|id| route::parse_id(&id)));
     let nodes = RwSignal::new(Vec::<Node>::new());
+    let sort = RwSignal::new(Sort::default());
     let crumbs = RwSignal::new(Vec::<Node>::new());
     let error = RwSignal::new(None::<String>);
     let reload = RwSignal::new(0_u32);
@@ -93,7 +93,8 @@ fn Explorer(auth: Auth) -> impl IntoView {
         reload.track();
         spawn_local(async move {
             match fetch(wanted).await {
-                Ok((listing, path)) if folder.get_untracked() == wanted => {
+                Ok((mut listing, path)) if folder.get_untracked() == wanted => {
+                    sort_nodes(&mut listing, sort.get_untracked());
                     nodes.set(listing);
                     crumbs.set(path);
                     error.set(None);
@@ -104,11 +105,23 @@ fn Explorer(auth: Auth) -> impl IntoView {
         });
     });
 
+    Effect::new(move |_| {
+        let sort = sort.get();
+        nodes.update(|listing| sort_nodes(listing, sort));
+    });
+
     let connection = StoredValue::new_local(events::connect(move |event| {
         if matches!(event, Event::Resync) || affects_path(&crumbs.get_untracked(), &event) {
             reload.update(|count| *count += 1);
         } else {
-            nodes.update(|listing| apply_event(listing, folder.get_untracked(), &event));
+            nodes.update(|listing| {
+                apply_event(
+                    listing,
+                    folder.get_untracked(),
+                    &event,
+                    sort.get_untracked(),
+                )
+            });
         }
     }));
     on_cleanup(move || connection.with_value(events::Connection::stop));
@@ -306,7 +319,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                         })
                 }}
                 <div class="explorer__scroll">
-                    <NodeTable nodes actions draft_input />
+                    <NodeTable nodes sort actions draft_input />
                     <Show when=move || nodes.read().is_empty() && error.read().is_none() && draft.read().is_none()>
                         <p class="explorer__empty">"Nothing here yet. Drop files anywhere to upload."</p>
                     </Show>

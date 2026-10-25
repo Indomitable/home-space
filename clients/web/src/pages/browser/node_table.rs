@@ -4,12 +4,16 @@ use leptos::{html::Input, prelude::*};
 use leptos_router::components::A;
 use web_sys::KeyboardEvent;
 
-use api_client::format::{human_size, short_date};
+use api_client::{
+    format::human_size,
+    listing::{Sort, SortKey},
+};
 use protocol::{Node, NodeId, NodeKind};
 
 use super::menu::{Menu, MenuItem};
 use crate::{
     icon::{Icon, node_icon},
+    locale::short_date,
     route,
 };
 
@@ -39,6 +43,7 @@ pub struct TableActions {
 #[component]
 pub fn NodeTable(
     nodes: RwSignal<Vec<Node>>,
+    sort: RwSignal<Sort>,
     actions: TableActions,
     draft_input: NodeRef<Input>,
 ) -> impl IntoView {
@@ -49,11 +54,19 @@ pub fn NodeTable(
                     <th class="node-table__header-cell node-table__header-cell--select">
                         <SelectAll nodes selected=actions.selected />
                     </th>
-                    <th class="node-table__header-cell">"Name"</th>
-                    <th class="node-table__header-cell node-table__header-cell--size">"Size"</th>
-                    <th class="node-table__header-cell node-table__header-cell--modified">
-                        "Modified"
-                    </th>
+                    <SortHeader sort key=SortKey::Name label="Name" />
+                    <SortHeader
+                        sort
+                        key=SortKey::Size
+                        label="Size"
+                        class="node-table__header-cell--size"
+                    />
+                    <SortHeader
+                        sort
+                        key=SortKey::Modified
+                        label="Modified"
+                        class="node-table__header-cell--modified"
+                    />
                     <th class="node-table__header-cell">
                         <span class="visually-hidden">"Actions"</span>
                     </th>
@@ -70,6 +83,42 @@ pub fn NodeTable(
                 />
             </tbody>
         </table>
+    }
+}
+
+#[component]
+fn SortHeader(
+    sort: RwSignal<Sort>,
+    key: SortKey,
+    label: &'static str,
+    #[prop(optional)] class: &'static str,
+) -> impl IntoView {
+    let active = move || sort.get().key == key;
+    let aria_sort = move || match (active(), sort.get().descending) {
+        (false, _) => "none",
+        (true, false) => "ascending",
+        (true, true) => "descending",
+    };
+    let arrow = move || {
+        if sort.get().descending {
+            "\u{2193}"
+        } else {
+            "\u{2191}"
+        }
+    };
+    view! {
+        <th class=format!("node-table__header-cell {class}") aria-sort=aria_sort>
+            <button
+                class="node-table__sort"
+                class:node-table__sort--active=active
+                on:click=move |_| sort.update(|sort| *sort = sort.toggled(key))
+            >
+                {label}
+                <Show when=active>
+                    <span class="node-table__sort-arrow">{arrow}</span>
+                </Show>
+            </button>
+        </th>
     }
 }
 

@@ -19,7 +19,7 @@ use iced::{
 
 use api_client::{
     ApiError, Client,
-    listing::{affects_path, apply_event, collapsed_crumbs, sort_nodes},
+    listing::{Sort, SortKey, affects_path, apply_event, collapsed_crumbs, sort_nodes},
 };
 use protocol::{Me, Node, NodeId, NodeKind};
 
@@ -69,6 +69,7 @@ pub enum Message {
     Click(NodeId),
     Toggle(NodeId),
     ToggleAll,
+    SortBy(SortKey),
     ContextMenu(NodeId),
     CrumbsMenu,
     CloseMenu,
@@ -114,6 +115,7 @@ pub struct State {
     me: Me,
     folder: Option<NodeId>,
     listing: Listing,
+    sort: Sort,
     loading: bool,
     error: Option<String>,
     selection: Selection,
@@ -137,6 +139,7 @@ impl State {
                 path: Vec::new(),
                 nodes: Vec::new(),
             },
+            sort: Sort::default(),
             loading: true,
             error: None,
             selection: Selection::default(),
@@ -170,7 +173,8 @@ impl State {
             Message::Loaded(folder, result) if folder == self.folder => {
                 self.loading = false;
                 match result {
-                    Ok(listing) => {
+                    Ok(mut listing) => {
+                        sort_nodes(&mut listing.nodes, self.sort);
                         self.selection.retain(&listing.nodes);
                         self.listing = listing;
                         self.error = None;
@@ -187,6 +191,11 @@ impl State {
             }
             Message::ToggleAll => {
                 self.selection.toggle_all(&self.listing.nodes);
+                Task::none()
+            }
+            Message::SortBy(key) => {
+                self.sort = self.sort.toggled(key);
+                sort_nodes(&mut self.listing.nodes, self.sort);
                 Task::none()
             }
             Message::ContextMenu(id) => {
@@ -273,7 +282,7 @@ impl State {
                 {
                     self.load()
                 } else {
-                    apply_event(&mut self.listing.nodes, self.folder, &event);
+                    apply_event(&mut self.listing.nodes, self.folder, &event, self.sort);
                     self.selection.retain(&self.listing.nodes);
                     Task::none()
                 }
@@ -507,7 +516,7 @@ impl State {
             page = page.push(container(text(error.as_str())).style(theme::error));
         }
         let grid = column![
-            grid::header(self.selection.coverage(&self.listing.nodes)),
+            grid::header(self.selection.coverage(&self.listing.nodes), self.sort),
             grid::rows(&self.listing.nodes, &self.selection),
         ]
         .spacing(GRID_SPACING);
@@ -675,7 +684,7 @@ fn shortcut(key: &Key, modifiers: Modifiers) -> Option<Shortcut> {
 }
 
 async fn fetch(client: Client, folder: Option<NodeId>) -> Result<Listing, ApiError> {
-    let (mut nodes, path) = match folder {
+    let (nodes, path) = match folder {
         None => (client.list(None).await?, Vec::new()),
         Some(id) => {
             let (nodes, current, mut path) =
@@ -684,7 +693,6 @@ async fn fetch(client: Client, folder: Option<NodeId>) -> Result<Listing, ApiErr
             (nodes, path)
         }
     };
-    sort_nodes(&mut nodes);
     Ok(Listing { path, nodes })
 }
 

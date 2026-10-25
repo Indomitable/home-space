@@ -5,19 +5,55 @@ use protocol::{Event, Node, NodeId, NodeKind};
 /// How many breadcrumb folders are shown before the middle ones collapse.
 pub const MAX_VISIBLE_CRUMBS: usize = 3;
 
-/// Orders nodes folders first, then by case-insensitive name.
-pub fn sort_nodes(nodes: &mut [Node]) {
-    nodes.sort_by_cached_key(|node| (node.kind != NodeKind::Folder, node.name.to_lowercase()));
+/// The column a listing is ordered by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortKey {
+    #[default]
+    Name,
+    Size,
+    Modified,
+}
+
+/// A column and direction to order a listing by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Sort {
+    pub key: SortKey,
+    pub descending: bool,
+}
+
+impl Sort {
+    /// The sort after a header click: flips the direction of the active column,
+    /// or switches to `key` ascending.
+    pub fn toggled(self, key: SortKey) -> Self {
+        Self {
+            key,
+            descending: self.key == key && !self.descending,
+        }
+    }
+}
+
+/// Orders nodes folders first, then by `sort`, breaking ties by case-insensitive name.
+pub fn sort_nodes(nodes: &mut [Node], sort: Sort) {
+    nodes.sort_by_cached_key(|node| {
+        let name = node.name.to_lowercase();
+        let primary = match sort.key {
+            SortKey::Name => 0,
+            SortKey::Size => node.size,
+            SortKey::Modified => node.updated_at.unix_timestamp(),
+        };
+        let primary = if sort.descending { -primary } else { primary };
+        (node.kind != NodeKind::Folder, primary, name)
+    });
 }
 
 /// Applies a live event to the listing of `folder`.
-pub fn apply_event(nodes: &mut Vec<Node>, folder: Option<NodeId>, event: &Event) {
+pub fn apply_event(nodes: &mut Vec<Node>, folder: Option<NodeId>, event: &Event, sort: Sort) {
     match event {
         Event::NodeCreated { node } | Event::NodeUpdated { node } => {
             nodes.retain(|existing| existing.id != node.id);
             if node.parent_id == folder {
                 nodes.push(node.clone());
-                sort_nodes(nodes);
+                sort_nodes(nodes, sort);
             }
         }
         Event::NodeDeleted { id, .. } => nodes.retain(|existing| existing.id != *id),
@@ -80,8 +116,41 @@ mod tests {
             node("alpha", NodeKind::Folder, None),
             node("A.txt", NodeKind::File, None),
         ];
-        sort_nodes(&mut nodes);
+        sort_nodes(&mut nodes, Sort::default());
         assert_eq!(names(&nodes), ["alpha", "Zeta", "A.txt", "b.txt"]);
+    }
+
+    #[test]
+    fn size_sort_keeps_folders_first_and_can_descend() {
+        let mut big = node("big", NodeKind::File, None);
+        big.size = 10;
+        let mut small = node("small", NodeKind::File, None);
+        small.size = 1;
+        let mut nodes = vec![big, small, node("dir", NodeKind::Folder, None)];
+        let sort = Sort::default().toggled(SortKey::Size);
+        sort_nodes(&mut nodes, sort);
+        assert_eq!(names(&nodes), ["dir", "small", "big"]);
+        sort_nodes(&mut nodes, sort.toggled(SortKey::Size));
+        assert_eq!(names(&nodes), ["dir", "big", "small"]);
+    }
+
+    #[test]
+    fn modified_sort_orders_by_update_time() {
+        let mut old = node("old", NodeKind::File, None);
+        old.updated_at = OffsetDateTime::UNIX_EPOCH;
+        let mut new = node("new", NodeKind::File, None);
+        new.updated_at = OffsetDateTime::UNIX_EPOCH + time::Duration::DAY;
+        let mut nodes = vec![new, old];
+        sort_nodes(&mut nodes, Sort::default().toggled(SortKey::Modified));
+        assert_eq!(names(&nodes), ["old", "new"]);
+    }
+
+    #[test]
+    fn toggling_the_active_column_flips_direction() {
+        let sort = Sort::default();
+        assert!(!sort.descending);
+        assert!(sort.toggled(SortKey::Name).descending);
+        assert!(!sort.toggled(SortKey::Size).descending);
     }
 
     #[test]
@@ -90,7 +159,7 @@ mod tests {
         let event = Event::NodeCreated {
             node: node("a.txt", NodeKind::File, None),
         };
-        apply_event(&mut nodes, None, &event);
+        apply_event(&mut nodes, None, &event, Sort::default());
         assert_eq!(names(&nodes), ["a.txt", "b.txt"]);
     }
 
@@ -101,7 +170,7 @@ mod tests {
         let event = Event::NodeCreated {
             node: node("a.txt", NodeKind::File, other),
         };
-        apply_event(&mut nodes, None, &event);
+        apply_event(&mut nodes, None, &event, Sort::default());
         assert!(nodes.is_empty());
     }
 
@@ -112,7 +181,7 @@ mod tests {
         let event = Event::NodeUpdated {
             node: node("a.txt", NodeKind::File, other),
         };
-        apply_event(&mut nodes, None, &event);
+        apply_event(&mut nodes, None, &event, Sort::default());
         assert!(nodes.is_empty());
     }
 
@@ -121,7 +190,12 @@ mod tests {
         let mut nodes = vec![node("a.txt", NodeKind::File, None)];
         let mut renamed = node("a.txt", NodeKind::File, None);
         renamed.name = "z.txt".to_owned();
-        apply_event(&mut nodes, None, &Event::NodeUpdated { node: renamed });
+        apply_event(
+            &mut nodes,
+            None,
+            &Event::NodeUpdated { node: renamed },
+            Sort::default(),
+        );
         assert_eq!(names(&nodes), ["z.txt"]);
     }
 
@@ -133,7 +207,7 @@ mod tests {
             parent_id: None,
         };
         let mut nodes = vec![file];
-        apply_event(&mut nodes, None, &event);
+        apply_event(&mut nodes, None, &event, Sort::default());
         assert!(nodes.is_empty());
     }
 

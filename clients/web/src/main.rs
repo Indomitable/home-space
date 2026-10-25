@@ -1,6 +1,7 @@
 mod app;
 mod events;
 mod icon;
+mod locale;
 mod pages;
 mod route;
 mod session;

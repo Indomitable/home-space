@@ -14,7 +14,10 @@ use iced::{
 use tokio::{fs, io::AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 
-use api_client::{ApiError, Client, listing::sort_nodes};
+use api_client::{
+    ApiError, Client,
+    listing::{Sort, sort_nodes},
+};
 use protocol::{ErrorCode, Node, NodeId, NodeKind};
 
 use crate::{
@@ -479,7 +482,7 @@ pub async fn plan_download(
                     .list(Some(node.id))
                     .await
                     .map_err(|err| err.to_string())?;
-                sort_nodes(&mut children);
+                sort_nodes(&mut children, Sort::default());
                 stack.extend(children.into_iter().rev().map(|child| {
                     let path = target.join(sanitize_component(&child.name));
                     (child, path, depth + 1)

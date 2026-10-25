@@ -164,3 +164,28 @@
 .node-table__row--selected:hover {
   background: var(--color-accent-soft);
 }
+
+.node-table__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.node-table__sort:hover,
+.node-table__sort--active {
+  color: var(--color-text);
+}
+
+.node-table__sort-arrow {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}

@@ -1,11 +1,12 @@
-use iced::{
-    Alignment, Element, Length, Padding,
-    widget::{button, column, container, mouse_area, row, scrollable, text},
-};
-
 use api_client::{
     format::human_size,
     listing::{Sort, SortKey},
+};
+use iced::font::Weight;
+use iced::widget::text::LineHeight;
+use iced::{
+    Alignment, Element, Font, Length, Padding,
+    widget::{button, column, container, mouse_area, row, scrollable, text},
 };
 use protocol::{Node, NodeKind};
 
@@ -33,7 +34,6 @@ const SCROLLBAR_GUTTER: f32 = 14.0;
 const ROW_GAP: f32 = 2.0;
 const HEADER_SIZE: f32 = 13.0;
 const SORT_ARROW_GAP: f32 = 8.0;
-const SORT_LABEL_HEIGHT: f32 = 20.0;
 const ROW_SIZE: f32 = 15.0;
 const EMPTY_PADDING: f32 = 32.0;
 
@@ -70,27 +70,33 @@ pub fn header<'a>(coverage: Coverage, sort: Sort) -> Element<'a, Message> {
 }
 
 /// A column title that sorts by `key` when pressed, with an arrow while it is active.
-fn sort_button<'a>(
-    title: &'a str,
+fn sort_button(
+    title: &str,
     key: SortKey,
     sort: Sort,
     width: Length,
     align: Alignment,
-) -> Element<'a, Message> {
+) -> Element<'_, Message> {
     let arrow = match (sort.key == key, sort.descending) {
         (false, _) => None,
         (true, false) => Some("\u{2191}"),
         (true, true) => Some("\u{2193}"),
     };
-    let cell = |content| {
-        text(content)
-            .size(HEADER_SIZE)
-            .height(SORT_LABEL_HEIGHT)
-            .align_y(Alignment::Center)
+    let bold = Font {
+        weight: Weight::Bold,
+        ..Font::DEFAULT
     };
-    let label = row![cell(title), arrow.map(cell)]
-        .spacing(SORT_ARROW_GAP)
-        .align_y(Alignment::Center);
+    let label = row![
+        text(title).size(HEADER_SIZE).align_y(Alignment::Center),
+        arrow.map(|a| text(a)
+            .align_y(Alignment::Center)
+            .size(20.0)
+            .line_height(LineHeight::Relative(1.1))
+            .height(25.0)
+            .font(bold))
+    ]
+    .spacing(SORT_ARROW_GAP)
+    .align_y(Alignment::Center);
     button(container(label).width(Length::Fill).align_x(align))
         .padding(0)
         .width(width)

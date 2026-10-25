@@ -26,3 +26,4 @@ rustc-ice-*.txt
 # home-space server
 .env
 server/data/
+.idea/

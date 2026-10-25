@@ -5,6 +5,7 @@ use leptos_router::{
 };
 
 use crate::{
+    events,
     pages::{Browser, Login},
     session::Auth,
     uploads::{UploadItem, UploadPanel},
@@ -15,6 +16,15 @@ pub fn App() -> impl IntoView {
     let auth = Auth::start();
     let uploads = RwSignal::new(Vec::<UploadItem>::new());
     provide_context(uploads);
+    let hub = StoredValue::new_local(events::Hub::default());
+    provide_context(hub);
+    Effect::new(move |_| {
+        if auth.user.read().is_some() {
+            hub.with_value(events::Hub::start);
+        } else {
+            hub.with_value(events::Hub::stop);
+        }
+    });
     view! {
         <Router>
             <Show

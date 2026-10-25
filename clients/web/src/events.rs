@@ -1,4 +1,7 @@
-use std::{cell::Cell, cell::RefCell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::{Rc, Weak},
+};
 
 use gloo_timers::future::TimeoutFuture;
 use tokio::sync::oneshot;
@@ -27,6 +30,81 @@ impl Connection {
         self.stopped.set(true);
         if let Some(socket) = self.socket.borrow().as_ref() {
             let _ = socket.close();
+        }
+    }
+}
+
+#[derive(Default)]
+struct HubState {
+    connection: RefCell<Option<Connection>>,
+    subscribers: RefCell<Vec<(u64, Handler)>>,
+    next_id: Cell<u64>,
+}
+
+/// One live-events connection shared by every page; pages come and go via
+/// [`Hub::subscribe`] without reconnecting.
+#[derive(Clone, Default)]
+pub struct Hub(Rc<HubState>);
+
+impl Hub {
+    /// Opens the connection unless it is already open.
+    pub fn start(&self) {
+        if self.0.connection.borrow().is_some() {
+            return;
+        }
+        let state = Rc::downgrade(&self.0);
+        let connection = connect(move |event| {
+            let Some(state) = state.upgrade() else {
+                return;
+            };
+            let handlers: Vec<Handler> = state
+                .subscribers
+                .borrow()
+                .iter()
+                .map(|(_, handler)| Rc::clone(handler))
+                .collect();
+            for handler in handlers {
+                handler(event.clone());
+            }
+        });
+        *self.0.connection.borrow_mut() = Some(connection);
+    }
+
+    /// Closes the connection; subscribers stay registered.
+    pub fn stop(&self) {
+        if let Some(connection) = self.0.connection.borrow_mut().take() {
+            connection.stop();
+        }
+    }
+
+    /// Passes every event to `on_event` until the returned handle is dropped.
+    pub fn subscribe(&self, on_event: impl Fn(Event) + 'static) -> Subscription {
+        let id = self.0.next_id.get();
+        self.0.next_id.set(id + 1);
+        self.0
+            .subscribers
+            .borrow_mut()
+            .push((id, Rc::new(on_event)));
+        Subscription {
+            state: Rc::downgrade(&self.0),
+            id,
+        }
+    }
+}
+
+/// Keeps a handler registered with a [`Hub`]; dropping it unsubscribes.
+pub struct Subscription {
+    state: Weak<HubState>,
+    id: u64,
+}
+
+impl Drop for Subscription {
+    fn drop(&mut self) {
+        if let Some(state) = self.state.upgrade() {
+            state
+                .subscribers
+                .borrow_mut()
+                .retain(|(id, _)| *id != self.id);
         }
     }
 }

@@ -110,21 +110,24 @@ fn Explorer(auth: Auth) -> impl IntoView {
         nodes.update(|listing| sort_nodes(listing, sort));
     });
 
-    let connection = StoredValue::new_local(events::connect(move |event| {
-        if matches!(event, Event::Resync) || affects_path(&crumbs.get_untracked(), &event) {
-            reload.update(|count| *count += 1);
-        } else {
-            nodes.update(|listing| {
-                apply_event(
-                    listing,
-                    folder.get_untracked(),
-                    &event,
-                    sort.get_untracked(),
-                )
-            });
-        }
-    }));
-    on_cleanup(move || connection.with_value(events::Connection::stop));
+    let hub = expect_context::<StoredValue<events::Hub, LocalStorage>>();
+    let subscription = StoredValue::new_local(Some(hub.with_value(|hub| {
+        hub.subscribe(move |event| {
+            if matches!(event, Event::Resync) || affects_path(&crumbs.get_untracked(), &event) {
+                reload.update(|count| *count += 1);
+            } else {
+                nodes.update(|listing| {
+                    apply_event(
+                        listing,
+                        folder.get_untracked(),
+                        &event,
+                        sort.get_untracked(),
+                    )
+                });
+            }
+        })
+    })));
+    on_cleanup(move || subscription.set_value(None));
 
     let settle = move |result: Result<(), ApiError>| {
         if let Err(err) = result {

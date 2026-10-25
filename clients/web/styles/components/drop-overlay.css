@@ -1,0 +1,22 @@
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  margin: var(--space-3);
+  border: 2px dashed var(--color-accent);
+  border-radius: var(--radius-lg);
+  background: var(--color-accent-soft);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+
+.drop-overlay__label {
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}

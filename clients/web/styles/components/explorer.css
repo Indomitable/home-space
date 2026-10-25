@@ -1,9 +1,29 @@
+.browser {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+
 .explorer {
   display: grid;
+  flex: 1;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-content: start;
   gap: var(--space-4);
+  width: 100%;
+  min-height: 0;
   max-width: var(--content-width);
   margin: 0 auto;
-  padding: var(--space-5) var(--space-4) var(--space-7);
+  padding: var(--space-5) var(--space-4) var(--space-4);
+}
+
+.explorer__scroll {
+  min-height: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  overflow: auto;
 }
 
 .explorer__header {
@@ -22,8 +42,6 @@
 
 .explorer__empty {
   padding: var(--space-7) var(--space-4);
-  border: 1px dashed var(--color-border-strong);
-  border-radius: var(--radius-md);
   color: var(--color-muted);
   text-align: center;
 }

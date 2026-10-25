@@ -7,11 +7,14 @@ use leptos_router::{
 use crate::{
     pages::{Browser, Login},
     session::Auth,
+    uploads::{UploadItem, UploadPanel},
 };
 
 #[component]
 pub fn App() -> impl IntoView {
     let auth = Auth::start();
+    let uploads = RwSignal::new(Vec::<UploadItem>::new());
+    provide_context(uploads);
     view! {
         <Router>
             <Show
@@ -23,6 +26,9 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("/") view=move || view! { <Browser auth /> } />
                     <Route path=path!("/folder/:id") view=move || view! { <Browser auth /> } />
                 </Routes>
+            </Show>
+            <Show when=move || auth.user.read().is_some()>
+                <UploadPanel uploads />
             </Show>
         </Router>
     }

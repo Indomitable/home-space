@@ -1,0 +1,150 @@
+.upload-panel {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 50;
+  display: grid;
+  width: min(380px, calc(100vw - 2 * var(--space-4)));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.upload-panel__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+}
+
+.upload-panel__summary {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.upload-panel__icon {
+  min-width: 2em;
+}
+
+.upload-panel__overall {
+  width: 100%;
+  height: 3px;
+  border: 0;
+  background: var(--color-surface-hover);
+  appearance: none;
+}
+
+.upload-panel__overall::-webkit-progress-bar {
+  background: var(--color-surface-hover);
+}
+
+.upload-panel__overall::-webkit-progress-value {
+  background: var(--color-accent);
+}
+
+.upload-panel__overall::-moz-progress-bar {
+  background: var(--color-accent);
+}
+
+.upload-panel__list {
+  display: grid;
+  max-height: 280px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  border-top: 1px solid var(--color-border);
+}
+
+.upload-panel__list[hidden] {
+  display: none;
+}
+
+.upload-panel__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(48px, 90px) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.upload-panel__item + .upload-panel__item {
+  border-top: 1px solid var(--color-border);
+}
+
+.upload-panel__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-panel__progress {
+  width: 100%;
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-surface-hover);
+  overflow: hidden;
+  appearance: none;
+}
+
+.upload-panel__progress::-webkit-progress-bar {
+  background: var(--color-surface-hover);
+}
+
+.upload-panel__progress::-webkit-progress-value {
+  background: var(--color-accent);
+  transition: width var(--transition);
+}
+
+.upload-panel__progress::-moz-progress-bar {
+  background: var(--color-accent);
+}
+
+.upload-panel__status {
+  color: var(--color-muted);
+  text-align: right;
+}
+
+.upload-panel__item--done .upload-panel__status {
+  color: var(--color-success);
+}
+
+.upload-panel__item--done .upload-panel__progress::-webkit-progress-value {
+  background: var(--color-success);
+}
+
+.upload-panel__item--done .upload-panel__progress::-moz-progress-bar {
+  background: var(--color-success);
+}
+
+.upload-panel__item--failed .upload-panel__status {
+  color: var(--color-danger);
+  white-space: normal;
+}
+
+@media (width < 640px) {
+  .upload-panel {
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    border-inline: 0;
+    border-bottom: 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+
+  .upload-panel__item {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-3);
+  }
+
+  .upload-panel__progress {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}

@@ -10,7 +10,8 @@
 @use "components/login";
 @use "components/explorer";
 @use "components/breadcrumbs";
-@use "components/upload-list";
+@use "components/upload-panel";
+@use "components/drop-overlay";
 @use "components/node-table";
 @use "components/modal";
 @use "components/folder-picker";

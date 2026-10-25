@@ -2,9 +2,8 @@ mod app_bar;
 mod breadcrumbs;
 mod node_table;
 mod toolbar;
-mod uploads;
 
-use leptos::{html::Input, prelude::*, task::spawn_local};
+use leptos::{ev, html::Input, prelude::*, task::spawn_local};
 use leptos_router::{components::Redirect, hooks::use_params_map};
 use web_sys::{DragEvent, File, FileList};
 
@@ -16,7 +15,6 @@ use self::{
     breadcrumbs::Breadcrumbs,
     node_table::{NodeTable, TableActions},
     toolbar::Toolbar,
-    uploads::{UploadItem, UploadList, start_upload},
 };
 use super::move_dialog::MoveDialog;
 use crate::{
@@ -24,6 +22,7 @@ use crate::{
     listing::{affects_path, apply_event, sort_nodes},
     route,
     session::{self, Auth},
+    uploads::{UploadItem, start_upload},
 };
 
 #[component]
@@ -59,6 +58,15 @@ fn confirm(message: &str) -> bool {
         .unwrap_or(false)
 }
 
+const FILES_TYPE: &str = "Files";
+const DROP_EFFECT_COPY: &str = "copy";
+
+fn carries_files(event: &DragEvent) -> bool {
+    event
+        .data_transfer()
+        .is_some_and(|transfer| transfer.types().includes(&FILES_TYPE.into(), 0))
+}
+
 fn files_of(list: &FileList) -> Vec<File> {
     (0..list.length())
         .filter_map(|index| list.get(index))
@@ -74,7 +82,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
     let error = RwSignal::new(None::<String>);
     let reload = RwSignal::new(0_u32);
     let moving = RwSignal::new(None::<Node>);
-    let uploads = RwSignal::new(Vec::<UploadItem>::new());
+    let uploads = expect_context::<RwSignal<Vec<UploadItem>>>();
     let draft = RwSignal::new(None::<String>);
     let renaming = RwSignal::new(None::<(NodeId, String)>);
     let saving = RwSignal::new(false);
@@ -202,6 +210,41 @@ fn Explorer(auth: Auth) -> impl IntoView {
         start_upload(uploads, reload, auth, folder.get_untracked(), files);
     });
 
+    let drag_depth = RwSignal::new(0_u32);
+    let dragging = Memo::new(move |_| drag_depth.get() > 0);
+    let on_enter = window_event_listener(ev::dragenter, move |event| {
+        if carries_files(&event) {
+            event.prevent_default();
+            drag_depth.update(|depth| *depth += 1);
+        }
+    });
+    let on_over = window_event_listener(ev::dragover, move |event| {
+        if carries_files(&event) {
+            event.prevent_default();
+            if let Some(transfer) = event.data_transfer() {
+                transfer.set_drop_effect(DROP_EFFECT_COPY);
+            }
+        }
+    });
+    let on_leave = window_event_listener(ev::dragleave, move |event| {
+        if carries_files(&event) {
+            drag_depth.update(|depth| *depth = depth.saturating_sub(1));
+        }
+    });
+    let on_drop = window_event_listener(ev::drop, move |event| {
+        event.prevent_default();
+        drag_depth.set(0);
+        if let Some(list) = event.data_transfer().and_then(|transfer| transfer.files()) {
+            upload.run(files_of(&list));
+        }
+    });
+    on_cleanup(move || {
+        on_enter.remove();
+        on_over.remove();
+        on_leave.remove();
+        on_drop.remove();
+    });
+
     let actions = TableActions {
         draft,
         renaming,
@@ -216,34 +259,41 @@ fn Explorer(auth: Auth) -> impl IntoView {
     };
 
     view! {
-        <AppBar auth />
-        <main
-            class="explorer"
-            on:dragover=|event: DragEvent| event.prevent_default()
-            on:drop=move |event: DragEvent| {
-                event.prevent_default();
-                if let Some(list) = event.data_transfer().and_then(|transfer| transfer.files()) {
-                    upload.run(files_of(&list));
-                }
-            }
-        >
-            <div class="explorer__header">
-                <Breadcrumbs crumbs />
-                <Toolbar on_new_folder=new_folder on_upload=upload />
+        <div class="browser">
+            <AppBar auth />
+            <main class="explorer">
+                <div class="explorer__header">
+                    <Breadcrumbs crumbs />
+                    <Toolbar on_new_folder=new_folder on_upload=upload />
+                </div>
+                {move || {
+                    error
+                        .get()
+                        .map(|message| {
+                            view! { <p class="alert alert--error" role="alert">{message}</p> }
+                        })
+                }}
+                <div class="explorer__scroll">
+                    <NodeTable nodes actions draft_input />
+                    <Show when=move || nodes.read().is_empty() && error.read().is_none() && draft.read().is_none()>
+                        <p class="explorer__empty">"Nothing here yet. Drop files anywhere to upload."</p>
+                    </Show>
+                </div>
+            </main>
+        </div>
+        <Show when=move || dragging.get()>
+            <div class="drop-overlay" aria-hidden="true">
+                <p class="drop-overlay__label">
+                    {move || {
+                        let target = crumbs
+                            .read()
+                            .last()
+                            .map_or_else(|| "Home".to_owned(), |node| node.name.clone());
+                        format!("Drop files to upload to {target}")
+                    }}
+                </p>
             </div>
-            {move || {
-                error
-                    .get()
-                    .map(|message| {
-                        view! { <p class="alert alert--error" role="alert">{message}</p> }
-                    })
-            }}
-            <UploadList uploads />
-            <NodeTable nodes actions draft_input />
-            <Show when=move || nodes.read().is_empty() && error.read().is_none() && draft.read().is_none()>
-                <p class="explorer__empty">"Nothing here yet. Drop files anywhere to upload."</p>
-            </Show>
-        </main>
+        </Show>
         {move || {
             moving.get().map(|node| view! { <MoveDialog node moving reload auth /> })
         }}

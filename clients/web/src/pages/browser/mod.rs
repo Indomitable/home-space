@@ -1,4 +1,5 @@
 mod breadcrumbs;
+mod details;
 mod menu;
 mod node_table;
 mod toolbar;
@@ -17,6 +18,7 @@ use protocol::{Event, Node, NodeId, TicketRequest};
 
 use self::{
     breadcrumbs::Breadcrumbs,
+    details::DetailsPanel,
     node_table::{NodeTable, TableActions},
     toolbar::Toolbar,
 };
@@ -78,6 +80,8 @@ fn Explorer(auth: Auth) -> impl IntoView {
     let renaming = RwSignal::new(None::<(NodeId, String)>);
     let saving = RwSignal::new(false);
     let draft_input = NodeRef::<Input>::new();
+    let details = RwSignal::new(None::<NodeId>);
+    let details_refresh = RwSignal::new(0_u32);
 
     Effect::new(move |_| {
         let wanted = folder.get();
@@ -104,6 +108,16 @@ fn Explorer(auth: Auth) -> impl IntoView {
     let hub = expect_context::<StoredValue<events::Hub, LocalStorage>>();
     let subscription = StoredValue::new_local(Some(hub.with_value(|hub| {
         hub.subscribe(move |event| {
+            if let Some(open) = details.get_untracked() {
+                match &event {
+                    Event::NodeDeleted { id, .. } if *id == open => details.set(None),
+                    Event::NodeUpdated { node } if node.id == open => {
+                        details_refresh.update(|count| *count += 1)
+                    }
+                    Event::Resync => details_refresh.update(|count| *count += 1),
+                    _ => {}
+                }
+            }
             if matches!(event, Event::Resync) || affects_path(&crumbs.get_untracked(), &event) {
                 reload.update(|count| *count += 1);
             } else {
@@ -129,6 +143,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
 
     Effect::new(move |_| {
         folder.track();
+        details.set(None);
         draft.set(None);
         renaming.set(None);
         selected.update(HashSet::clear);
@@ -136,6 +151,15 @@ fn Explorer(auth: Auth) -> impl IntoView {
     Effect::new(move |_| {
         let listing = nodes.read();
         selected.update(|ids| ids.retain(|id| listing.iter().any(|node| node.id == *id)));
+    });
+    Effect::new(move |_| {
+        let selection = selected.read();
+        let mut ids = selection.iter();
+        if let (Some(&only), None) = (ids.next(), ids.next())
+            && details.get_untracked().is_some_and(|open| open != only)
+        {
+            details.set(Some(only));
+        }
     });
     Effect::new(move |_| {
         if let Some(input) = draft_input.get() {
@@ -238,6 +262,10 @@ fn Explorer(auth: Auth) -> impl IntoView {
             }
         });
     });
+    let show_details = Callback::new(move |node: Node| {
+        selected.set(HashSet::from([node.id]));
+        details.set(Some(node.id));
+    });
     let upload = Callback::new(move |files: Vec<File>| {
         start_upload(uploads, reload, auth, folder.get_untracked(), files);
     });
@@ -288,6 +316,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
         save_rename,
         cancel_rename,
         download,
+        details: show_details,
         delete,
     };
 
@@ -310,11 +339,18 @@ fn Explorer(auth: Auth) -> impl IntoView {
                             view! { <p class="alert alert--error" role="alert">{message}</p> }
                         })
                 }}
-                <div class="explorer__scroll">
-                    <NodeTable nodes sort actions draft_input />
-                    <Show when=move || nodes.read().is_empty() && error.read().is_none() && draft.read().is_none()>
-                        <p class="explorer__empty">"Nothing here yet. Drop files anywhere to upload."</p>
-                    </Show>
+                <div class="explorer__body" class:explorer__body--with-details=move || details.get().is_some()>
+                    <div class="explorer__scroll">
+                        <NodeTable nodes sort actions draft_input />
+                        <Show when=move || nodes.read().is_empty() && error.read().is_none() && draft.read().is_none()>
+                            <p class="explorer__empty">"Nothing here yet. Drop files anywhere to upload."</p>
+                        </Show>
+                    </div>
+                    {move || {
+                        details
+                            .get()
+                            .map(|id| view! { <DetailsPanel id details refresh=details_refresh auth /> })
+                    }}
                 </div>
         </main>
         <Show when=move || dragging.get()>

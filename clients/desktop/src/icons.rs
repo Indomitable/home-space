@@ -35,6 +35,7 @@ pub enum Icon {
     Refresh,
     Up,
     Close,
+    Info,
     Checked,
     Unchecked,
     Mixed,
@@ -65,6 +66,7 @@ impl Icon {
             Self::Refresh => include_bytes!("../assets/icons/refresh.svg"),
             Self::Up => include_bytes!("../assets/icons/arrow_upward.svg"),
             Self::Close => include_bytes!("../assets/icons/close.svg"),
+            Self::Info => include_bytes!("../assets/icons/info.svg"),
             Self::Checked => include_bytes!("../assets/icons/check_box.svg"),
             Self::Unchecked => include_bytes!("../assets/icons/check_box_outline_blank.svg"),
             Self::Mixed => include_bytes!("../assets/icons/indeterminate_check_box.svg"),
@@ -95,10 +97,10 @@ fn tint_color(theme: &Theme, tint: Tint) -> Color {
 
 /// The icon that represents `node`, chosen by MIME type.
 pub fn node_icon(node: &Node) -> Icon {
-    match (node.kind, node.mime.as_deref()) {
+    match (node.kind, node.mime.as_str()) {
         (NodeKind::Folder, _) => Icon::Folder,
-        (_, Some(mime)) if mime.starts_with(IMAGE_PREFIX) => Icon::Image,
-        (_, Some(mime)) if mime.starts_with(TEXT_PREFIX) || DOCUMENT_TYPES.contains(&mime) => {
+        (_, mime) if mime.starts_with(IMAGE_PREFIX) => Icon::Image,
+        (_, mime) if mime.starts_with(TEXT_PREFIX) || DOCUMENT_TYPES.contains(&mime) => {
             Icon::Document
         }
         _ => Icon::Other,
@@ -122,7 +124,8 @@ mod tests {
             name: String::new(),
             size: 0,
             sha256: None,
-            mime: mime.map(str::to_owned),
+            mime: mime.unwrap_or_default().to_owned(),
+            version: 1,
             created_at: OffsetDateTime::UNIX_EPOCH,
             updated_at: OffsetDateTime::UNIX_EPOCH,
         }

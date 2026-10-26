@@ -62,8 +62,11 @@ async fn ticket(
     user: AuthUser,
     Json(request): Json<TicketRequest>,
 ) -> Result<Json<TicketResponse>, ApiError> {
-    if let TicketRequest::Download { node_id } = request {
-        state.files.get(user.id, node_id).await?;
+    match request {
+        TicketRequest::Download { node_id } | TicketRequest::DownloadVersion { node_id, .. } => {
+            state.files.get(user.id, node_id).await?;
+        }
+        TicketRequest::Events => {}
     }
     Ok(Json(state.auth.issue_ticket(user.id, &request)?))
 }

@@ -7,8 +7,9 @@ use tokio::sync::Mutex as AsyncMutex;
 #[cfg(not(target_arch = "wasm32"))]
 use protocol::UploadQuery;
 use protocol::{
-    CreateFolderRequest, ErrorBody, ListQuery, LoginRequest, Me, Node, NodeId, RefreshRequest,
-    SearchHit, SearchQuery, TicketRequest, TicketResponse, TokenPair, UpdateRequest, paths,
+    CreateFolderRequest, ErrorBody, FileVersion, ListQuery, LoginRequest, Me, Node, NodeId,
+    RefreshRequest, SearchHit, SearchQuery, TicketRequest, TicketResponse, TokenPair,
+    UpdateRequest, paths,
 };
 
 use crate::ApiError;
@@ -80,6 +81,15 @@ impl Client {
         format!(
             "{}?{}={ticket}",
             self.url(&paths::file_content(id)),
+            paths::TICKET_PARAM
+        )
+    }
+
+    /// URL that downloads a previous version of a file when opened, authenticated by `ticket`.
+    pub fn version_download_url(&self, id: NodeId, version: i32, ticket: &str) -> String {
+        format!(
+            "{}?{}={ticket}",
+            self.url(&paths::version_content(id, version)),
             paths::TICKET_PARAM
         )
     }
@@ -266,6 +276,36 @@ impl Client {
         } else {
             Err(error_from(response).await)
         }
+    }
+
+    /// Starts downloading a previous version of a file.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn download_version(&self, id: NodeId, version: i32) -> Result<Response, ApiError> {
+        let response = self
+            .send(|| {
+                self.http
+                    .get(self.url(&paths::version_content(id, version)))
+            })
+            .await?;
+        if response.status().is_success() {
+            Ok(response)
+        } else {
+            Err(error_from(response).await)
+        }
+    }
+
+    /// Previous versions of a file, newest first.
+    pub async fn versions(&self, id: NodeId) -> Result<Vec<FileVersion>, ApiError> {
+        self.send_json(|| self.http.get(self.url(&paths::versions(id))))
+            .await
+    }
+
+    /// Deletes a previous version of a file.
+    pub async fn delete_version(&self, id: NodeId, version: i32) -> Result<(), ApiError> {
+        let response = self
+            .send(|| self.http.delete(self.url(&paths::version(id, version))))
+            .await?;
+        expect_success(response).await
     }
 
     /// Requests a short-lived ticket for a websocket or a browser download.

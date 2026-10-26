@@ -8,11 +8,14 @@ use futures_util::{Stream, StreamExt};
 use sha2::{Digest, Sha256};
 use tokio::{fs, io::AsyncWriteExt};
 
+use uuid::Uuid;
+
 use db::{NodeId, UserId};
 
 use crate::FilesError;
 
 const BLOBS_DIR: &str = "blobs";
+const VERSIONS_DIR: &str = "versions";
 const TMP_DIR: &str = "tmp";
 
 /// A fully received upload waiting to be committed into the store.
@@ -25,7 +28,7 @@ pub struct StagedBlob {
 
 /// Blob storage on the local file system.
 ///
-/// Layout: `<root>/blobs/<user_id>/<node_id>`; uploads are staged in `<root>/tmp`.
+/// Layout: `<root>/blobs/<user_id>/<node_id>` and `<root>/versions/<user_id>/<version_id>`; uploads are staged in `<root>/tmp`.
 #[derive(Clone, Debug)]
 pub struct BlobStore {
     root: PathBuf,
@@ -36,6 +39,7 @@ impl BlobStore {
     pub async fn open(root: impl Into<PathBuf>) -> io::Result<Self> {
         let root = root.into();
         fs::create_dir_all(root.join(BLOBS_DIR)).await?;
+        fs::create_dir_all(root.join(VERSIONS_DIR)).await?;
         fs::create_dir_all(root.join(TMP_DIR)).await?;
         Ok(Self { root })
     }
@@ -81,6 +85,40 @@ impl BlobStore {
             Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
             _ => Ok(()),
         }
+    }
+
+    /// Keeps the current content of `node` as the stored content of a version.
+    pub async fn archive(&self, owner: UserId, node: NodeId, version: Uuid) -> io::Result<()> {
+        let target = self.version_path(owner, version);
+        if let Some(dir) = target.parent() {
+            fs::create_dir_all(dir).await?;
+        }
+        fs::rename(self.blob_path(owner, node), target).await
+    }
+
+    /// Makes the content of node `from` the content of node `to`, replacing it.
+    pub async fn promote(&self, owner: UserId, from: NodeId, to: NodeId) -> io::Result<()> {
+        fs::rename(self.blob_path(owner, from), self.blob_path(owner, to)).await
+    }
+
+    /// Opens the stored content of a version.
+    pub async fn open_version(&self, owner: UserId, version: Uuid) -> io::Result<fs::File> {
+        fs::File::open(self.version_path(owner, version)).await
+    }
+
+    /// Removes the stored content of a version; a missing blob is not an error.
+    pub async fn remove_version(&self, owner: UserId, version: Uuid) -> io::Result<()> {
+        match fs::remove_file(self.version_path(owner, version)).await {
+            Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
+            _ => Ok(()),
+        }
+    }
+
+    fn version_path(&self, owner: UserId, version: Uuid) -> PathBuf {
+        self.root
+            .join(VERSIONS_DIR)
+            .join(owner.to_string())
+            .join(version.to_string())
     }
 
     fn blob_path(&self, owner: UserId, node: NodeId) -> PathBuf {

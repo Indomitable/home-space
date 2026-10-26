@@ -24,6 +24,18 @@ pub fn ancestors(id: NodeId) -> String {
     format!("{NODES}/{id}/ancestors")
 }
 
+pub fn versions(id: NodeId) -> String {
+    format!("{NODES}/{id}/versions")
+}
+
+pub fn version(id: NodeId, version: i32) -> String {
+    format!("{NODES}/{id}/versions/{version}")
+}
+
+pub fn version_content(id: NodeId, version: i32) -> String {
+    format!("{FILES}/{id}/versions/{version}/content")
+}
+
 pub fn file_content(id: NodeId) -> String {
     format!("{FILES}/{id}/content")
 }

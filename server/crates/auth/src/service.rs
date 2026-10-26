@@ -187,6 +187,9 @@ fn scope_of(request: &TicketRequest) -> String {
     match request {
         TicketRequest::Events => SCOPE_EVENTS.to_owned(),
         TicketRequest::Download { node_id } => download_scope(*node_id),
+        TicketRequest::DownloadVersion { node_id, version } => {
+            format!("{}:v{version}", download_scope(*node_id))
+        }
     }
 }
 

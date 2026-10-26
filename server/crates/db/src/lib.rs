@@ -6,10 +6,13 @@ mod nodes;
 mod refresh_tokens;
 mod search;
 mod users;
+mod versions;
 
 pub use error::DbError;
-pub use models::{Node, RefreshToken, User};
-pub use nodes::{NewNode, NodeUpdate};
+pub use models::{FileVersion, Node, RefreshToken, User};
+pub use nodes::{
+    BlobOp, DeletedNodes, FOLDER_MIME, MoveOutcome, NewNode, NodeUpdate, StoreOutcome,
+};
 pub use protocol::{NodeId, NodeKind, UserId};
 pub use search::{ContentState, RankedNode};
 pub use sqlx::PgPool;

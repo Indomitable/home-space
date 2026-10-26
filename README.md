@@ -31,6 +31,23 @@ Extraction runs in a background worker after upload or replace, and the startup/
 re-extracts files whose content or provider version changed. Content matches rank below name
 matches.
 
+### Names and versions
+
+Names are unique per folder and kind (case-sensitive), so a file and a folder may share a name.
+Creating a folder or renaming onto a taken name is a 409. Everything else resolves collisions:
+
+- Uploading (or replacing) a file whose name exists: identical content (size + SHA-256) is ignored
+  (200); different content archives the old content as a version and bumps `version`.
+- Moving a file onto a same-named file keeps the destination node. Identical content drops the source;
+  different content archives the destination's content and the moved content becomes current. The
+  source's older versions are appended to the history, and the dates become the earliest
+  `created_at` and the latest `updated_at` of both.
+- Moving a folder onto a same-named folder merges it recursively into the destination, applying
+  the file rule to each conflict; the source folder is removed.
+
+Previous versions live in `file_versions`; their blobs are under `<storage>/versions/`.
+Folders have the MIME type `inode/directory`.
+
 ### API (`/api/v1`)
 
 | Method | Path | Purpose |
@@ -40,11 +57,14 @@ matches.
 | GET | `/nodes?parent_id=` | list folder (root when omitted) |
 | GET / PATCH / DELETE | `/nodes/{id}` | metadata / rename or move / delete |
 | POST | `/folders` | `{parent_id?, name}` |
-| POST | `/files?name=&parent_id=` | raw-body streaming upload |
+| POST | `/files?name=&parent_id=` | raw-body streaming upload (201 new, 200 unchanged or new version) |
 | GET / PUT | `/files/{id}/content` | download / replace content |
+| GET | `/nodes/{id}/versions` | previous versions of a file, newest first |
+| DELETE | `/nodes/{id}/versions/{version}` | delete a previous version |
+| GET | `/files/{id}/versions/{version}/content` | download a previous version |
 | GET | `/nodes/{id}/ancestors` | path from the root down to the node's parent |
 | GET | `/search?q=&limit=` | full-text search; every word matches as a prefix, hits carry their `location` |
-| POST | `/tickets` | `{scope: "events"}` or `{scope: "download", node_id}` → 60 s ticket |
+| POST | `/tickets` | `{scope: "events"}`, `{scope: "download", node_id}` or `{scope: "download_version", node_id, version}` → 60 s ticket |
 | GET | `/ws` | live `node_created` / `node_updated` / `node_deleted` / `resync` events |
 | GET | `/health` | liveness + DB ping |
 

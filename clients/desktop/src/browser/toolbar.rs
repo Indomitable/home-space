@@ -23,6 +23,7 @@ pub enum Action {
     Download,
     Rename,
     Move,
+    Details,
     Delete,
 }
 
@@ -33,6 +34,7 @@ impl Action {
             Self::Download => Icon::Download,
             Self::Rename => Icon::Rename,
             Self::Move => Icon::Move,
+            Self::Details => Icon::Info,
             Self::Delete => Icon::Delete,
         }
     }
@@ -43,6 +45,7 @@ impl Action {
             Self::Download => "Download",
             Self::Rename => "Rename",
             Self::Move => "Move",
+            Self::Details => "Details",
             Self::Delete => "Delete",
         }
     }
@@ -51,7 +54,7 @@ impl Action {
         match self {
             Self::Open | Self::Download => "Enter",
             Self::Rename => "F2",
-            Self::Move => "",
+            Self::Move | Self::Details => "",
             Self::Delete => "Delete",
         }
     }
@@ -68,6 +71,7 @@ pub fn actions(selected: &[&Node]) -> Vec<(Action, bool)> {
             (Action::Download, any),
             (Action::Rename, single),
             (Action::Move, any),
+            (Action::Details, single),
             (Action::Delete, any),
         ])
         .collect()
@@ -177,5 +181,48 @@ fn tool<'a>(
             tooltip::Position::Bottom,
         )
         .into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use time::OffsetDateTime;
+    use uuid::Uuid;
+
+    use protocol::NodeId;
+
+    use super::*;
+
+    fn file(raw: u128) -> Node {
+        Node {
+            id: NodeId(Uuid::from_u128(raw)),
+            parent_id: None,
+            kind: NodeKind::File,
+            name: format!("file-{raw}"),
+            size: 0,
+            sha256: None,
+            mime: String::new(),
+            version: 1,
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    fn details_enabled(selected: &[&Node]) -> bool {
+        actions(selected)
+            .into_iter()
+            .any(|(action, enabled)| action == Action::Details && enabled)
+    }
+
+    #[test]
+    fn details_are_available_for_a_single_node() {
+        let node = file(1);
+        assert!(details_enabled(&[&node]));
+    }
+
+    #[test]
+    fn details_are_disabled_for_several_nodes() {
+        let (first, second) = (file(1), file(2));
+        assert!(!details_enabled(&[&first, &second]));
     }
 }

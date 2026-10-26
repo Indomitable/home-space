@@ -9,7 +9,7 @@ use protocol::{ErrorBody, Node, NodeId, paths};
 
 const CONTENT_TYPE: &str = "Content-Type";
 const FALLBACK_MIME: &str = "application/octet-stream";
-const STATUS_CREATED: u16 = 201;
+const STATUS_SUCCESS: std::ops::Range<u16> = 200..300;
 const STATUS_UNAUTHORIZED: u16 = 401;
 
 thread_local! {
@@ -47,7 +47,7 @@ pub async fn upload(
         let token = client.access_token().ok_or(ApiError::Unauthorized)?;
         outcome = send(client, &token, file, parent, on_progress).await?;
     }
-    if outcome.status == STATUS_CREATED {
+    if STATUS_SUCCESS.contains(&outcome.status) {
         serde_json::from_str(&outcome.body).map_err(|err| ApiError::Decode(err.to_string()))
     } else {
         Err(failure(&outcome))

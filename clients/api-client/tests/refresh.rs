@@ -193,7 +193,7 @@ async fn move_to_root_sends_an_explicit_null_parent() {
         .and(body_json(json!({ "parent_id": null })))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "id": id.to_string(), "parent_id": null, "kind": "folder", "name": "x",
-            "size": 0, "sha256": null, "mime": null,
+            "size": 0, "sha256": null, "mime": "inode/directory", "version": 1,
             "created_at": "1970-01-01T00:00:00Z", "updated_at": "1970-01-01T00:00:00Z"
         })))
         .expect(1)

@@ -8,7 +8,7 @@ use crate::{Db, DbError, Node, NodeId, UserId};
 macro_rules! prefixed_node_columns {
     () => {
         "n.id, n.owner_id, n.parent_id, n.kind, n.name, n.size, n.sha256, n.mime, \
-         n.created_at, n.updated_at"
+         n.version, n.created_at, n.updated_at"
     };
 }
 
@@ -206,7 +206,7 @@ mod tests {
             name: name.to_owned(),
             size: 0,
             sha256: None,
-            mime: None,
+            mime: "text/plain".to_owned(),
         };
         db.create_node(owner, new).await.expect("node")
     }
@@ -292,7 +292,7 @@ mod tests {
             name: name.to_owned(),
             size: 0,
             sha256: None,
-            mime: None,
+            mime: "text/plain".to_owned(),
         };
         let a = db
             .create_node(alice, new_folder(None, "a"))

@@ -20,10 +20,10 @@ const DOCUMENT_TYPES: &[&str] = &[
 
 /// The Material Symbols ligature that represents `node`, chosen by MIME type.
 pub fn node_icon(node: &Node) -> &'static str {
-    match (node.kind, node.mime.as_deref()) {
+    match (node.kind, node.mime.as_str()) {
         (NodeKind::Folder, _) => ICON_FOLDER,
-        (_, Some(mime)) if mime.starts_with(IMAGE_PREFIX) => ICON_IMAGE,
-        (_, Some(mime)) if mime.starts_with(TEXT_PREFIX) || DOCUMENT_TYPES.contains(&mime) => {
+        (_, mime) if mime.starts_with(IMAGE_PREFIX) => ICON_IMAGE,
+        (_, mime) if mime.starts_with(TEXT_PREFIX) || DOCUMENT_TYPES.contains(&mime) => {
             ICON_DOCUMENT
         }
         _ => ICON_OTHER,
@@ -55,7 +55,8 @@ mod tests {
             name: String::new(),
             size: 0,
             sha256: None,
-            mime: mime.map(str::to_owned),
+            mime: mime.unwrap_or_default().to_owned(),
+            version: 1,
             created_at: OffsetDateTime::UNIX_EPOCH,
             updated_at: OffsetDateTime::UNIX_EPOCH,
         }

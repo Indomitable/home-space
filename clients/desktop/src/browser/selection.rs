@@ -144,7 +144,8 @@ mod tests {
                 name: format!("file-{raw}"),
                 size: 0,
                 sha256: None,
-                mime: None,
+                mime: String::new(),
+                version: 1,
                 created_at: OffsetDateTime::UNIX_EPOCH,
                 updated_at: OffsetDateTime::UNIX_EPOCH,
             })

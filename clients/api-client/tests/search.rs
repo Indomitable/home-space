@@ -40,6 +40,7 @@ async fn search_sends_the_query_and_decodes_hits() {
                 "size": 5,
                 "sha256": null,
                 "mime": "image/jpeg",
+        "version": 1,
                 "created_at": "2026-01-01T00:00:00Z",
                 "updated_at": "2026-01-01T00:00:00Z",
             },

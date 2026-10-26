@@ -8,6 +8,7 @@ use crate::NodeId;
 pub enum TicketRequest {
     Events,
     Download { node_id: NodeId },
+    DownloadVersion { node_id: NodeId, version: i32 },
 }
 
 /// A short-lived ticket passed in the query string where headers are unavailable.

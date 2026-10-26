@@ -36,9 +36,37 @@ pub struct Node {
     pub name: String,
     pub size: i64,
     pub sha256: Option<Vec<u8>>,
-    pub mime: Option<String>,
+    pub mime: String,
+    pub version: i32,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
+}
+
+/// A previous version of a file; its content is stored under its own id.
+#[derive(Clone, Debug, PartialEq, FromRow)]
+pub struct FileVersion {
+    pub id: Uuid,
+    pub node_id: NodeId,
+    pub owner_id: UserId,
+    pub version: i32,
+    pub size: i64,
+    pub sha256: Vec<u8>,
+    pub mime: String,
+    pub modified_at: OffsetDateTime,
+    pub archived_at: OffsetDateTime,
+}
+
+impl From<FileVersion> for protocol::FileVersion {
+    fn from(version: FileVersion) -> Self {
+        Self {
+            version: version.version,
+            size: version.size,
+            sha256: to_hex(&version.sha256),
+            mime: version.mime,
+            modified_at: version.modified_at,
+            archived_at: version.archived_at,
+        }
+    }
 }
 
 impl From<Node> for protocol::Node {
@@ -51,6 +79,7 @@ impl From<Node> for protocol::Node {
             size: node.size,
             sha256: node.sha256.as_deref().map(to_hex),
             mime: node.mime,
+            version: node.version,
             created_at: node.created_at,
             updated_at: node.updated_at,
         }
@@ -80,7 +109,8 @@ mod tests {
             name: "a.txt".to_owned(),
             size: 1,
             sha256,
-            mime: None,
+            mime: "text/plain".to_owned(),
+            version: 1,
             created_at: now,
             updated_at: now,
         }

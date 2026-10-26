@@ -25,11 +25,25 @@ pub struct Node {
     pub name: String,
     pub size: i64,
     pub sha256: Option<String>,
-    pub mime: Option<String>,
+    pub mime: String,
+    pub version: i32,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
+}
+
+/// A previous version of a file.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileVersion {
+    pub version: i32,
+    pub size: i64,
+    pub sha256: String,
+    pub mime: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub modified_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    pub archived_at: OffsetDateTime,
 }
 
 /// Query of `GET /nodes`.
@@ -118,7 +132,8 @@ mod tests {
             name: "a.txt".to_owned(),
             size: 1,
             sha256: Some("0aff".to_owned()),
-            mime: None,
+            mime: "text/plain".to_owned(),
+            version: 1,
             created_at: OffsetDateTime::UNIX_EPOCH,
             updated_at: OffsetDateTime::UNIX_EPOCH,
         };

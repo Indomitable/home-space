@@ -2,7 +2,8 @@ use std::collections::HashSet;
 
 use leptos::{html::Input, prelude::*};
 use leptos_router::components::A;
-use web_sys::KeyboardEvent;
+use wasm_bindgen::JsCast;
+use web_sys::{Element, KeyboardEvent, MouseEvent};
 
 use api_client::{
     format::human_size,
@@ -25,6 +26,8 @@ const ICON_UNCHECKED: &str = "check_box_outline_blank";
 const ICON_MIXED: &str = "indeterminate_check_box";
 const ICON_FOLDER: &str = "folder";
 
+const INTERACTIVE_SELECTOR: &str = "a, button, input, .node-table__cell--actions";
+
 #[derive(Clone, Copy)]
 pub struct TableActions {
     pub draft: RwSignal<Option<String>>,
@@ -37,6 +40,7 @@ pub struct TableActions {
     pub save_rename: Callback<()>,
     pub cancel_rename: Callback<()>,
     pub download: Callback<Node>,
+    pub details: Callback<Node>,
     pub delete: Callback<Vec<Node>>,
 }
 
@@ -258,6 +262,7 @@ fn NodeRow(node: Node, actions: TableActions) -> impl IntoView {
         save_rename,
         cancel_rename,
         download,
+        details,
         delete,
         ..
     } = actions;
@@ -293,6 +298,19 @@ fn NodeRow(node: Node, actions: TableActions) -> impl IntoView {
             }
         });
     });
+    let select = move |event: MouseEvent| {
+        let interactive = event
+            .target()
+            .and_then(|target| target.dyn_into::<Element>().ok())
+            .is_some_and(|element| matches!(element.closest(INTERACTIVE_SELECTOR), Ok(Some(_))));
+        if !interactive {
+            if event.ctrl_key() || event.meta_key() || event.shift_key() {
+                toggle.run(());
+            } else {
+                selected.set(HashSet::from([node_id]));
+            }
+        }
+    };
     let checkbox_icon = move || {
         if is_selected() {
             ICON_CHECKED
@@ -304,7 +322,11 @@ fn NodeRow(node: Node, actions: TableActions) -> impl IntoView {
     let checkbox_label = format!("Select {}", node.name);
 
     view! {
-        <tr class="node-table__row" class:node-table__row--selected=is_selected>
+        <tr
+            class="node-table__row"
+            class:node-table__row--selected=is_selected
+            on:click=select
+        >
             <td class="node-table__cell node-table__cell--select">
                 <Checkbox
                     icon=Signal::derive(checkbox_icon)
@@ -406,6 +428,11 @@ fn NodeRow(node: Node, actions: TableActions) -> impl IntoView {
                                         />
                                     }
                                 })}
+                            <MenuItem
+                                icon="info"
+                                label="Details"
+                                on_select=Callback::new(move |()| details.run(target.get_value()))
+                            />
                             <MenuItem
                                 icon="edit"
                                 label="Rename"

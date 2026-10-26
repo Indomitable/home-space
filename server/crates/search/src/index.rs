@@ -60,7 +60,7 @@ struct Inner {
 
 impl Inner {
     fn provider_for(&self, node: &Node) -> Option<&Arc<dyn ContentProvider>> {
-        let mime = node.mime.as_deref().unwrap_or_default();
+        let mime = node.mime.as_str();
         (node.kind == NodeKind::File)
             .then(|| {
                 self.providers
@@ -101,6 +101,16 @@ impl Inner {
             }
         }
         Ok(())
+    }
+
+    async fn clear_content(&self, job: Job) {
+        if let Err(err) = self
+            .db
+            .set_content_entry(job.owner, job.node, None, None, None)
+            .await
+        {
+            tracing::warn!(node_id = %job.node, error = %err, "clearing stale content failed");
+        }
     }
 
     fn is_stale(&self, state: &ContentState) -> bool {
@@ -149,6 +159,7 @@ impl SearchIndex {
             while let Some(job) = queue.recv().await {
                 if let Err(err) = worker_inner.index_content(job).await {
                     tracing::warn!(node_id = %job.node, error = %err, "content indexing failed");
+                    worker_inner.clear_content(job).await;
                 }
             }
         });
@@ -267,6 +278,7 @@ mod tests {
     use futures_util::stream;
     use sqlx::PgPool;
 
+    use db::StoreOutcome;
     use files::FileService;
 
     use super::*;
@@ -335,7 +347,8 @@ mod tests {
             .files
             .upload(fx.alice, parent, name, None, body(text))
             .await
-            .expect("upload");
+            .expect("upload")
+            .into_node();
         fx.index.index_name(&node).await.expect("index name");
         node
     }
@@ -410,7 +423,8 @@ mod tests {
                 },
             )
             .await
-            .expect("rename");
+            .expect("rename")
+            .node;
         fx.index.index_name(&renamed).await.expect("reindex");
         assert!(names(&fx.index, fx.alice, "old").await.is_empty());
         assert_eq!(names(&fx.index, fx.alice, "fresh").await, ["fresh.txt"]);
@@ -478,7 +492,8 @@ mod tests {
                 body("zebra"),
             )
             .await
-            .expect("upload");
+            .expect("upload")
+            .into_node();
         fx.index.index_name(&node).await.expect("index name");
         fx.index.enqueue_content(fx.alice, node.id);
         fx.index.catch_up().await.expect("catch up");
@@ -499,6 +514,23 @@ mod tests {
             .expect("replace");
         let report = fx.index.catch_up().await.expect("catch up");
         assert_eq!(report.content_queued, 1);
+        eventually_finds(&fx, "bravo", &["notes.txt"]).await;
+        assert!(names(&fx.index, fx.alice, "alpha").await.is_empty());
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_new_version_replaces_the_indexed_content(pool: PgPool) {
+        let fx = fixture(pool, vec![Arc::new(Plain)]).await;
+        let node = upload(&fx, None, "notes.txt", "alpha").await;
+        fx.index.enqueue_content(fx.alice, node.id);
+        eventually_finds(&fx, "alpha", &["notes.txt"]).await;
+        let outcome = fx
+            .files
+            .upload(fx.alice, None, "notes.txt", None, body("bravo"))
+            .await
+            .expect("upload");
+        assert!(matches!(outcome, StoreOutcome::Versioned { .. }));
+        fx.index.enqueue_content(fx.alice, node.id);
         eventually_finds(&fx, "bravo", &["notes.txt"]).await;
         assert!(names(&fx.index, fx.alice, "alpha").await.is_empty());
     }

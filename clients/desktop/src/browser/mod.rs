@@ -1,4 +1,5 @@
 mod context_menu;
+mod details;
 mod dialogs;
 mod grid;
 mod search;
@@ -88,6 +89,7 @@ pub enum Message {
     UploadPlanned(Option<NodeId>, Result<UploadPlan, String>),
     DownloadPlanned(Result<Vec<DownloadFile>, String>),
     Dialog(dialogs::Message),
+    Details(details::Message),
     Transfer(transfers::Message),
     Shortcut(Shortcut),
     Modifiers(Modifiers),
@@ -139,6 +141,7 @@ pub struct State {
     window: Size,
     menu: Option<Menu>,
     dialog: Option<Dialog>,
+    details: Option<details::State>,
     transfers: Transfers,
     dropping: bool,
     search: Search,
@@ -164,6 +167,7 @@ impl State {
             window: DEFAULT_WINDOW,
             menu: None,
             dialog: None,
+            details: None,
             transfers: Transfers::default(),
             dropping: false,
             search: Search::default(),
@@ -175,7 +179,24 @@ impl State {
     pub fn update(&mut self, message: Message) -> Update {
         match message {
             Message::SignedOut => Update::SignedOut,
-            message => Update::Task(self.handle(message)),
+            message => {
+                let task = self.handle(message);
+                Update::Task(Task::batch([task, self.follow_selection()]))
+            }
+        }
+    }
+
+    fn follow_selection(&mut self) -> Task<Message> {
+        let Some(open) = self.details.as_ref().map(details::State::node_id) else {
+            return Task::none();
+        };
+        match self.selected().as_slice() {
+            [node] if node.id != open => {
+                let (details, task) = details::State::open(&self.client, node.clone());
+                self.details = Some(details);
+                task.map(Message::Details)
+            }
+            _ => Task::none(),
         }
     }
 
@@ -251,6 +272,7 @@ impl State {
             }
             Message::UploadPlanned(..) | Message::DownloadPlanned(_) => Task::none(),
             Message::Dialog(message) => self.dialog_update(message),
+            Message::Details(message) => self.details_update(message),
             Message::Transfer(message) => {
                 let reload = matches!(message, transfers::Message::BatchDone(Direction::Upload));
                 let task = self
@@ -293,7 +315,8 @@ impl State {
                 }
             }
             Message::Server(event) => {
-                if matches!(event, protocol::Event::Resync)
+                let details = self.sync_details(&event);
+                let listing = if matches!(event, protocol::Event::Resync)
                     || affects_path(&self.listing.path, &event)
                 {
                     self.load()
@@ -301,7 +324,8 @@ impl State {
                     apply_event(&mut self.listing.nodes, self.folder, &event, self.sort);
                     self.selection.retain(&self.listing.nodes);
                     Task::none()
-                }
+                };
+                Task::batch([details, listing])
             }
             Message::SearchChanged(query) => match self.search.change(query) {
                 Some(seq) => Task::perform(
@@ -355,6 +379,7 @@ impl State {
         self.loading = true;
         self.error = None;
         self.selection.clear();
+        self.details = None;
         self.menu = None;
         self.last_click = None;
         self.load()
@@ -408,7 +433,12 @@ impl State {
                 self.dialog = Some(dialog);
                 task.map(Message::Dialog)
             }
-            (Action::Open | Action::Rename, _) => Task::none(),
+            (Action::Details, [node]) => {
+                let (details, task) = details::State::open(&self.client, node.clone());
+                self.details = Some(details);
+                task.map(Message::Details)
+            }
+            (Action::Open | Action::Rename | Action::Details, _) => Task::none(),
             (Action::Download, _) => self.download(selected),
             (Action::Move, _) => {
                 let (dialog, task) = Dialog::move_nodes(&self.client, selected);
@@ -419,6 +449,37 @@ impl State {
                 self.dialog = Some(Dialog::delete(selected));
                 Task::none()
             }
+        }
+    }
+
+    fn details_update(&mut self, message: details::Message) -> Task<Message> {
+        let Some(details) = &mut self.details else {
+            return Task::none();
+        };
+        match details.update(&self.client, message) {
+            Some(task) => task.map(Message::Details),
+            None => {
+                self.details = None;
+                Task::none()
+            }
+        }
+    }
+
+    fn sync_details(&mut self, event: &protocol::Event) -> Task<Message> {
+        let Some(details) = &self.details else {
+            return Task::none();
+        };
+        let id = details.node_id();
+        match event {
+            protocol::Event::NodeDeleted { id: deleted, .. } if *deleted == id => {
+                self.details = None;
+                Task::none()
+            }
+            protocol::Event::NodeUpdated { node } if node.id == id => {
+                details.refresh(&self.client).map(Message::Details)
+            }
+            protocol::Event::Resync => details.refresh(&self.client).map(Message::Details),
+            _ => Task::none(),
         }
     }
 
@@ -579,7 +640,12 @@ impl State {
                 grid::rows(&self.listing.nodes, &self.selection),
             ]
             .spacing(GRID_SPACING);
-            page.push(grid)
+            match &self.details {
+                Some(details) => page.push(
+                    row![container(grid).width(Length::Fill), details.view()].spacing(SPACING),
+                ),
+                None => page.push(grid),
+            }
         };
         let page = container(page)
             .padding(PAGE_PADDING)
@@ -800,7 +866,8 @@ mod tests {
             name: name.to_owned(),
             size: 2048,
             sha256: None,
-            mime: None,
+            mime: String::new(),
+            version: 1,
             created_at: OffsetDateTime::UNIX_EPOCH,
             updated_at: OffsetDateTime::UNIX_EPOCH,
         }
@@ -845,6 +912,33 @@ mod tests {
 
         assert_eq!(state.selected().len(), 1);
         assert!(state.selection.contains(id(FILE_ID)));
+    }
+
+    #[test]
+    fn the_open_details_panel_follows_the_selected_row() {
+        let mut state = state_with_listing();
+        let _ = state.update(Message::Click(id(FILE_ID)));
+        let _ = state.update(Message::Act(Action::Details));
+        assert_eq!(
+            state.details.as_ref().map(details::State::node_id),
+            Some(id(FILE_ID))
+        );
+
+        let _ = state.update(Message::Click(id(OTHER_FILE_ID)));
+
+        assert_eq!(
+            state.details.as_ref().map(details::State::node_id),
+            Some(id(OTHER_FILE_ID))
+        );
+    }
+
+    #[test]
+    fn selecting_a_row_does_not_open_a_closed_details_panel() {
+        let mut state = state_with_listing();
+
+        let _ = state.update(Message::Click(id(FILE_ID)));
+
+        assert!(state.details.is_none());
     }
 
     #[test]

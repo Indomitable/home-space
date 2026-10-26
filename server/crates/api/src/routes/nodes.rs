@@ -14,10 +14,11 @@ use axum::{
 use futures_util::TryStreamExt;
 use tokio_util::io::ReaderStream;
 
-use db::NodeUpdate;
+use db::{MoveOutcome, NodeUpdate, StoreOutcome};
 use notifications::Event;
 use protocol::{
-    CreateFolderRequest, ListQuery, Node, NodeId, TicketRequest, UpdateRequest, UploadQuery,
+    CreateFolderRequest, FileVersion, ListQuery, Node, NodeId, TicketRequest, UpdateRequest,
+    UploadQuery,
 };
 
 use crate::{
@@ -34,6 +35,15 @@ pub fn routes() -> Router<AppState> {
         .route("/nodes/{id}/ancestors", get(ancestors))
         .route("/folders", post(create_folder))
         .route("/files", post(upload).layer(DefaultBodyLimit::disable()))
+        .route("/nodes/{id}/versions", get(list_versions))
+        .route(
+            "/nodes/{id}/versions/{version}",
+            axum::routing::delete(delete_version),
+        )
+        .route(
+            "/files/{id}/versions/{version}/content",
+            get(download_version),
+        )
         .route(
             "/files/{id}/content",
             put(replace_content)
@@ -102,7 +112,7 @@ async fn upload(
     Query(query): Query<UploadQuery>,
     body: Body,
 ) -> Result<(StatusCode, Json<Node>), ApiError> {
-    let node = state
+    let outcome = state
         .files
         .upload(
             user.id,
@@ -112,13 +122,7 @@ async fn upload(
             body_stream(body),
         )
         .await?;
-    state.index_name(&node).await;
-    state.search.enqueue_content(user.id, node.id);
-    let node = Node::from(node);
-    state
-        .hub
-        .publish(user.id, Event::NodeCreated { node: node.clone() });
-    Ok((StatusCode::CREATED, Json(node)))
+    Ok(publish_stored(&state, user.id, outcome).await)
 }
 
 async fn replace_content(
@@ -128,16 +132,39 @@ async fn replace_content(
     Path(id): Path<NodeId>,
     body: Body,
 ) -> Result<Json<Node>, ApiError> {
-    let node = state
+    let outcome = state
         .files
         .replace_content(user.id, id, declared_type(&headers), body_stream(body))
         .await?;
-    state.search.enqueue_content(user.id, node.id);
-    let node = Node::from(node);
-    state
-        .hub
-        .publish(user.id, Event::NodeUpdated { node: node.clone() });
+    let (_, Json(node)) = publish_stored(&state, user.id, outcome).await;
     Ok(Json(node))
+}
+
+async fn publish_stored(
+    state: &AppState,
+    owner: db::UserId,
+    outcome: StoreOutcome,
+) -> (StatusCode, Json<Node>) {
+    match outcome {
+        StoreOutcome::Created(node) => {
+            state.index_name(&node).await;
+            state.search.enqueue_content(owner, node.id);
+            let node = Node::from(node);
+            state
+                .hub
+                .publish(owner, Event::NodeCreated { node: node.clone() });
+            (StatusCode::CREATED, Json(node))
+        }
+        StoreOutcome::Versioned { node, .. } => {
+            state.search.enqueue_content(owner, node.id);
+            let node = Node::from(node);
+            state
+                .hub
+                .publish(owner, Event::NodeUpdated { node: node.clone() });
+            (StatusCode::OK, Json(node))
+        }
+        StoreOutcome::Unchanged(node) => (StatusCode::OK, Json(node.into())),
+    }
 }
 
 async fn download(
@@ -153,21 +180,60 @@ async fn download(
         None => AuthUser::from_headers(&headers, &state)?.id,
     };
     let (node, file) = state.files.download(owner, id).await?;
-    let content_type = node.mime.as_deref().unwrap_or(FALLBACK_MIME);
-    let disposition = format!(
-        "attachment; filename*=UTF-8''{}",
-        percent_encode(&node.name)
-    );
+    Ok(attachment(&node.name, &node.mime, node.size, file))
+}
+
+async fn download_version(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<TicketQuery>,
+    Path((id, version)): Path<(NodeId, i32)>,
+) -> Result<Response, ApiError> {
+    let owner = match query.ticket {
+        Some(ticket) => state.auth.verify_ticket(
+            &ticket,
+            &TicketRequest::DownloadVersion {
+                node_id: id,
+                version,
+            },
+        )?,
+        None => AuthUser::from_headers(&headers, &state)?.id,
+    };
+    let (node, meta, file) = state.files.download_version(owner, id, version).await?;
+    Ok(attachment(&node.name, &meta.mime, meta.size, file))
+}
+
+fn attachment(name: &str, mime: &str, size: i64, file: tokio::fs::File) -> Response {
+    let content_type = if mime.is_empty() { FALLBACK_MIME } else { mime };
+    let disposition = format!("attachment; filename*=UTF-8''{}", percent_encode(name));
     let mut response = Response::new(Body::from_stream(ReaderStream::new(file)));
     let headers = response.headers_mut();
-    headers.insert(CONTENT_LENGTH, HeaderValue::from(node.size.unsigned_abs()));
+    headers.insert(CONTENT_LENGTH, HeaderValue::from(size.unsigned_abs()));
     if let Ok(value) = HeaderValue::from_str(content_type) {
         headers.insert(CONTENT_TYPE, value);
     }
     if let Ok(value) = HeaderValue::from_str(&disposition) {
         headers.insert(CONTENT_DISPOSITION, value);
     }
-    Ok(response)
+    response
+}
+
+async fn list_versions(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<NodeId>,
+) -> Result<Json<Vec<FileVersion>>, ApiError> {
+    let versions = state.files.versions(user.id, id).await?;
+    Ok(Json(versions.into_iter().map(FileVersion::from).collect()))
+}
+
+async fn delete_version(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((id, version)): Path<(NodeId, i32)>,
+) -> Result<StatusCode, ApiError> {
+    state.files.delete_version(user.id, id, version).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn update(
@@ -180,13 +246,32 @@ async fn update(
         name: request.name,
         parent_id: request.parent_id,
     };
-    let node = state.files.update(user.id, id, changes).await?;
-    state.index_name(&node).await;
-    let node = Node::from(node);
-    state
-        .hub
-        .publish(user.id, Event::NodeUpdated { node: node.clone() });
+    let outcome = state.files.update(user.id, id, changes).await?;
+    let node = publish_moved(&state, user.id, outcome).await;
     Ok(Json(node))
+}
+
+async fn publish_moved(state: &AppState, owner: db::UserId, outcome: MoveOutcome) -> Node {
+    for node in &outcome.updated {
+        state.index_name(node).await;
+        let event = Event::NodeUpdated {
+            node: node.clone().into(),
+        };
+        state.hub.publish(owner, event);
+    }
+    for node in &outcome.deleted {
+        state.hub.publish(
+            owner,
+            Event::NodeDeleted {
+                id: node.id,
+                parent_id: node.parent_id,
+            },
+        );
+    }
+    for id in outcome.content_changed {
+        state.search.enqueue_content(owner, id);
+    }
+    outcome.node.into()
 }
 
 async fn delete(

@@ -1105,6 +1105,7 @@ dependencies = [
  "icu_datetime",
  "icu_locale",
  "keyring",
+ "png 0.18.1",
  "protocol",
  "reqwest",
  "rfd",

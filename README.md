@@ -93,6 +93,11 @@ cd clients/web && trunk build --release
 cd ../../server && HOMESPACE_WEB_ROOT=../clients/web/dist cargo run -p app -- serve
 ```
 
+The desktop client (`clients/desktop`, iced) runs with `cargo run -p desktop`. On macOS the Dock
+icon only comes from an app bundle: `cargo install cargo-bundle`, then
+`cd clients/desktop && cargo bundle --release` builds `Home Space.app` under `target/release/bundle/osx`.
+The icons in `clients/desktop/packaging` are rendered from `home-space.svg`.
+
 ## Compose
 
 `compose.yaml` runs Postgres and the app (API plus the web client, built by the `Dockerfile`) and

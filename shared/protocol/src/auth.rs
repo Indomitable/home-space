@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::UserId;
+use crate::{NodeId, UserId};
 
 /// Credentials submitted to log in.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -28,4 +28,6 @@ pub struct TokenPair {
 pub struct Me {
     pub id: UserId,
     pub username: String,
+    /// The Lost & Found folder, which cannot be deleted.
+    pub lost_and_found_id: NodeId,
 }

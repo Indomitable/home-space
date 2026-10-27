@@ -9,7 +9,7 @@ use leptos_router::{
 };
 use web_sys::KeyboardEvent;
 
-use crate::{route, session::Auth};
+use crate::{icon::Icon, route, session::Auth};
 
 const KEY_ENTER: &str = "Enter";
 const KEY_ESCAPE: &str = "Escape";
@@ -24,6 +24,7 @@ pub fn AppBar(auth: Auth) -> impl IntoView {
             <SearchBox />
             <span class="app-bar__spacer"></span>
             <A href=route::TRASH_PATH attr:class="button button--ghost">
+                <Icon name="recycling" />
                 "Recycle bin"
             </A>
             <span class="app-bar__user">{move || auth.user.get().map(|user| user.username)}</span>

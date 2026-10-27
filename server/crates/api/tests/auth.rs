@@ -46,6 +46,21 @@ async fn me_returns_the_logged_in_user(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
+async fn me_reports_the_lost_and_found_folder(pool: PgPool) {
+    let app = setup(pool).await;
+    let token = app.user_token("alice").await;
+    let me = app.get("/api/v1/me", &token).await.json();
+    let listing = app.get("/api/v1/nodes", &token).await.json();
+    let folder = listing
+        .as_array()
+        .expect("array")
+        .iter()
+        .find(|node| node["name"] == "Lost & Found")
+        .expect("lost and found");
+    assert_eq!(me["lost_and_found_id"], folder["id"]);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
 async fn refresh_issues_new_tokens_and_old_refresh_token_stops_working(pool: PgPool) {
     let app = setup(pool).await;
     app.user_token("alice").await;

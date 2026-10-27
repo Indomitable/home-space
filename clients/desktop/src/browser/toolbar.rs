@@ -3,7 +3,7 @@ use iced::{
     widget::{button, container, row, space, text, tooltip},
 };
 
-use protocol::{Node, NodeKind};
+use protocol::{Node, NodeId, NodeKind};
 
 use super::Message;
 use crate::{
@@ -61,9 +61,11 @@ impl Action {
 }
 
 /// The actions shown for `selected`, each with whether it is enabled.
-pub fn actions(selected: &[&Node]) -> Vec<(Action, bool)> {
+/// Lost & Found, identified by `lost_and_found`, cannot be deleted.
+pub fn actions(selected: &[&Node], lost_and_found: NodeId) -> Vec<(Action, bool)> {
     let single = selected.len() == 1;
     let any = !selected.is_empty();
+    let deletable = any && selected.iter().all(|node| node.id != lost_and_found);
     let single_folder = matches!(selected, [node] if node.kind == NodeKind::Folder);
     let open = single_folder.then_some((Action::Open, true));
     open.into_iter()
@@ -72,13 +74,13 @@ pub fn actions(selected: &[&Node]) -> Vec<(Action, bool)> {
             (Action::Rename, single),
             (Action::Move, any),
             (Action::Details, single),
-            (Action::Delete, any),
+            (Action::Delete, deletable),
         ])
         .collect()
 }
 
 /// The toolbar: folder-level commands, then actions on the selection.
-pub fn view<'a>(selected: &[&Node]) -> Element<'a, Message> {
+pub fn view<'a>(selected: &[&Node], lost_and_found: NodeId) -> Element<'a, Message> {
     let commands = row![
         tool(
             Icon::NewFolder,
@@ -102,7 +104,7 @@ pub fn view<'a>(selected: &[&Node]) -> Element<'a, Message> {
             false
         ),
         tool(
-            Icon::Delete,
+            Icon::Recycling,
             "Recycle bin",
             "",
             Some(Message::OpenTrash),
@@ -116,7 +118,7 @@ pub fn view<'a>(selected: &[&Node]) -> Element<'a, Message> {
     if !selected.is_empty() {
         bar = bar.push(text(format!("{} selected", selected.len())));
         bar = bar.extend(
-            actions(selected)
+            actions(selected, lost_and_found)
                 .into_iter()
                 .filter(|(action, _)| *action != Action::Open)
                 .map(|(action, enabled)| {
@@ -196,8 +198,6 @@ mod tests {
     use time::OffsetDateTime;
     use uuid::Uuid;
 
-    use protocol::NodeId;
-
     use super::*;
 
     fn file(raw: u128) -> Node {
@@ -215,8 +215,16 @@ mod tests {
         }
     }
 
+    const LOST_AND_FOUND: NodeId = NodeId(Uuid::from_u128(99));
+
+    fn delete_enabled(selected: &[&Node]) -> bool {
+        actions(selected, LOST_AND_FOUND)
+            .into_iter()
+            .any(|(action, enabled)| action == Action::Delete && enabled)
+    }
+
     fn details_enabled(selected: &[&Node]) -> bool {
-        actions(selected)
+        actions(selected, LOST_AND_FOUND)
             .into_iter()
             .any(|(action, enabled)| action == Action::Details && enabled)
     }
@@ -231,5 +239,34 @@ mod tests {
     fn details_are_disabled_for_several_nodes() {
         let (first, second) = (file(1), file(2));
         assert!(!details_enabled(&[&first, &second]));
+    }
+
+    #[test]
+    fn delete_is_available_for_ordinary_nodes() {
+        let (first, second) = (file(1), file(2));
+        assert!(delete_enabled(&[&first, &second]));
+    }
+
+    #[test]
+    fn delete_is_disabled_for_lost_and_found() {
+        let folder = file(99);
+        assert!(!delete_enabled(&[&folder]));
+    }
+
+    #[test]
+    fn delete_is_disabled_when_the_selection_holds_lost_and_found() {
+        let (first, folder) = (file(1), file(99));
+        assert!(!delete_enabled(&[&first, &folder]));
+    }
+
+    #[test]
+    fn rename_and_move_stay_available_for_lost_and_found() {
+        let folder = file(99);
+        let enabled: Vec<_> = actions(&[&folder], LOST_AND_FOUND)
+            .into_iter()
+            .filter(|(_, enabled)| *enabled)
+            .map(|(action, _)| action)
+            .collect();
+        assert!(enabled.contains(&Action::Rename) && enabled.contains(&Action::Move));
     }
 }

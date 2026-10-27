@@ -44,7 +44,7 @@ async fn logged_in(server: &MockServer) -> Client {
     Mock::given(method("GET"))
         .and(path("/api/v1/me"))
         .respond_with(
-            ResponseTemplate::new(200).set_body_json(json!({ "id": USER_ID, "username": "alice" })),
+            ResponseTemplate::new(200).set_body_json(json!({ "id": USER_ID, "username": "alice", "lost_and_found_id": "00000000-0000-0000-0000-0000000000f0" })),
         )
         .mount(server)
         .await;

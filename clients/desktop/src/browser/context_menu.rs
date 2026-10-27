@@ -3,7 +3,7 @@ use iced::{
     widget::{button, column, container, row, text},
 };
 
-use protocol::Node;
+use protocol::{Node, NodeId};
 
 use super::{
     Message,
@@ -21,8 +21,8 @@ const EDGE_MARGIN: f32 = 8.0;
 const LABEL_SPACING: f32 = 12.0;
 
 /// The context menu for `selected`.
-pub fn view<'a>(selected: &[&Node]) -> Element<'a, Message> {
-    let items = actions(selected)
+pub fn view<'a>(selected: &[&Node], lost_and_found: NodeId) -> Element<'a, Message> {
+    let items = actions(selected, lost_and_found)
         .into_iter()
         .map(|(action, enabled)| menu_item(action, enabled));
     panel(items)
@@ -64,8 +64,8 @@ pub fn position(cursor: Point, window: Size, items: usize) -> Point {
 }
 
 /// How many entries the menu shows for `selected`.
-pub fn item_count(selected: &[&Node]) -> usize {
-    actions(selected).len()
+pub fn item_count(selected: &[&Node], lost_and_found: NodeId) -> usize {
+    actions(selected, lost_and_found).len()
 }
 
 #[cfg(test)]

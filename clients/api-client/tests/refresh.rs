@@ -16,7 +16,7 @@ fn pair(access: &str, refresh: &str) -> Value {
 }
 
 fn me() -> Value {
-    json!({ "id": USER_ID, "username": "alice" })
+    json!({ "id": USER_ID, "username": "alice", "lost_and_found_id": "00000000-0000-0000-0000-0000000000f0" })
 }
 
 async fn logged_in(server: &MockServer, client: &Client) {
@@ -145,6 +145,10 @@ async fn restore_rotates_the_saved_refresh_token() {
     let user = client.restore("saved").await.expect("restore");
 
     assert_eq!(user.username, "alice");
+    assert_eq!(
+        user.lost_and_found_id.0.to_string(),
+        "00000000-0000-0000-0000-0000000000f0"
+    );
 }
 
 #[tokio::test]

@@ -194,13 +194,13 @@ impl State {
     pub fn view(&self) -> Element<'_, Message> {
         let selected = !self.selection.selected(&self.nodes).is_empty();
         let restore = tool(
-            Icon::Up,
+            Icon::Restore,
             "Restore",
             selected.then_some(Message::Restore),
             false,
         );
         let empty = tool(
-            Icon::Delete,
+            Icon::EmptyBin,
             "Empty recycle bin",
             (!self.items.is_empty()).then_some(Message::Empty),
             true,

@@ -21,7 +21,7 @@ async fn search_sends_the_query_and_decodes_hits() {
     Mock::given(method("GET"))
         .and(path("/api/v1/me"))
         .respond_with(ResponseTemplate::new(200).set_body_json(
-            json!({ "id": "00000000-0000-0000-0000-000000000001", "username": "alice" }),
+            json!({ "id": "00000000-0000-0000-0000-000000000001", "username": "alice", "lost_and_found_id": "00000000-0000-0000-0000-0000000000f0" }),
         ))
         .mount(&server)
         .await;

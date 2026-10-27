@@ -246,6 +246,11 @@ fn Explorer(auth: Auth) -> impl IntoView {
     let move_selected = Callback::new(move |()| moving.set(Some(selected_nodes())));
     let delete_selected = Callback::new(move |()| delete.run(selected_nodes()));
     let selected_count = Signal::derive(move || selected.read().len());
+    let lost_and_found = Signal::derive(move || auth.user.get().map(|user| user.lost_and_found_id));
+    let can_delete = Signal::derive(move || {
+        let protected = lost_and_found.get();
+        protected.is_none_or(|id| !selected.read().contains(&id))
+    });
     let download = Callback::new(move |node: Node| {
         spawn_local(async move {
             let client = session::client();
@@ -318,6 +323,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
         download,
         details: show_details,
         delete,
+        lost_and_found,
     };
 
     view! {
@@ -328,6 +334,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                         selected_count
                         on_move=move_selected
                         on_delete=delete_selected
+                        can_delete
                         on_new_folder=new_folder
                         on_upload=upload
                     />

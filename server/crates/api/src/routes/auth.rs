@@ -51,9 +51,15 @@ async fn me(State(state): State<AppState>, user: AuthUser) -> Result<Json<Me>, A
         .await
         .map_err(|err| ApiError::Internal(err.to_string()))?
         .ok_or(ApiError::Unauthorized)?;
+    let folders = state
+        .db
+        .special_folders(user.id)
+        .await
+        .map_err(|err| ApiError::Internal(err.to_string()))?;
     Ok(Json(Me {
         id: found.id,
         username: found.username,
+        lost_and_found_id: folders.lost_and_found_id,
     }))
 }
 

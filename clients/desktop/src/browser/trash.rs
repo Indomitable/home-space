@@ -15,6 +15,7 @@ use super::{
     selection::{Coverage, Selection},
 };
 use crate::{
+    ellipsis::ellipsized,
     icons::{ICON_SIZE, Icon, Tint, node_icon},
     locale::short_date,
     theme,
@@ -286,21 +287,15 @@ fn item_row(item: &TrashItem, selected: bool) -> Element<'_, Message> {
         check(check_icon, Message::Toggle(node.id)),
         row![
             node_icon(node).view(ICON_SIZE, Tint::Muted),
-            text(node.name.as_str()).size(ROW_SIZE)
+            ellipsized(node.name.as_str(), ROW_SIZE, Alignment::Start).width(Length::Fill)
         ]
         .spacing(CELL_SPACING / 1.5)
         .align_y(Alignment::Center)
         .width(Length::FillPortion(NAME_PORTION)),
-        text(item.original_path.as_str())
-            .size(ROW_SIZE)
+        ellipsized(item.original_path.as_str(), ROW_SIZE, Alignment::Start)
             .width(Length::FillPortion(PATH_PORTION)),
-        text(short_date(item.deleted_at))
-            .size(ROW_SIZE)
-            .width(DATE_WIDTH),
-        text(human_size(node.size))
-            .size(ROW_SIZE)
-            .width(SIZE_WIDTH)
-            .align_x(Alignment::End),
+        ellipsized(short_date(item.deleted_at), ROW_SIZE, Alignment::Start).width(DATE_WIDTH),
+        ellipsized(human_size(node.size), ROW_SIZE, Alignment::End).width(SIZE_WIDTH),
     ]
     .spacing(CELL_SPACING)
     .align_y(Alignment::Center);

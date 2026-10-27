@@ -235,7 +235,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                 </div>
                 <ErrorAlert message=error />
                 <div class="explorer__body" class:explorer__body--with-details=move || details.get().is_some()>
-                    <div class="explorer__scroll">
+                    <div class="explorer__nodes">
                         <NodeTable nodes sort actions draft_input />
                         <Show when=move || nodes.read().is_empty() && error.read().is_none() && draft.read().is_none()>
                             <p class="explorer__empty">

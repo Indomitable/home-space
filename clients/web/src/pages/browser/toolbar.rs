@@ -12,6 +12,7 @@ pub fn Toolbar(
     on_move: Callback<()>,
     on_delete: Callback<()>,
     can_delete: Signal<bool>,
+    can_add: Signal<bool>,
     on_new_folder: Callback<()>,
     on_upload: Callback<Vec<File>>,
 ) -> impl IntoView {
@@ -30,15 +31,20 @@ pub fn Toolbar(
                     </Show>
                 </Menu>
             </Show>
-            <button class="button" on:click=move |_| on_new_folder.run(())>
+            <button
+                class="button"
+                disabled=move || !can_add.get()
+                on:click=move |_| on_new_folder.run(())
+            >
                 "New folder"
             </button>
-            <label class="button button--primary">
+            <label class="button button--primary" class:button--disabled=move || !can_add.get()>
                 "Upload files"
                 <input
                     type="file"
                     multiple
                     hidden
+                    disabled=move || !can_add.get()
                     on:change:target=move |event| {
                         let input: HtmlInputElement = event.target();
                         if let Some(list) = input.files() {

@@ -258,6 +258,7 @@ impl State {
                 self.menu = None;
                 self.act(action)
             }
+            Message::NewFolder if self.in_lost_and_found() => Task::none(),
             Message::NewFolder => {
                 let (dialog, task) = Dialog::new_folder();
                 self.dialog = Some(dialog);
@@ -307,7 +308,7 @@ impl State {
                 Task::none()
             }
             Message::FileHovered => {
-                self.dropping = self.dialog.is_none();
+                self.dropping = self.dialog.is_none() && !self.in_lost_and_found();
                 Task::none()
             }
             Message::FilesHoveredLeft => {
@@ -316,7 +317,7 @@ impl State {
             }
             Message::FileDropped(path) => {
                 self.dropping = false;
-                if self.dialog.is_none() {
+                if self.dialog.is_none() && !self.in_lost_and_found() {
                     self.plan_upload(vec![path])
                 } else {
                     Task::none()
@@ -633,7 +634,15 @@ impl State {
         }
     }
 
+    /// Lost & Found only receives restored files, so nothing is created or uploaded into it.
+    fn in_lost_and_found(&self) -> bool {
+        self.folder == Some(self.me.lost_and_found_id)
+    }
+
     fn pick_upload(&self) -> Task<Message> {
+        if self.in_lost_and_found() {
+            return Task::none();
+        }
         let parent = self.folder;
         Task::perform(
             async move {
@@ -722,7 +731,11 @@ impl State {
             let mut page = column![
                 header,
                 self.breadcrumbs(),
-                toolbar::view(&selected, self.me.lost_and_found_id)
+                toolbar::view(
+                    &selected,
+                    self.me.lost_and_found_id,
+                    !self.in_lost_and_found()
+                )
             ]
             .spacing(SPACING);
             if let Some(error) = &self.error {
@@ -1056,6 +1069,37 @@ mod tests {
         ui.click("Rename").expect("rename is shown");
 
         assert_eq!(ui.into_messages().count(), 0);
+    }
+
+    fn inside_lost_and_found() -> State {
+        let mut state = state_with_listing();
+        state.me.lost_and_found_id = id(FOLDER_ID);
+        state.folder = Some(id(FOLDER_ID));
+        state
+    }
+
+    #[test]
+    fn nothing_can_be_created_inside_lost_and_found() {
+        let mut state = inside_lost_and_found();
+
+        let _ = state.update(Message::NewFolder);
+        let _ = state.update(Message::Shortcut(Shortcut::NewFolder));
+        let _ = state.update(Message::Upload);
+        let _ = state.update(Message::FileHovered);
+
+        assert!(state.dialog.is_none());
+        assert!(!state.dropping);
+    }
+
+    #[test]
+    fn folders_and_uploads_still_work_elsewhere() {
+        let mut creating = state_with_listing();
+        let _ = creating.update(Message::NewFolder);
+        assert!(creating.dialog.is_some());
+
+        let mut hovered = state_with_listing();
+        let _ = hovered.update(Message::FileHovered);
+        assert!(hovered.dropping);
     }
 
     #[test]

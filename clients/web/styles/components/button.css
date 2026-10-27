@@ -20,15 +20,18 @@
 
 .button:hover {
   background: var(--color-surface-hover);
+  text-decoration: none;
 }
 
 .button:focus-visible {
   box-shadow: var(--focus-ring);
 }
 
-.button:disabled {
+.button:disabled,
+.button--disabled {
   opacity: 0.55;
   cursor: default;
+  pointer-events: none;
 }
 
 .button--primary {

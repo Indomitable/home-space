@@ -50,6 +50,7 @@ async fn fetch(folder: Option<NodeId>) -> Result<(Vec<Node>, Vec<Node>), ApiErro
 
 const FILES_TYPE: &str = "Files";
 const DROP_EFFECT_COPY: &str = "copy";
+const DROP_EFFECT_NONE: &str = "none";
 
 fn carries_files(event: &DragEvent) -> bool {
     event
@@ -251,6 +252,11 @@ fn Explorer(auth: Auth) -> impl IntoView {
         let protected = lost_and_found.get();
         protected.is_none_or(|id| !selected.read().contains(&id))
     });
+    // Lost & Found only receives restored files, so nothing is created or uploaded into it.
+    let can_add = Signal::derive(move || {
+        let current = folder.get();
+        current.is_none() || current != lost_and_found.get()
+    });
     let download = Callback::new(move |node: Node| {
         spawn_local(async move {
             let client = session::client();
@@ -272,7 +278,9 @@ fn Explorer(auth: Auth) -> impl IntoView {
         details.set(Some(node.id));
     });
     let upload = Callback::new(move |files: Vec<File>| {
-        start_upload(uploads, reload, auth, folder.get_untracked(), files);
+        if can_add.get_untracked() {
+            start_upload(uploads, reload, auth, folder.get_untracked(), files);
+        }
     });
 
     let drag_depth = RwSignal::new(0_u32);
@@ -280,14 +288,21 @@ fn Explorer(auth: Auth) -> impl IntoView {
     let on_enter = window_event_listener(ev::dragenter, move |event| {
         if carries_files(&event) {
             event.prevent_default();
-            drag_depth.update(|depth| *depth += 1);
+            if can_add.get_untracked() {
+                drag_depth.update(|depth| *depth += 1);
+            }
         }
     });
     let on_over = window_event_listener(ev::dragover, move |event| {
         if carries_files(&event) {
             event.prevent_default();
             if let Some(transfer) = event.data_transfer() {
-                transfer.set_drop_effect(DROP_EFFECT_COPY);
+                let effect = if can_add.get_untracked() {
+                    DROP_EFFECT_COPY
+                } else {
+                    DROP_EFFECT_NONE
+                };
+                transfer.set_drop_effect(effect);
             }
         }
     });
@@ -335,6 +350,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                         on_move=move_selected
                         on_delete=delete_selected
                         can_delete
+                        can_add
                         on_new_folder=new_folder
                         on_upload=upload
                     />
@@ -350,7 +366,15 @@ fn Explorer(auth: Auth) -> impl IntoView {
                     <div class="explorer__scroll">
                         <NodeTable nodes sort actions draft_input />
                         <Show when=move || nodes.read().is_empty() && error.read().is_none() && draft.read().is_none()>
-                            <p class="explorer__empty">"Nothing here yet. Drop files anywhere to upload."</p>
+                            <p class="explorer__empty">
+                                {move || {
+                                    if can_add.get() {
+                                        "Nothing here yet. Drop files anywhere to upload."
+                                    } else {
+                                        "Nothing here. Restored files from the recycle bin land in this folder."
+                                    }
+                                }}
+                            </p>
                         </Show>
                     </div>
                     {move || {

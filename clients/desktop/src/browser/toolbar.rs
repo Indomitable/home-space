@@ -80,20 +80,21 @@ pub fn actions(selected: &[&Node], lost_and_found: NodeId) -> Vec<(Action, bool)
 }
 
 /// The toolbar: folder-level commands, then actions on the selection.
-pub fn view<'a>(selected: &[&Node], lost_and_found: NodeId) -> Element<'a, Message> {
+/// `can_add` is false where nothing may be created, such as Lost & Found.
+pub fn view<'a>(selected: &[&Node], lost_and_found: NodeId, can_add: bool) -> Element<'a, Message> {
     let commands = row![
         tool(
             Icon::NewFolder,
             "New folder",
             "Ctrl+N",
-            Some(Message::NewFolder),
+            can_add.then_some(Message::NewFolder),
             false
         ),
         tool(
             Icon::Upload,
             "Upload",
             "Ctrl+U",
-            Some(Message::Upload),
+            can_add.then_some(Message::Upload),
             false
         ),
         tool(

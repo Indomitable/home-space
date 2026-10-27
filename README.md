@@ -58,14 +58,17 @@ folder (`.recycle-bin-<id>`) that no node endpoint lists or accepts (404). `Lost
 root folder that restored files land in, directly under their own names. It can be renamed
 or moved but not deleted, nor can a folder containing it (409).
 
-Restoring (and, internally, moving several nodes at once) takes an `on_conflict` mode for files
-whose name is taken at the destination, or that share a name within the selection:
+Restoring (`POST /trash/restore`) and moving several nodes (`POST /nodes/move`) take an
+`on_conflict` mode for files whose name is taken at the destination, or that share a name within
+the selection (folders merge and never clash):
 
-- `abort` (default): change nothing and return the `conflicts` (with the file's original path).
+- `abort` (default): change nothing and return the `conflicts` (the path relative to what is
+  moved, or the original path when restoring; `existing` is null for a clash within the selection).
 - `override`: apply the move rule above; of several same-named binned files, the most recently
   deleted ends up current and the older ones become versions.
-- `skip`: never modify the destination; clashing files stay in the bin (all of them, for
-  same-named files in the selection) and are returned in `skipped`.
+- `skip`: never modify the destination, and return the clashing files in `skipped`. A restore
+  leaves them in the bin (all of them, for same-named files in the selection); a move puts them
+  in the bin with their current path, so the source folders they leave behind are removed.
 
 Previous versions live in `file_versions`; their blobs are under `<storage>/versions/`.
 Folders have the MIME type `inode/directory`.
@@ -78,6 +81,7 @@ Folders have the MIME type `inode/directory`.
 | GET | `/me` | current user |
 | GET | `/nodes?parent_id=` | list folder (root when omitted) |
 | GET / PATCH / DELETE | `/nodes/{id}` | metadata / rename or move / delete (to the recycle bin; 409 for Lost & Found) |
+| POST | `/nodes/move` | `{ids, parent_id, on_conflict?}` → `{moved, skipped, conflicts, target}`; `on_conflict` is `abort` (default: report clashes, change nothing), `override` (merge) or `skip` (destination untouched, clashing files go to the recycle bin) |
 | POST | `/folders` | `{parent_id?, name}` |
 | POST | `/files?name=&parent_id=` | raw-body streaming upload (201 new, 200 unchanged or new version) |
 | GET / PUT | `/files/{id}/content` | download / replace content |

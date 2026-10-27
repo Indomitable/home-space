@@ -45,7 +45,10 @@ async fn list(
         items
             .into_iter()
             .map(|item| TrashItem {
-                node: item.node.into(),
+                node: Node {
+                    parent_id: None,
+                    ..item.node.into()
+                },
                 original_path: item.original_path,
                 deleted_at: item.trashed_at,
             })
@@ -58,10 +61,30 @@ async fn restore(
     user: AuthUser,
     Json(request): Json<RestoreRequest>,
 ) -> Result<Json<MoveResponse>, ApiError> {
-    let batch = state
+    let mut batch = state
         .files
         .restore(user.id, &request.ids, request.on_conflict)
         .await?;
+    // Clients never see the bin folder, so binned files report no parent.
+    let bin = state
+        .db
+        .special_folders(user.id)
+        .await
+        .map_err(files::FilesError::from)?
+        .trash_id;
+    let binned = batch
+        .deleted
+        .iter_mut()
+        .chain(
+            batch
+                .conflicts
+                .iter_mut()
+                .map(|conflict| &mut conflict.source),
+        )
+        .filter(|node| node.parent_id == Some(bin));
+    for node in binned {
+        node.parent_id = None;
+    }
     publish_changes(
         &state,
         user.id,

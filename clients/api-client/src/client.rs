@@ -7,9 +7,9 @@ use tokio::sync::Mutex as AsyncMutex;
 #[cfg(not(target_arch = "wasm32"))]
 use protocol::UploadQuery;
 use protocol::{
-    CreateFolderRequest, ErrorBody, FileVersion, ListQuery, LoginRequest, Me, MoveResponse, Node,
-    NodeId, OnConflict, RefreshRequest, RestoreRequest, SearchHit, SearchQuery, TicketRequest,
-    TicketResponse, TokenPair, TrashItem, UpdateRequest, paths,
+    CreateFolderRequest, ErrorBody, FileVersion, ListQuery, LoginRequest, Me, MoveRequest,
+    MoveResponse, Node, NodeId, OnConflict, RefreshRequest, RestoreRequest, SearchHit, SearchQuery,
+    TicketRequest, TicketResponse, TokenPair, TrashItem, UpdateRequest, paths,
 };
 
 use crate::ApiError;
@@ -228,6 +228,25 @@ impl Client {
             },
         )
         .await
+    }
+
+    /// Moves several nodes into `parent`, or to the root when `None`.
+    ///
+    /// With [`OnConflict::Abort`] a clash changes nothing and is listed in the response;
+    /// `Skip` moves the clashing files to the recycle bin instead.
+    pub async fn move_nodes(
+        &self,
+        ids: &[NodeId],
+        parent: Option<NodeId>,
+        on_conflict: OnConflict,
+    ) -> Result<MoveResponse, ApiError> {
+        let request = MoveRequest {
+            ids: ids.to_vec(),
+            parent_id: parent,
+            on_conflict,
+        };
+        self.send_json(|| self.http.post(self.url(paths::NODES_MOVE)).json(&request))
+            .await
     }
 
     /// Deletes a node by moving its files, or everything below it, to the recycle bin.

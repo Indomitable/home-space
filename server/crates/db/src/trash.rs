@@ -66,46 +66,7 @@ impl Db {
             Err(DbError::Cycle) => return Err(DbError::LostAndFound),
             other => other?,
         }
-        let directory = sqlx::query_scalar::<_, String>(
-            "WITH RECURSIVE chain AS ( \
-                 SELECT id, parent_id, name, 1 AS depth FROM nodes \
-                 WHERE id = $1 AND owner_id = $2 \
-                 UNION ALL \
-                 SELECT n.id, n.parent_id, n.name, c.depth + 1 \
-                 FROM nodes n JOIN chain c ON n.id = c.parent_id AND n.owner_id = $2 \
-             ) SELECT name FROM chain ORDER BY depth DESC",
-        )
-        .bind(node.parent_id)
-        .bind(owner)
-        .fetch_all(&mut *tx)
-        .await?
-        .iter()
-        .fold(String::new(), |path, name| format!("{path}/{name}"));
-        let trashed = sqlx::query_as::<_, Node>(concat!(
-            "WITH RECURSIVE subtree AS ( \
-                 SELECT id, kind, $3::text || '/' || name AS path FROM nodes \
-                 WHERE id = $1 AND owner_id = $2 \
-                 UNION ALL \
-                 SELECT n.id, n.kind, s.path || '/' || n.name \
-                 FROM nodes n JOIN subtree s ON n.parent_id = s.id \
-             ), files AS ( \
-                 SELECT id, path FROM subtree WHERE kind = 'file' \
-             ), entries AS ( \
-                 INSERT INTO trash_entries (node_id, original_path) SELECT id, path FROM files \
-             ), unindexed AS ( \
-                 DELETE FROM search_entries WHERE node_id IN (SELECT id FROM files) \
-             ) \
-             UPDATE nodes n SET parent_id = $4, trashed_at = now() \
-             WHERE n.id IN (SELECT id FROM files) RETURNING ",
-            node_columns!(),
-            ""
-        ))
-        .bind(id)
-        .bind(owner)
-        .bind(directory)
-        .bind(folders.trash_id)
-        .fetch_all(&mut *tx)
-        .await?;
+        let trashed = bin_subtree(&mut tx, owner, id, node.parent_id, folders.trash_id).await?;
         // The files have left the folders, so removing them takes nothing else along.
         sqlx::query("DELETE FROM nodes WHERE id = $1 AND owner_id = $2 AND kind = 'folder'")
             .bind(id)
@@ -184,7 +145,7 @@ impl Db {
             .collect::<HashMap<_, _>>();
         let sources = binned.into_iter().map(|item| item.node).collect::<Vec<_>>();
         let source_ids = sources.iter().map(|node| node.id).collect::<Vec<_>>();
-        let mut batch = move_into(&mut tx, owner, sources, Some(target), on_conflict).await?;
+        let mut batch = move_into(&mut tx, owner, sources, Some(target), on_conflict, None).await?;
         for conflict in &mut batch.conflicts {
             if let Some(path) = paths.get(&conflict.source.id) {
                 conflict.path = path.clone();
@@ -225,7 +186,61 @@ impl Db {
     }
 }
 
-async fn special_folders(
+/// Moves the files at or below `id` to the recycle bin, remembering their paths.
+///
+/// `parent` is the current parent of `id`. Folders stay where they are; callers remove them.
+/// Returns the binned files.
+pub(crate) async fn bin_subtree(
+    conn: &mut PgConnection,
+    owner: UserId,
+    id: NodeId,
+    parent: Option<NodeId>,
+    trash_id: NodeId,
+) -> Result<Vec<Node>, DbError> {
+    let directory = sqlx::query_scalar::<_, String>(
+        "WITH RECURSIVE chain AS ( \
+             SELECT id, parent_id, name, 1 AS depth FROM nodes \
+             WHERE id = $1 AND owner_id = $2 \
+             UNION ALL \
+             SELECT n.id, n.parent_id, n.name, c.depth + 1 \
+             FROM nodes n JOIN chain c ON n.id = c.parent_id AND n.owner_id = $2 \
+             ) SELECT name FROM chain ORDER BY depth DESC",
+    )
+    .bind(parent)
+    .bind(owner)
+    .fetch_all(&mut *conn)
+    .await?
+    .iter()
+    .fold(String::new(), |path, name| format!("{path}/{name}"));
+    let trashed = sqlx::query_as::<_, Node>(concat!(
+        "WITH RECURSIVE subtree AS ( \
+             SELECT id, kind, $3::text || '/' || name AS path FROM nodes \
+             WHERE id = $1 AND owner_id = $2 \
+             UNION ALL \
+             SELECT n.id, n.kind, s.path || '/' || n.name \
+             FROM nodes n JOIN subtree s ON n.parent_id = s.id \
+             ), files AS ( \
+             SELECT id, path FROM subtree WHERE kind = 'file' \
+             ), entries AS ( \
+             INSERT INTO trash_entries (node_id, original_path) SELECT id, path FROM files \
+             ), unindexed AS ( \
+             DELETE FROM search_entries WHERE node_id IN (SELECT id FROM files) \
+             ) \
+             UPDATE nodes n SET parent_id = $4, trashed_at = now() \
+             WHERE n.id IN (SELECT id FROM files) RETURNING ",
+        node_columns!(),
+        ""
+    ))
+    .bind(id)
+    .bind(owner)
+    .bind(directory)
+    .bind(trash_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(trashed)
+}
+
+pub(crate) async fn special_folders(
     conn: &mut PgConnection,
     owner: UserId,
 ) -> Result<SpecialFolders, DbError> {

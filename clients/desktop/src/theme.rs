@@ -12,6 +12,7 @@ const SELECTED_HOVER_ALPHA: f32 = 0.3;
 const SHADOW_BLUR: f32 = 24.0;
 const SHADOW_OFFSET: f32 = 8.0;
 const SHADOW_ALPHA: f32 = 0.35;
+pub const DISABLED_ALPHA: f32 = 0.4;
 
 /// A grid row: transparent, tinted on hover, accent-tinted when selected.
 pub fn row(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
@@ -56,7 +57,7 @@ pub fn tool(theme: &Theme, status: button::Status) -> button::Style {
         button::Status::Active | button::Status::Disabled => None,
     };
     let text_color = match status {
-        button::Status::Disabled => palette.background.base.text.scale_alpha(0.4),
+        button::Status::Disabled => palette.background.base.text.scale_alpha(DISABLED_ALPHA),
         _ => palette.background.base.text,
     };
     button::Style {

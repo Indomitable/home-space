@@ -5,6 +5,8 @@ use iced::{
 
 use protocol::{Node, NodeKind};
 
+use crate::theme;
+
 const IMAGE_PREFIX: &str = "image/";
 const TEXT_PREFIX: &str = "text/";
 const DOCUMENT_TYPES: &[&str] = &[
@@ -51,6 +53,7 @@ pub enum Tint {
     Muted,
     Accent,
     Danger,
+    Disabled,
 }
 
 impl Icon {
@@ -98,7 +101,23 @@ fn tint_color(theme: &Theme, tint: Tint) -> Color {
         Tint::Muted => palette.background.strongest.color,
         Tint::Accent => palette.primary.base.color,
         Tint::Danger => palette.danger.base.color,
+        // The svg tint drops alpha, so blend with the background into an opaque colour.
+        Tint::Disabled => mix(
+            palette.background.base.color,
+            palette.background.base.text,
+            theme::DISABLED_ALPHA,
+        ),
     }
+}
+
+/// `from` moved `amount` of the way towards `to`.
+fn mix(from: Color, to: Color, amount: f32) -> Color {
+    let channel = |a: f32, b: f32| a + (b - a) * amount;
+    Color::from_rgb(
+        channel(from.r, to.r),
+        channel(from.g, to.g),
+        channel(from.b, to.b),
+    )
 }
 
 /// The icon that represents `node`, chosen by MIME type.

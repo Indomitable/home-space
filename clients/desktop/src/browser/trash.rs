@@ -1,14 +1,13 @@
 use iced::{
     Alignment, Element, Length, Padding, Task,
     keyboard::Modifiers,
-    widget::{button, column, container, mouse_area, row, scrollable, space, text},
+    widget::{button, column, container, mouse_area, row, scrollable, text},
 };
 
 use api_client::{ApiError, Client, format::human_size};
 use protocol::{MoveResponse, Node, NodeId, OnConflict, TrashItem};
 
 use super::{
-    HOME,
     grid::{
         CELL_SPACING, DATE_WIDTH, EMPTY_PADDING, HEADER_SIZE, ROW_GAP, ROW_PADDING, ROW_SIZE,
         SCROLLBAR_GUTTER, SIZE_WIDTH, check,
@@ -206,7 +205,7 @@ impl State {
             true,
         );
         let status = text(if self.loading { "Loading…" } else { "" });
-        let bar = row![status, space::horizontal(), restore, empty]
+        let bar = row![restore, empty, status]
             .spacing(SPACING)
             .align_y(Alignment::Center);
         let mut page = column![bar].spacing(SPACING * 3.0);
@@ -231,20 +230,6 @@ impl State {
                 .spacing(SPACING)
                 .height(Length::Fill),
         )
-        .into()
-    }
-
-    /// The breadcrumb of the view: Home, then the bin.
-    pub fn crumbs<'a>() -> Element<'a, super::Message> {
-        row![
-            button(text(HOME))
-                .style(theme::tool)
-                .on_press(super::Message::Open(None)),
-            text(super::CRUMB_SEPARATOR),
-            text("Recycle bin"),
-        ]
-        .spacing(SPACING)
-        .align_y(Alignment::Center)
         .into()
     }
 
@@ -332,6 +317,11 @@ fn tool(icon: Icon, label: &str, message: Option<Message>, danger: bool) -> Elem
         (theme::danger_tool, Tint::Danger)
     } else {
         (theme::tool, Tint::Text)
+    };
+    let tint = if message.is_some() {
+        tint
+    } else {
+        Tint::Disabled
     };
     button(
         row![icon.view(ICON_SIZE, tint), text(label)]

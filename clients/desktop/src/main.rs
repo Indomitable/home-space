@@ -10,6 +10,7 @@ mod transfers;
 
 const APP_TITLE: &str = "Home Space";
 const APP_ID: &str = "home-space";
+const MIN_WINDOW: iced::Size = iced::Size::new(480.0, 360.0);
 const APP_ICON: &[u8] = include_bytes!("../packaging/home-space.png");
 #[cfg(target_os = "macos")]
 const APP_ICNS: &[u8] = include_bytes!("../packaging/home-space.icns");
@@ -26,6 +27,7 @@ fn main() -> iced::Result {
         })
         .window(iced::window::Settings {
             icon: window_icon(),
+            min_size: Some(MIN_WINDOW),
             ..iced::window::Settings::default()
         })
         .run()

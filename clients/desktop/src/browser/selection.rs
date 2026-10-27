@@ -20,7 +20,7 @@ pub struct Selection {
 }
 
 impl Selection {
-    /// Applies a row click: plain click selects only `id`, Ctrl toggles it,
+    /// Applies a row click: plain click selects only `id`, Ctrl (Cmd on macOS) toggles it,
     /// Shift selects the range from the anchor to `id`.
     pub fn click(&mut self, id: NodeId, modifiers: Modifiers, nodes: &[Node]) {
         if modifiers.shift()

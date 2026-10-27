@@ -17,7 +17,7 @@ use iced::{
     keyboard::{self, Key, Modifiers, key::Named},
     mouse,
     widget::{
-        button, center, column, container, mouse_area, opaque, pin, row, space, stack, text,
+        Row, button, center, column, container, mouse_area, opaque, pin, row, space, stack, text,
         text_input,
     },
     window,
@@ -52,6 +52,7 @@ const DROP_PADDING: f32 = 32.0;
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 const DEFAULT_WINDOW: Size = Size::new(1024.0, 768.0);
 const HOME: &str = "Home";
+const TRASH: &str = "Recycle bin";
 const CRUMB_SEPARATOR: &str = "›";
 const CRUMB_OVERFLOW: &str = "…";
 const KEY_SELECT_ALL: &str = "a";
@@ -80,6 +81,7 @@ pub enum Message {
     Click(NodeId),
     Toggle(NodeId),
     ToggleAll,
+    ClearSelection,
     SortBy(SortKey),
     ContextMenu(NodeId),
     CrumbsMenu,
@@ -178,7 +180,11 @@ impl State {
             dropping: false,
             search: Search::default(),
         };
-        let task = state.load();
+        // The window may have been resized before the browser opened.
+        let size = window::latest()
+            .and_then(window::size)
+            .map(Message::Resized);
+        let task = Task::batch([state.load(), size]);
         (state, task)
     }
 
@@ -234,6 +240,10 @@ impl State {
             }
             Message::ToggleAll => {
                 self.selection.toggle_all(&self.listing.nodes);
+                Task::none()
+            }
+            Message::ClearSelection => {
+                self.selection.clear();
                 Task::none()
             }
             Message::SortBy(key) => {
@@ -723,7 +733,7 @@ impl State {
         } else if let Some(trash) = &self.trash {
             column![
                 header,
-                trash::State::crumbs(),
+                trail(crumb(TRASH, Message::OpenTrash)),
                 trash.view().map(Message::Trash)
             ]
             .spacing(SPACING)
@@ -734,7 +744,8 @@ impl State {
                 toolbar::view(
                     &selected,
                     self.me.lost_and_found_id,
-                    !self.in_lost_and_found()
+                    !self.in_lost_and_found(),
+                    self.window.width - PAGE_PADDING * 2.0,
                 )
             ]
             .spacing(SPACING);
@@ -814,7 +825,8 @@ impl State {
     fn search_box(&self) -> Element<'_, Message> {
         let input = text_input(SEARCH_PLACEHOLDER, self.search.query())
             .on_input(Message::SearchChanged)
-            .width(SEARCH_WIDTH);
+            // Half the page at most, so the username and Sign out keep their room.
+            .width(SEARCH_WIDTH.min((self.window.width - PAGE_PADDING * 2.0) / 2.0));
         let mut bar = row![input].spacing(GRID_SPACING).align_y(Alignment::Center);
         if !self.search.query().is_empty() {
             bar = bar.push(
@@ -849,14 +861,7 @@ impl State {
                 }
             })
             .flatten();
-        let mut trail = row![
-            button(text(HOME))
-                .style(theme::tool)
-                .on_press(Message::Open(None))
-        ]
-        .extend(crumbs)
-        .spacing(GRID_SPACING)
-        .align_y(Alignment::Center);
+        let mut trail = trail(crumbs);
         if self.loading {
             trail = trail.push(space::horizontal()).push(text("Loading…"));
         }
@@ -881,6 +886,18 @@ impl State {
 
 fn modal<'a>(content: Element<'a, Message>, on_dismiss: Message) -> Element<'a, Message> {
     opaque(mouse_area(center(opaque(content)).style(theme::backdrop)).on_press(on_dismiss))
+}
+
+/// The breadcrumb trail: Home, then `crumbs`.
+fn trail<'a>(crumbs: impl IntoIterator<Item = Element<'a, Message>>) -> Row<'a, Message> {
+    row![
+        button(text(HOME))
+            .style(theme::tool)
+            .on_press(Message::Open(None))
+    ]
+    .extend(crumbs)
+    .spacing(GRID_SPACING)
+    .align_y(Alignment::Center)
 }
 
 /// A separator followed by a link-styled crumb.

@@ -123,7 +123,10 @@ cd clients/web && trunk build --release
 cd ../../server && HOMESPACE_WEB_ROOT=../clients/web/dist cargo run -p app -- serve
 ```
 
-The desktop client (`clients/desktop`, iced) runs with `cargo run -p desktop`. On macOS the Dock
+The desktop client (`clients/desktop`, iced) runs with `cargo run -p desktop`. It keeps the
+session in `~/.local/share/home-space/session.json`, so rebuilt dev binaries sign in again without
+a keychain prompt; build with `--features keyring` to keep it in the system keyring instead
+(macOS Keychain, Secret Service). On macOS the Dock
 icon only comes from an app bundle: `cargo install cargo-bundle`, then
 `cd clients/desktop && cargo bundle --release` builds `Home Space.app` under `target/release/bundle/osx`.
 The icons in `clients/desktop/packaging` are rendered from `home-space.svg`.

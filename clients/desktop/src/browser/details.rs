@@ -1,3 +1,4 @@
+use iced::widget::text::Wrapping;
 use iced::{
     Alignment, Element, Length,
     widget::{button, column, container, row, scrollable, space, text},
@@ -116,6 +117,7 @@ impl State {
         let header = row![
             text(node.name.as_str())
                 .size(TITLE_SIZE)
+                .wrapping(Wrapping::WordOrGlyph)
                 .width(Length::Fill),
             button(Icon::Close.view(ICON_SIZE, Tint::Text))
                 .style(theme::tool)

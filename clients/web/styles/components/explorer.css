@@ -17,13 +17,11 @@
   padding: var(--space-5) var(--space-4) var(--space-4);
 }
 
-.explorer__scroll {
-  min-height: 0;
+.explorer__nodes {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   box-shadow: var(--shadow-sm);
-  overflow: auto;
 }
 
 .explorer__header {

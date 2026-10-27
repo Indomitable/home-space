@@ -1,5 +1,6 @@
 mod app;
 mod browser;
+mod ellipsis;
 mod events;
 mod icons;
 mod locale;

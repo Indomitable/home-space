@@ -15,6 +15,7 @@ use super::{
     selection::{Coverage, Selection},
 };
 use crate::{
+    ellipsis::ellipsized,
     icons::{ICON_SIZE, Icon, Tint, node_icon},
     locale::short_date,
     theme,
@@ -145,18 +146,13 @@ fn node_row(node: &Node, selected: bool) -> Element<'_, Message> {
         check(check_icon, Message::Toggle(node.id)),
         row![
             icon.view(ICON_SIZE, tint),
-            text(node.name.as_str()).size(ROW_SIZE)
+            ellipsized(node.name.as_str(), ROW_SIZE, Alignment::Start).width(Length::Fill)
         ]
         .spacing(CELL_SPACING / 1.5)
         .align_y(Alignment::Center)
         .width(Length::Fill),
-        text(size)
-            .size(ROW_SIZE)
-            .width(SIZE_WIDTH)
-            .align_x(Alignment::End),
-        text(short_date(node.updated_at))
-            .size(ROW_SIZE)
-            .width(DATE_WIDTH),
+        ellipsized(size, ROW_SIZE, Alignment::End).width(SIZE_WIDTH),
+        ellipsized(short_date(node.updated_at), ROW_SIZE, Alignment::Start).width(DATE_WIDTH),
     ]
     .spacing(CELL_SPACING)
     .align_y(Alignment::Center);

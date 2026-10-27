@@ -4,6 +4,7 @@ use gloo_timers::future::sleep;
 use leptos::{prelude::*, task::spawn_local};
 use leptos_router::{
     NavigateOptions,
+    components::A,
     hooks::{use_location, use_navigate, use_query_map},
 };
 use web_sys::KeyboardEvent;
@@ -22,6 +23,9 @@ pub fn AppBar(auth: Auth) -> impl IntoView {
             <h1 class="app-bar__brand">"home-space"</h1>
             <SearchBox />
             <span class="app-bar__spacer"></span>
+            <A href=route::TRASH_PATH attr:class="button button--ghost">
+                "Recycle bin"
+            </A>
             <span class="app-bar__user">{move || auth.user.get().map(|user| user.username)}</span>
             <button class="button button--ghost" on:click=move |_| auth.logout()>
                 "Log out"

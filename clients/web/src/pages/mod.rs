@@ -6,8 +6,10 @@ mod login;
 mod move_dialog;
 mod search;
 mod shell;
+mod trash;
 
 pub use browser::Browser;
 pub use login::Login;
 pub use search::SearchPage;
 pub use shell::Shell;
+pub use trash::TrashPage;

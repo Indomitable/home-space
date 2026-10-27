@@ -45,3 +45,8 @@
   color: var(--color-muted);
   text-align: center;
 }
+
+.explorer__title {
+  font-size: var(--text-lg);
+  font-weight: 650;
+}

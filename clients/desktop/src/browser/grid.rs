@@ -20,7 +20,7 @@ use crate::{
     theme,
 };
 
-const CHECK_WIDTH: f32 = 24.0;
+pub(super) const CHECK_WIDTH: f32 = 24.0;
 pub(super) const SIZE_WIDTH: f32 = 96.0;
 pub(super) const DATE_WIDTH: f32 = 140.0;
 pub(super) const CELL_SPACING: f32 = 12.0;
@@ -32,10 +32,10 @@ pub(super) const ROW_PADDING: Padding = Padding {
 };
 pub(super) const SCROLLBAR_GUTTER: f32 = 14.0;
 pub(super) const ROW_GAP: f32 = 2.0;
-const HEADER_SIZE: f32 = 13.0;
+pub(super) const HEADER_SIZE: f32 = 13.0;
 const SORT_ARROW_GAP: f32 = 8.0;
 pub(super) const ROW_SIZE: f32 = 15.0;
-const EMPTY_PADDING: f32 = 32.0;
+pub(super) const EMPTY_PADDING: f32 = 32.0;
 
 /// Column titles with the select-all checkbox, aligned with [`rows`].
 pub fn header<'a>(coverage: Coverage, sort: Sort) -> Element<'a, Message> {
@@ -170,7 +170,7 @@ fn node_row(node: &Node, selected: bool) -> Element<'_, Message> {
         .into()
 }
 
-fn check<'a>(icon: Icon, message: Message) -> Element<'a, Message> {
+pub(super) fn check<'a, M: Clone + 'a>(icon: Icon, message: M) -> Element<'a, M> {
     let tint = match icon {
         Icon::Unchecked => Tint::Muted,
         _ => Tint::Accent,

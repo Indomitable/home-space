@@ -11,3 +11,9 @@
   background: var(--color-danger-soft);
   color: var(--color-danger);
 }
+
+.alert--success {
+  border-color: color-mix(in oklab, var(--color-success) 35%, transparent);
+  background: color-mix(in oklab, var(--color-success) 12%, transparent);
+  color: var(--color-text);
+}

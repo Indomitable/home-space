@@ -1100,11 +1100,15 @@ name = "desktop"
 version = "0.1.0"
 dependencies = [
  "api-client",
+ "block2 0.6.2",
  "iced",
  "iced_test",
  "icu_datetime",
  "icu_locale",
  "keyring",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "png 0.18.1",
  "protocol",
  "reqwest",

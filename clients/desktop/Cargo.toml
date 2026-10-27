@@ -23,6 +23,12 @@ tokio = { workspace = true, features = ["fs", "macros", "rt", "time"] }
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
 tokio-util = { version = "0.7.20", features = ["io"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.5"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSData", "NSNotification", "NSOperation", "NSString"] }
+
 [package.metadata.bundle]
 name = "Home Space"
 identifier = "io.github.indomitable.home-space"

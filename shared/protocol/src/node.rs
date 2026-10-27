@@ -4,7 +4,7 @@ use time::OffsetDateTime;
 use crate::NodeId;
 
 /// Whether a node is a folder or a file.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "server",
     derive(sqlx::Type),
@@ -44,6 +44,42 @@ pub struct FileVersion {
     pub modified_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub archived_at: OffsetDateTime,
+}
+
+/// What to do when a file being moved or restored meets a live file of the same name.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OnConflict {
+    /// Change nothing and report the conflicts.
+    #[default]
+    Abort,
+    /// Merge into the existing file: its content becomes a version and the incoming one current.
+    Override,
+    /// Leave the existing file untouched and do not place the clashing files.
+    Skip,
+}
+
+/// A file that clashes with a live file at its destination.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Conflict {
+    pub source: Node,
+    /// Path of the file relative to what is moved, or its original path when restoring.
+    pub path: String,
+    /// The file in the way; `None` when two selected files share a name.
+    pub existing: Option<Node>,
+}
+
+/// Result of moving or restoring several nodes.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MoveResponse {
+    /// The nodes at their final location, which is the destination when they were merged.
+    pub moved: Vec<Node>,
+    /// Files that were not placed because of [`OnConflict::Skip`].
+    pub skipped: Vec<NodeId>,
+    /// The clashes found; only filled for [`OnConflict::Abort`], in which case nothing changed.
+    pub conflicts: Vec<Conflict>,
+    /// The destination folder; `None` for the root.
+    pub target: Option<Node>,
 }
 
 /// Query of `GET /nodes`.
@@ -96,6 +132,15 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+
+    #[test]
+    fn on_conflict_uses_snake_case_and_defaults_to_abort() {
+        assert_eq!(
+            serde_json::to_string(&OnConflict::Override).expect("json"),
+            r#""override""#
+        );
+        assert_eq!(OnConflict::default(), OnConflict::Abort);
+    }
 
     #[test]
     fn update_distinguishes_absent_null_and_value() {

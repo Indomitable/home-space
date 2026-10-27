@@ -57,7 +57,7 @@ pub fn apply_event(nodes: &mut Vec<Node>, folder: Option<NodeId>, event: &Event,
             }
         }
         Event::NodeDeleted { id, .. } => nodes.retain(|existing| existing.id != *id),
-        Event::Resync => {}
+        Event::TrashChanged | Event::Resync => {}
     }
 }
 
@@ -66,7 +66,7 @@ pub fn affects_path(path: &[Node], event: &Event) -> bool {
     match event {
         Event::NodeUpdated { node } => path.iter().any(|folder| folder.id == node.id),
         Event::NodeDeleted { id, .. } => path.iter().any(|folder| folder.id == *id),
-        Event::NodeCreated { .. } | Event::Resync => false,
+        Event::NodeCreated { .. } | Event::TrashChanged | Event::Resync => false,
     }
 }
 

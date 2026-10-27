@@ -16,6 +16,8 @@ pub enum Event {
         id: NodeId,
         parent_id: Option<NodeId>,
     },
+    /// Files entered or left the recycle bin.
+    TrashChanged,
     /// Events were missed; the client should refetch what it displays.
     Resync,
 }
@@ -31,6 +33,14 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&Event::Resync).expect("json"),
             r#"{"type":"resync"}"#
+        );
+    }
+
+    #[test]
+    fn trash_changed_serializes_as_a_bare_tag() {
+        assert_eq!(
+            serde_json::to_string(&Event::TrashChanged).expect("json"),
+            r#"{"type":"trash_changed"}"#
         );
     }
 

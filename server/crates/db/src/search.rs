@@ -37,13 +37,14 @@ impl Db {
         id: NodeId,
         terms: &str,
     ) -> Result<(), DbError> {
-        sqlx::query(
+        sqlx::query(concat!(
             "INSERT INTO search_entries (node_id, owner_id, name_tsv) \
              SELECT n.id, n.owner_id, to_tsvector('simple', $3) \
-             FROM nodes n WHERE n.id = $1 AND n.owner_id = $2 \
-             ON CONFLICT (node_id) DO UPDATE \
-             SET name_tsv = EXCLUDED.name_tsv, indexed_at = now()",
-        )
+             FROM nodes n WHERE n.id = $1 AND n.owner_id = $2 AND ",
+            visible!("n"),
+            " ON CONFLICT (node_id) DO UPDATE \
+             SET name_tsv = EXCLUDED.name_tsv, indexed_at = now()"
+        ))
         .bind(id)
         .bind(owner)
         .bind(terms)
@@ -97,8 +98,9 @@ impl Db {
              FROM search_entries e \
              JOIN nodes n ON n.id = e.node_id \
              CROSS JOIN to_tsquery('simple', $2) AS q(query) \
-             WHERE e.owner_id = $1 AND n.owner_id = $1 AND e.tsv @@ q.query \
-             ORDER BY rank DESC, n.kind, n.name \
+             WHERE e.owner_id = $1 AND n.owner_id = $1 AND e.tsv @@ q.query AND ",
+            visible!("n"),
+            " ORDER BY rank DESC, n.kind, n.name \
              LIMIT $3"
         ))
         .bind(owner)
@@ -145,8 +147,9 @@ impl Db {
             prefixed_node_columns!(),
             " FROM nodes n \
              LEFT JOIN search_entries e ON e.node_id = n.id \
-             WHERE e.node_id IS NULL \
-             LIMIT $1"
+             WHERE e.node_id IS NULL AND ",
+            visible!("n"),
+            " LIMIT $1"
         ))
         .bind(limit)
         .fetch_all(self.pool())
@@ -166,8 +169,9 @@ impl Db {
             ", e.content_provider, e.content_sha256 \
              FROM nodes n \
              JOIN search_entries e ON e.node_id = n.id \
-             WHERE n.kind = 'file' AND ($1::uuid IS NULL OR n.id > $1) \
-             ORDER BY n.id \
+             WHERE n.kind = 'file' AND ($1::uuid IS NULL OR n.id > $1) AND ",
+            visible!("n"),
+            " ORDER BY n.id \
              LIMIT $2"
         ))
         .bind(after)
@@ -322,9 +326,12 @@ mod tests {
             .await
             .expect("index");
         let missing = db.nodes_missing_entries(10).await.expect("missing");
-        assert_eq!(
-            missing.iter().map(|node| node.id).collect::<Vec<_>>(),
-            [pending.id]
-        );
+        let mut names = missing
+            .iter()
+            .map(|node| node.name.as_str())
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        // The recycle bin folder is never indexed.
+        assert_eq!(names, ["Lost & Found", pending.name.as_str()]);
     }
 }

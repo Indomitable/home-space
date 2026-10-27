@@ -1,4 +1,4 @@
-use crate::{Db, DbError, User, UserId};
+use crate::{Db, DbError, FOLDER_MIME, LOST_AND_FOUND, NodeId, User, UserId};
 
 macro_rules! user_columns {
     () => {
@@ -7,8 +7,10 @@ macro_rules! user_columns {
 }
 
 impl Db {
-    /// Inserts a new user; `Conflict` if the username is taken.
+    /// Inserts a new user with their recycle bin and Lost & Found folders; `Conflict` if the
+    /// username is taken.
     pub async fn create_user(&self, username: &str, password_hash: &str) -> Result<User, DbError> {
+        let mut tx = self.pool().begin().await?;
         let user = sqlx::query_as::<_, User>(concat!(
             "INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3) \
              RETURNING ",
@@ -18,8 +20,34 @@ impl Db {
         .bind(UserId::new())
         .bind(username)
         .bind(password_hash)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *tx)
         .await?;
+        let trash_id = NodeId::new();
+        let lost_and_found_id = NodeId::new();
+        for (id, name) in [
+            (trash_id, format!(".recycle-bin-{trash_id}")),
+            (lost_and_found_id, LOST_AND_FOUND.to_owned()),
+        ] {
+            sqlx::query(
+                "INSERT INTO nodes (id, owner_id, parent_id, kind, name, mime) \
+                 VALUES ($1, $2, NULL, 'folder', $3, $4)",
+            )
+            .bind(id)
+            .bind(user.id)
+            .bind(name)
+            .bind(FOLDER_MIME)
+            .execute(&mut *tx)
+            .await?;
+        }
+        sqlx::query(
+            "INSERT INTO user_folders (user_id, trash_id, lost_and_found_id) VALUES ($1, $2, $3)",
+        )
+        .bind(user.id)
+        .bind(trash_id)
+        .bind(lost_and_found_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
         Ok(user)
     }
 

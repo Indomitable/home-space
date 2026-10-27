@@ -5,8 +5,8 @@ use futures_util::Stream;
 use tokio::fs;
 
 use db::{
-    BlobOp, Db, FOLDER_MIME, FileVersion, MoveOutcome, NewNode, Node, NodeId, NodeKind, NodeUpdate,
-    StoreOutcome, UserId,
+    BlobOp, Db, DeletedNodes, FOLDER_MIME, FileVersion, MoveBatch, MoveOutcome, NewNode, Node,
+    NodeId, NodeKind, NodeUpdate, OnConflict, StoreOutcome, TrashOutcome, TrashedNode, UserId,
 };
 
 use crate::{BlobStore, FilesError, store::StagedBlob};
@@ -182,19 +182,21 @@ impl FileService {
         update: NodeUpdate,
     ) -> Result<MoveOutcome, FilesError> {
         let outcome = self.db.update_node(owner, id, update).await?;
-        for op in &outcome.blob_ops {
-            let result = match *op {
-                BlobOp::Archive { node, version_id } => {
-                    self.store.archive(owner, node, version_id).await
-                }
-                BlobOp::Promote { from, to } => self.store.promote(owner, from, to).await,
-                BlobOp::Remove { node } => self.store.remove(owner, node).await,
-            };
-            if let Err(err) = result {
-                tracing::error!(?op, error = %err, "failed to apply blob operation");
-            }
-        }
+        self.apply_blob_ops(owner, &outcome.blob_ops).await;
         Ok(outcome)
+    }
+
+    /// Moves several nodes into `parent` (the root when `None`); see [`Db::move_nodes`].
+    pub async fn move_nodes(
+        &self,
+        owner: UserId,
+        ids: &[NodeId],
+        parent: Option<NodeId>,
+        on_conflict: OnConflict,
+    ) -> Result<MoveBatch, FilesError> {
+        let batch = self.db.move_nodes(owner, ids, parent, on_conflict).await?;
+        self.apply_blob_ops(owner, &batch.blob_ops).await;
+        Ok(batch)
     }
 
     /// Lists the previous versions of a file, newest first.
@@ -233,10 +235,58 @@ impl FileService {
         Ok(())
     }
 
-    /// Deletes a node, its descendants and their stored content.
-    pub async fn delete(&self, owner: UserId, id: NodeId) -> Result<Node, FilesError> {
-        let node = self.db.get_node(owner, id).await?;
-        let deleted = self.db.delete_node(owner, id).await?;
+    /// Deletes a node by moving its files to the recycle bin; their content stays stored.
+    pub async fn delete(&self, owner: UserId, id: NodeId) -> Result<TrashOutcome, FilesError> {
+        Ok(self.db.trash_node(owner, id).await?)
+    }
+
+    /// Lists the files in the recycle bin, most recently deleted first.
+    pub async fn trash(&self, owner: UserId) -> Result<Vec<TrashedNode>, FilesError> {
+        Ok(self.db.list_trash(owner).await?)
+    }
+
+    /// Moves binned files to Lost & Found; see [`Db::restore`].
+    pub async fn restore(
+        &self,
+        owner: UserId,
+        ids: &[NodeId],
+        on_conflict: OnConflict,
+    ) -> Result<MoveBatch, FilesError> {
+        let batch = self.db.restore(owner, ids, on_conflict).await?;
+        self.apply_blob_ops(owner, &batch.blob_ops).await;
+        Ok(batch)
+    }
+
+    /// Permanently deletes every binned file and its stored content.
+    pub async fn empty_trash(&self, owner: UserId) -> Result<(), FilesError> {
+        let deleted = self.db.empty_trash(owner).await?;
+        self.remove_content(owner, deleted).await;
+        Ok(())
+    }
+
+    /// Permanently deletes one binned file and its stored content.
+    pub async fn purge_trashed(&self, owner: UserId, id: NodeId) -> Result<(), FilesError> {
+        let deleted = self.db.purge_trashed(owner, id).await?;
+        self.remove_content(owner, deleted).await;
+        Ok(())
+    }
+
+    async fn apply_blob_ops(&self, owner: UserId, ops: &[BlobOp]) {
+        for op in ops {
+            let result = match *op {
+                BlobOp::Archive { node, version_id } => {
+                    self.store.archive(owner, node, version_id).await
+                }
+                BlobOp::Promote { from, to } => self.store.promote(owner, from, to).await,
+                BlobOp::Remove { node } => self.store.remove(owner, node).await,
+            };
+            if let Err(err) = result {
+                tracing::error!(?op, error = %err, "failed to apply blob operation");
+            }
+        }
+    }
+
+    async fn remove_content(&self, owner: UserId, deleted: DeletedNodes) {
         for file_id in deleted.files {
             if let Err(err) = self.store.remove(owner, file_id).await {
                 tracing::warn!(%file_id, error = %err, "failed to remove blob");
@@ -247,7 +297,6 @@ impl FileService {
                 tracing::warn!(%version_id, error = %err, "failed to remove version blob");
             }
         }
-        Ok(node)
     }
 
     async fn rollback_node(&self, owner: UserId, id: NodeId) {
@@ -636,16 +685,10 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
-    async fn deleting_a_file_removes_its_version_blobs(pool: PgPool) {
+    async fn purging_a_file_removes_its_content_and_version_blobs(pool: PgPool) {
         let fx = fixture(pool, 1024).await;
         let file = put(&fx, None, "a.txt", "one").await;
         put(&fx, None, "a.txt", "two").await;
-        let version = fx
-            .files
-            .versions(fx.alice, file.id)
-            .await
-            .expect("versions");
-        assert_eq!(version.len(), 1);
         let version_id = fx
             .files
             .db
@@ -654,6 +697,11 @@ mod tests {
             .expect("v")
             .id;
         fx.files.delete(fx.alice, file.id).await.expect("delete");
+        fx.files
+            .purge_trashed(fx.alice, file.id)
+            .await
+            .expect("purge");
+        assert!(fx.files.store.open_blob(fx.alice, file.id).await.is_err());
         assert!(
             fx.files
                 .store
@@ -717,26 +765,605 @@ mod tests {
         assert!(matches!(result, Err(FilesError::Cycle)));
     }
 
+    async fn lost_and_found(fx: &Fixture) -> NodeId {
+        fx.files
+            .db
+            .special_folders(fx.alice)
+            .await
+            .expect("folders")
+            .lost_and_found_id
+    }
+
+    async fn folder(fx: &Fixture, parent: Option<NodeId>, name: &str) -> Node {
+        fx.files
+            .create_folder(fx.alice, parent, name)
+            .await
+            .expect("folder")
+    }
+
+    async fn bin_paths(fx: &Fixture) -> Vec<String> {
+        let mut paths = fx
+            .files
+            .trash(fx.alice)
+            .await
+            .expect("trash")
+            .into_iter()
+            .map(|item| item.original_path)
+            .collect::<Vec<_>>();
+        paths.sort();
+        paths
+    }
+
+    async fn blob_exists(fx: &Fixture, id: NodeId) -> bool {
+        fx.files.store.open_blob(fx.alice, id).await.is_ok()
+    }
+
+    /// Bins two files named `a.txt` ("old", then "new") that lived in different folders.
+    async fn bin_same_named_pair(fx: &Fixture) -> (Node, Node) {
+        let first = folder(fx, None, "first").await;
+        let second = folder(fx, None, "second").await;
+        let old = put(fx, Some(first.id), "a.txt", "old").await;
+        let new = put(fx, Some(second.id), "a.txt", "new").await;
+        fx.files.delete(fx.alice, old.id).await.expect("delete old");
+        fx.files.delete(fx.alice, new.id).await.expect("delete new");
+        (old, new)
+    }
+
     #[sqlx::test(migrations = "../../migrations")]
-    async fn deleting_a_folder_removes_its_blobs(pool: PgPool) {
+    async fn new_users_get_hidden_recycle_bin_and_lost_and_found(pool: PgPool) {
         let fx = fixture(pool, 1024).await;
-        let folder = fx
+        let folders = fx
             .files
-            .create_folder(fx.alice, None, "docs")
+            .db
+            .special_folders(fx.alice)
             .await
-            .expect("folder");
-        let file = fx
+            .expect("folders");
+        let root = fx.files.list(fx.alice, None).await.expect("root");
+        assert_eq!(
+            root.iter()
+                .map(|node| node.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Lost & Found"]
+        );
+        assert_eq!(root[0].id, folders.lost_and_found_id);
+        assert_ne!(
+            fx.files.db.special_folders(fx.bob).await.expect("bob"),
+            folders
+        );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn the_recycle_bin_folder_is_not_reachable(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let trash = fx
             .files
-            .upload(fx.alice, Some(folder.id), "a.txt", None, body("hi"))
+            .db
+            .special_folders(fx.alice)
             .await
-            .map(StoreOutcome::into_node)
-            .expect("upload");
-        fx.files.delete(fx.alice, folder.id).await.expect("delete");
+            .expect("f")
+            .trash_id;
+        let file = put(&fx, None, "a.txt", "x").await;
+        let not_found = |result: Result<(), FilesError>| {
+            assert!(matches!(result, Err(FilesError::NotFound)));
+        };
+        not_found(fx.files.get(fx.alice, trash).await.map(drop));
+        not_found(fx.files.list(fx.alice, Some(trash)).await.map(drop));
+        not_found(fx.files.ancestors(fx.alice, trash).await.map(drop));
+        not_found(fx.files.delete(fx.alice, trash).await.map(drop));
+        not_found(
+            fx.files
+                .update(
+                    fx.alice,
+                    trash,
+                    NodeUpdate {
+                        name: Some("x".to_owned()),
+                        ..NodeUpdate::default()
+                    },
+                )
+                .await
+                .map(drop),
+        );
+        not_found(
+            fx.files
+                .update(
+                    fx.alice,
+                    file.id,
+                    NodeUpdate {
+                        parent_id: Some(Some(trash)),
+                        ..NodeUpdate::default()
+                    },
+                )
+                .await
+                .map(drop),
+        );
+        not_found(
+            fx.files
+                .move_nodes(fx.alice, &[file.id], Some(trash), OnConflict::Override)
+                .await
+                .map(drop),
+        );
+        not_found(
+            fx.files
+                .upload(fx.alice, Some(trash), "b.txt", None, body("x"))
+                .await
+                .map(drop),
+        );
+        not_found(
+            fx.files
+                .create_folder(fx.alice, Some(trash), "f")
+                .await
+                .map(drop),
+        );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn deleting_a_folder_bins_its_files_with_their_paths(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let p = folder(&fx, None, "p").await;
+        let a = folder(&fx, Some(p.id), "a").await;
+        let b = folder(&fx, Some(a.id), "b").await;
+        let empty = folder(&fx, Some(a.id), "empty").await;
+        let x = put(&fx, Some(b.id), "x.txt", "one").await;
+        put(&fx, Some(b.id), "x.txt", "two").await;
+        let y = put(&fx, Some(a.id), "y.txt", "y").await;
+        let version_id = fx
+            .files
+            .db
+            .get_version(fx.alice, x.id, 1)
+            .await
+            .expect("v")
+            .id;
+
+        let outcome = fx.files.delete(fx.alice, a.id).await.expect("delete");
+
+        assert_eq!(outcome.node.id, a.id);
+        assert_eq!(outcome.trashed.len(), 2);
+        for gone in [a.id, b.id, empty.id] {
+            assert!(matches!(
+                fx.files.get(fx.alice, gone).await,
+                Err(FilesError::NotFound)
+            ));
+        }
+        assert!(fx.files.get(fx.alice, p.id).await.is_ok());
+        assert_eq!(bin_paths(&fx).await, ["/p/a/b/x.txt", "/p/a/y.txt"]);
+        assert!(blob_exists(&fx, x.id).await);
+        assert!(blob_exists(&fx, y.id).await);
+        assert!(
+            fx.files
+                .store
+                .open_version(fx.alice, version_id)
+                .await
+                .is_ok()
+        );
+        assert!(matches!(
+            fx.files.get(fx.alice, x.id).await,
+            Err(FilesError::NotFound)
+        ));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn same_named_files_coexist_in_the_bin_and_their_name_can_be_reused(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let first = put(&fx, None, "a.txt", "one").await;
+        fx.files.delete(fx.alice, first.id).await.expect("delete");
+        let second = put(&fx, None, "a.txt", "two").await;
+        assert_ne!(second.id, first.id);
+        assert_eq!(second.version, 1);
+        fx.files.delete(fx.alice, second.id).await.expect("delete");
+        let third = put(&fx, None, "a.txt", "three").await;
+        assert_eq!(bin_paths(&fx).await, ["/a.txt", "/a.txt"]);
+        assert_eq!(content_of(&fx, third.id).await, "three");
+        assert!(blob_exists(&fx, first.id).await);
+        assert!(blob_exists(&fx, second.id).await);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn binned_files_cannot_be_used(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let file = put(&fx, None, "a.txt", "one").await;
+        put(&fx, None, "a.txt", "two").await;
+        fx.files.delete(fx.alice, file.id).await.expect("delete");
         assert!(matches!(
             fx.files.get(fx.alice, file.id).await,
             Err(FilesError::NotFound)
         ));
-        assert!(fx.files.store.open_blob(fx.alice, file.id).await.is_err());
+        assert!(matches!(
+            fx.files.download(fx.alice, file.id).await,
+            Err(FilesError::NotFound)
+        ));
+        assert!(matches!(
+            fx.files.versions(fx.alice, file.id).await,
+            Err(FilesError::NotFound)
+        ));
+        assert!(matches!(
+            fx.files.download_version(fx.alice, file.id, 1).await,
+            Err(FilesError::NotFound)
+        ));
+        assert!(matches!(
+            fx.files.delete_version(fx.alice, file.id, 1).await,
+            Err(FilesError::NotFound)
+        ));
+        assert!(matches!(
+            fx.files
+                .replace_content(fx.alice, file.id, None, body("x"))
+                .await,
+            Err(FilesError::NotFound)
+        ));
+        assert!(matches!(
+            fx.files.delete(fx.alice, file.id).await,
+            Err(FilesError::NotFound)
+        ));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn restoring_lands_in_lost_and_found_with_all_versions(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let dir = folder(&fx, None, "dir").await;
+        let file = put(&fx, Some(dir.id), "a.txt", "one").await;
+        put(&fx, Some(dir.id), "a.txt", "two").await;
+        fx.files.delete(fx.alice, dir.id).await.expect("delete");
+
+        let batch = fx
+            .files
+            .restore(fx.alice, &[file.id], OnConflict::Abort)
+            .await
+            .expect("restore");
+
+        let found = lost_and_found(&fx).await;
+        assert_eq!(batch.moved.len(), 1);
+        assert_eq!(batch.target.as_ref().map(|node| node.id), Some(found));
+        let restored = fx.files.get(fx.alice, file.id).await.expect("restored");
+        assert_eq!((restored.parent_id, restored.version), (Some(found), 2));
+        assert_eq!(content_of(&fx, file.id).await, "two");
+        assert_eq!(version_content(&fx, file.id, 1).await, "one");
+        assert!(bin_paths(&fx).await.is_empty());
+        let listing = fx.files.list(fx.alice, Some(found)).await.expect("list");
+        assert_eq!(listing.len(), 1);
+    }
+
+    /// Bins "binned" as `/dir/a.txt` while Lost & Found holds a live "live".
+    async fn binned_clash(fx: &Fixture) -> (Node, Node) {
+        let found = lost_and_found(fx).await;
+        let live = put(fx, Some(found), "a.txt", "live").await;
+        let dir = folder(fx, None, "dir").await;
+        let binned = put(fx, Some(dir.id), "a.txt", "binned").await;
+        fx.files.delete(fx.alice, dir.id).await.expect("delete");
+        (live, binned)
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn aborting_a_restore_reports_the_conflicts_and_changes_nothing(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let (live, binned) = binned_clash(&fx).await;
+
+        let batch = fx
+            .files
+            .restore(fx.alice, &[binned.id], OnConflict::Abort)
+            .await
+            .expect("restore");
+
+        assert!(batch.moved.is_empty() && batch.skipped.is_empty());
+        assert_eq!(batch.conflicts.len(), 1);
+        let conflict = &batch.conflicts[0];
+        assert_eq!(conflict.source.id, binned.id);
+        assert_eq!(conflict.path, "/dir/a.txt");
+        assert_eq!(
+            conflict.existing.as_ref().map(|node| node.id),
+            Some(live.id)
+        );
+        assert_eq!(bin_paths(&fx).await, ["/dir/a.txt"]);
+        assert_eq!(content_of(&fx, live.id).await, "live");
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn overriding_a_restore_merges_into_the_live_file(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let (live, binned) = binned_clash(&fx).await;
+
+        let batch = fx
+            .files
+            .restore(fx.alice, &[binned.id], OnConflict::Override)
+            .await
+            .expect("restore");
+
+        assert_eq!(batch.moved.len(), 1);
+        assert_eq!(batch.moved[0].id, live.id);
+        assert_eq!(content_of(&fx, live.id).await, "binned");
+        assert_eq!(version_content(&fx, live.id, 1).await, "live");
+        assert!(bin_paths(&fx).await.is_empty());
+        assert!(!blob_exists(&fx, binned.id).await);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn skipping_a_restore_leaves_the_file_in_the_bin(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let (live, binned) = binned_clash(&fx).await;
+        let other = {
+            let dir = folder(&fx, None, "other").await;
+            let file = put(&fx, Some(dir.id), "b.txt", "b").await;
+            fx.files.delete(fx.alice, dir.id).await.expect("delete");
+            file
+        };
+
+        let batch = fx
+            .files
+            .restore(fx.alice, &[binned.id, other.id], OnConflict::Skip)
+            .await
+            .expect("restore");
+
+        assert_eq!(
+            batch.skipped.iter().map(|node| node.id).collect::<Vec<_>>(),
+            [binned.id]
+        );
+        assert_eq!(
+            batch.moved.iter().map(|node| node.id).collect::<Vec<_>>(),
+            [other.id]
+        );
+        assert_eq!(bin_paths(&fx).await, ["/dir/a.txt"]);
+        let unchanged = fx.files.get(fx.alice, live.id).await.expect("live");
+        assert_eq!((unchanged.version, unchanged.sha256), (1, live.sha256));
+        assert_eq!(content_of(&fx, live.id).await, "live");
+        assert!(blob_exists(&fx, binned.id).await);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn restoring_same_named_files_aborts_and_skips_them_all(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let (old, new) = bin_same_named_pair(&fx).await;
+        let ids = [old.id, new.id];
+
+        let aborted = fx
+            .files
+            .restore(fx.alice, &ids, OnConflict::Abort)
+            .await
+            .expect("abort");
+        assert_eq!(aborted.conflicts.len(), 2);
+        assert!(aborted.conflicts.iter().all(|c| c.existing.is_none()));
+        let mut paths = aborted
+            .conflicts
+            .iter()
+            .map(|c| c.path.as_str())
+            .collect::<Vec<_>>();
+        paths.sort_unstable();
+        assert_eq!(paths, ["/first/a.txt", "/second/a.txt"]);
+        assert_eq!(bin_paths(&fx).await.len(), 2);
+
+        let skipped = fx
+            .files
+            .restore(fx.alice, &ids, OnConflict::Skip)
+            .await
+            .expect("skip");
+        assert!(skipped.moved.is_empty());
+        assert_eq!(skipped.skipped.len(), 2);
+        assert_eq!(bin_paths(&fx).await.len(), 2);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn overriding_same_named_files_restores_the_newest_as_current(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let (old, new) = bin_same_named_pair(&fx).await;
+
+        let batch = fx
+            .files
+            .restore(fx.alice, &[new.id, old.id], OnConflict::Override)
+            .await
+            .expect("restore");
+
+        assert_eq!(batch.moved.len(), 2);
+        let found = fx
+            .files
+            .list(fx.alice, Some(lost_and_found(&fx).await))
+            .await
+            .expect("list");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].version, 2);
+        assert_eq!(content_of(&fx, found[0].id).await, "new");
+        assert_eq!(version_content(&fx, found[0].id, 1).await, "old");
+        assert!(bin_paths(&fx).await.is_empty());
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn restoring_ignores_live_files_and_rejects_unknown_ids(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let live = put(&fx, None, "live.txt", "x").await;
+        let binned = put(&fx, None, "gone.txt", "y").await;
+        fx.files.delete(fx.alice, binned.id).await.expect("delete");
+
+        let batch = fx
+            .files
+            .restore(fx.alice, &[live.id, binned.id], OnConflict::Abort)
+            .await
+            .expect("restore");
+        assert_eq!(batch.moved.len(), 1);
+        assert_eq!(batch.moved[0].id, binned.id);
+        assert_eq!(
+            fx.files
+                .get(fx.alice, live.id)
+                .await
+                .expect("live")
+                .parent_id,
+            None
+        );
+
+        assert!(matches!(
+            fx.files
+                .restore(fx.alice, &[NodeId::new()], OnConflict::Abort)
+                .await,
+            Err(FilesError::NotFound)
+        ));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn lost_and_found_and_its_ancestors_cannot_be_deleted(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let found = lost_and_found(&fx).await;
+        assert!(matches!(
+            fx.files.delete(fx.alice, found).await,
+            Err(FilesError::LostAndFound)
+        ));
+
+        let outer = folder(&fx, None, "outer").await;
+        let inner = folder(&fx, Some(outer.id), "inner").await;
+        put(&fx, Some(outer.id), "keep.txt", "x").await;
+        move_to(&fx, found, Some(inner.id)).await;
+        for id in [outer.id, inner.id, found] {
+            assert!(matches!(
+                fx.files.delete(fx.alice, id).await,
+                Err(FilesError::LostAndFound)
+            ));
+        }
+        assert!(bin_paths(&fx).await.is_empty());
+        assert!(fx.files.get(fx.alice, outer.id).await.is_ok());
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn lost_and_found_can_be_renamed_and_stays_protected(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let found = lost_and_found(&fx).await;
+        let update = NodeUpdate {
+            name: Some("Found".to_owned()),
+            ..NodeUpdate::default()
+        };
+        let renamed = fx
+            .files
+            .update(fx.alice, found, update)
+            .await
+            .expect("rename");
+        assert_eq!(renamed.node.name, "Found");
+        assert!(matches!(
+            fx.files.delete(fx.alice, found).await,
+            Err(FilesError::LostAndFound)
+        ));
+        let file = put(&fx, None, "a.txt", "x").await;
+        fx.files.delete(fx.alice, file.id).await.expect("delete");
+        let batch = fx
+            .files
+            .restore(fx.alice, &[file.id], OnConflict::Abort)
+            .await
+            .expect("restore");
+        assert_eq!(batch.moved[0].parent_id, Some(found));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn purging_removes_one_binned_file_and_its_blobs(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let kept = put(&fx, None, "kept.txt", "k").await;
+        let purged = put(&fx, None, "purged.txt", "one").await;
+        put(&fx, None, "purged.txt", "two").await;
+        let version_id = fx
+            .files
+            .db
+            .get_version(fx.alice, purged.id, 1)
+            .await
+            .expect("v")
+            .id;
+        fx.files.delete(fx.alice, kept.id).await.expect("delete");
+        fx.files.delete(fx.alice, purged.id).await.expect("delete");
+
+        fx.files
+            .purge_trashed(fx.alice, purged.id)
+            .await
+            .expect("purge");
+
+        assert_eq!(bin_paths(&fx).await, ["/kept.txt"]);
+        assert!(!blob_exists(&fx, purged.id).await);
+        assert!(
+            fx.files
+                .store
+                .open_version(fx.alice, version_id)
+                .await
+                .is_err()
+        );
+        assert!(blob_exists(&fx, kept.id).await);
+        assert!(matches!(
+            fx.files
+                .restore(fx.alice, &[purged.id], OnConflict::Abort)
+                .await,
+            Err(FilesError::NotFound)
+        ));
+        assert!(matches!(
+            fx.files.purge_trashed(fx.alice, purged.id).await,
+            Err(FilesError::NotFound)
+        ));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn purging_only_works_on_binned_files(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let live = put(&fx, None, "live.txt", "x").await;
+        let dir = folder(&fx, None, "dir").await;
+        for id in [live.id, dir.id] {
+            assert!(matches!(
+                fx.files.purge_trashed(fx.alice, id).await,
+                Err(FilesError::NotFound)
+            ));
+        }
+        assert_eq!(content_of(&fx, live.id).await, "x");
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn emptying_the_bin_removes_every_binned_file_and_blob(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let dir = folder(&fx, None, "dir").await;
+        let a = put(&fx, Some(dir.id), "a.txt", "one").await;
+        put(&fx, Some(dir.id), "a.txt", "two").await;
+        let b = put(&fx, None, "b.txt", "b").await;
+        let version_id = fx
+            .files
+            .db
+            .get_version(fx.alice, a.id, 1)
+            .await
+            .expect("v")
+            .id;
+        let live = put(&fx, None, "live.txt", "l").await;
+        let bobs = fx
+            .files
+            .upload(fx.bob, None, "bob.txt", None, body("bob"))
+            .await
+            .map(StoreOutcome::into_node)
+            .expect("bob");
+        fx.files.delete(fx.bob, bobs.id).await.expect("bob delete");
+        fx.files.delete(fx.alice, dir.id).await.expect("delete");
+        fx.files.delete(fx.alice, b.id).await.expect("delete");
+
+        fx.files.empty_trash(fx.alice).await.expect("empty");
+
+        assert!(bin_paths(&fx).await.is_empty());
+        for id in [a.id, b.id] {
+            assert!(!blob_exists(&fx, id).await);
+            assert!(matches!(
+                fx.files.restore(fx.alice, &[id], OnConflict::Abort).await,
+                Err(FilesError::NotFound)
+            ));
+        }
+        assert!(
+            fx.files
+                .store
+                .open_version(fx.alice, version_id)
+                .await
+                .is_err()
+        );
+        assert_eq!(content_of(&fx, live.id).await, "l");
+        assert_eq!(fx.files.trash(fx.bob).await.expect("bob trash").len(), 1);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn other_users_cannot_restore_or_purge_binned_files(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let file = put(&fx, None, "a.txt", "x").await;
+        fx.files.delete(fx.alice, file.id).await.expect("delete");
+        assert!(matches!(
+            fx.files
+                .restore(fx.bob, &[file.id], OnConflict::Override)
+                .await,
+            Err(FilesError::NotFound)
+        ));
+        assert!(matches!(
+            fx.files.purge_trashed(fx.bob, file.id).await,
+            Err(FilesError::NotFound)
+        ));
+        assert!(fx.files.trash(fx.bob).await.expect("trash").is_empty());
+        assert_eq!(bin_paths(&fx).await, ["/a.txt"]);
     }
 
     #[sqlx::test(migrations = "../../migrations")]

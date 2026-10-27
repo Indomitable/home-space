@@ -39,7 +39,9 @@ impl ApiError {
             Self::NotFound | Self::Files(FilesError::NotFound) => {
                 (StatusCode::NOT_FOUND, ErrorCode::NotFound)
             }
-            Self::Files(FilesError::Conflict) => (StatusCode::CONFLICT, ErrorCode::Conflict),
+            Self::Files(FilesError::Conflict | FilesError::LostAndFound) => {
+                (StatusCode::CONFLICT, ErrorCode::Conflict)
+            }
             Self::Files(FilesError::InvalidName | FilesError::Cycle | FilesError::NotAFile) => {
                 (StatusCode::BAD_REQUEST, ErrorCode::BadRequest)
             }

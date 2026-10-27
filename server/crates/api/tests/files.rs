@@ -66,7 +66,8 @@ async fn listing_returns_children_of_a_folder(pool: PgPool) {
     let root = app.get("/api/v1/nodes", &token).await;
 
     assert_eq!(listing.json().as_array().map(Vec::len), Some(1));
-    assert_eq!(root.json().as_array().map(Vec::len), Some(1));
+    // The folder and Lost & Found.
+    assert_eq!(root.json().as_array().map(Vec::len), Some(2));
 }
 
 async fn create_folder(

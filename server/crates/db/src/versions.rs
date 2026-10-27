@@ -57,10 +57,13 @@ impl Db {
         node: NodeId,
         version: i32,
     ) -> Result<Uuid, DbError> {
-        let id = sqlx::query_scalar::<_, Uuid>(
-            "DELETE FROM file_versions \
-             WHERE owner_id = $1 AND node_id = $2 AND version = $3 RETURNING id",
-        )
+        let id = sqlx::query_scalar::<_, Uuid>(concat!(
+            "DELETE FROM file_versions fv \
+             WHERE fv.owner_id = $1 AND fv.node_id = $2 AND fv.version = $3 \
+             AND EXISTS (SELECT 1 FROM nodes n WHERE n.id = fv.node_id AND ",
+            visible!("n"),
+            ") RETURNING fv.id"
+        ))
         .bind(owner)
         .bind(node)
         .bind(version)

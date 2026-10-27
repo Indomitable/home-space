@@ -327,6 +327,8 @@ mod tests {
         let alice = db.create_user("alice", "x").await.expect("alice").id;
         let bob = db.create_user("bob", "x").await.expect("bob").id;
         let (index, worker) = SearchIndex::start(db.clone(), store.clone(), providers);
+        // Lost & Found folders are created without an index entry like any other node.
+        index.catch_up().await.expect("initial catch up");
         Fixture {
             index,
             _worker: worker,
@@ -552,7 +554,8 @@ mod tests {
         let fx = fixture(pool, vec![Arc::new(Plain)]).await;
         upload(&fx, None, "notes.txt", "alpha").await;
         let report = fx.index.rebuild().await.expect("rebuild");
-        assert_eq!(report.names_indexed, 1);
+        // The file and the two Lost & Found folders.
+        assert_eq!(report.names_indexed, 3);
         eventually_finds(&fx, "alpha", &["notes.txt"]).await;
     }
 }

@@ -13,6 +13,9 @@ pub enum DbError {
     /// Moving a folder into itself or one of its descendants.
     #[error("cycle")]
     Cycle,
+    /// Deleting Lost & Found or a folder that contains it.
+    #[error("Lost & Found cannot be deleted")]
+    LostAndFound,
     #[error("migration failed: {0}")]
     Migrate(#[from] sqlx::migrate::MigrateError),
     #[error("database error: {0}")]

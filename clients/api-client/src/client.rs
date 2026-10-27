@@ -7,9 +7,9 @@ use tokio::sync::Mutex as AsyncMutex;
 #[cfg(not(target_arch = "wasm32"))]
 use protocol::UploadQuery;
 use protocol::{
-    CreateFolderRequest, ErrorBody, FileVersion, ListQuery, LoginRequest, Me, Node, NodeId,
-    RefreshRequest, SearchHit, SearchQuery, TicketRequest, TicketResponse, TokenPair,
-    UpdateRequest, paths,
+    CreateFolderRequest, ErrorBody, FileVersion, ListQuery, LoginRequest, Me, MoveResponse, Node,
+    NodeId, OnConflict, RefreshRequest, RestoreRequest, SearchHit, SearchQuery, TicketRequest,
+    TicketResponse, TokenPair, TrashItem, UpdateRequest, paths,
 };
 
 use crate::ApiError;
@@ -230,10 +230,51 @@ impl Client {
         .await
     }
 
-    /// Deletes a node and everything below it.
+    /// Deletes a node by moving its files, or everything below it, to the recycle bin.
     pub async fn delete(&self, id: NodeId) -> Result<(), ApiError> {
         let response = self
             .send(|| self.http.delete(self.url(&paths::node(id))))
+            .await?;
+        expect_success(response).await
+    }
+
+    /// The files in the recycle bin, most recently deleted first.
+    pub async fn trash(&self) -> Result<Vec<TrashItem>, ApiError> {
+        self.send_json(|| self.http.get(self.url(paths::TRASH)))
+            .await
+    }
+
+    /// Moves binned files to Lost & Found; `on_conflict` decides what happens to files whose
+    /// name is taken there.
+    pub async fn restore_trashed(
+        &self,
+        ids: &[NodeId],
+        on_conflict: OnConflict,
+    ) -> Result<MoveResponse, ApiError> {
+        let request = RestoreRequest {
+            ids: ids.to_vec(),
+            on_conflict,
+        };
+        self.send_json(|| {
+            self.http
+                .post(self.url(paths::TRASH_RESTORE))
+                .json(&request)
+        })
+        .await
+    }
+
+    /// Permanently deletes every file in the recycle bin.
+    pub async fn empty_trash(&self) -> Result<(), ApiError> {
+        let response = self
+            .send(|| self.http.delete(self.url(paths::TRASH)))
+            .await?;
+        expect_success(response).await
+    }
+
+    /// Permanently deletes one file in the recycle bin.
+    pub async fn purge_trashed(&self, id: NodeId) -> Result<(), ApiError> {
+        let response = self
+            .send(|| self.http.delete(self.url(&paths::trash_item(id))))
             .await?;
         expect_success(response).await
     }

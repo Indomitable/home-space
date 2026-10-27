@@ -11,6 +11,8 @@ pub const ME: &str = "/api/v1/me";
 pub const NODES: &str = "/api/v1/nodes";
 pub const FOLDERS: &str = "/api/v1/folders";
 pub const FILES: &str = "/api/v1/files";
+pub const TRASH: &str = "/api/v1/trash";
+pub const TRASH_RESTORE: &str = "/api/v1/trash/restore";
 pub const SEARCH: &str = "/api/v1/search";
 pub const TICKETS: &str = "/api/v1/tickets";
 pub const WS: &str = "/api/v1/ws";
@@ -18,6 +20,10 @@ pub const TICKET_PARAM: &str = "ticket";
 
 pub fn node(id: NodeId) -> String {
     format!("{NODES}/{id}")
+}
+
+pub fn trash_item(id: NodeId) -> String {
+    format!("{TRASH}/{id}")
 }
 
 pub fn ancestors(id: NodeId) -> String {

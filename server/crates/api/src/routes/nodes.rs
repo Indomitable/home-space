@@ -252,14 +252,33 @@ async fn update(
 }
 
 async fn publish_moved(state: &AppState, owner: db::UserId, outcome: MoveOutcome) -> Node {
-    for node in &outcome.updated {
+    publish_changes(
+        state,
+        owner,
+        &outcome.updated,
+        &outcome.deleted,
+        outcome.content_changed,
+    )
+    .await;
+    outcome.node.into()
+}
+
+/// Indexes and announces what a move or restore changed.
+pub(super) async fn publish_changes(
+    state: &AppState,
+    owner: db::UserId,
+    updated: &[db::Node],
+    deleted: &[db::Node],
+    content_changed: Vec<NodeId>,
+) {
+    for node in updated {
         state.index_name(node).await;
         let event = Event::NodeUpdated {
             node: node.clone().into(),
         };
         state.hub.publish(owner, event);
     }
-    for node in &outcome.deleted {
+    for node in deleted {
         state.hub.publish(
             owner,
             Event::NodeDeleted {
@@ -268,10 +287,9 @@ async fn publish_moved(state: &AppState, owner: db::UserId, outcome: MoveOutcome
             },
         );
     }
-    for id in outcome.content_changed {
+    for id in content_changed {
         state.search.enqueue_content(owner, id);
     }
-    outcome.node.into()
 }
 
 async fn delete(
@@ -279,7 +297,7 @@ async fn delete(
     user: AuthUser,
     Path(id): Path<NodeId>,
 ) -> Result<StatusCode, ApiError> {
-    let node = state.files.delete(user.id, id).await?;
+    let node = state.files.delete(user.id, id).await?.node;
     state.hub.publish(
         user.id,
         Event::NodeDeleted {
@@ -287,6 +305,7 @@ async fn delete(
             parent_id: node.parent_id,
         },
     );
+    state.hub.publish(user.id, Event::TrashChanged);
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -15,6 +15,9 @@ pub enum FilesError {
     /// A folder cannot be moved into itself or its descendants.
     #[error("cannot move a folder into itself")]
     Cycle,
+    /// Lost & Found, or a folder containing it, cannot be deleted.
+    #[error("Lost & Found cannot be deleted")]
+    LostAndFound,
     /// The operation requires a file but the node is a folder.
     #[error("node is not a file")]
     NotAFile,
@@ -34,6 +37,7 @@ impl From<DbError> for FilesError {
             DbError::Conflict => Self::Conflict,
             DbError::Invalid => Self::InvalidName,
             DbError::Cycle => Self::Cycle,
+            DbError::LostAndFound => Self::LostAndFound,
             other => Self::Db(other),
         }
     }

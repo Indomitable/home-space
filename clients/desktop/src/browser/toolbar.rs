@@ -101,6 +101,13 @@ pub fn view<'a>(selected: &[&Node]) -> Element<'a, Message> {
             Some(Message::Refresh),
             false
         ),
+        tool(
+            Icon::Delete,
+            "Recycle bin",
+            "",
+            Some(Message::OpenTrash),
+            false
+        ),
     ]
     .spacing(SPACING);
     let mut bar = row![commands, space::horizontal()]

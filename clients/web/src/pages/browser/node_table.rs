@@ -21,12 +21,13 @@ use crate::{
 const KEY_ENTER: &str = "Enter";
 const KEY_ESCAPE: &str = "Escape";
 
-const ICON_CHECKED: &str = "check_box";
-const ICON_UNCHECKED: &str = "check_box_outline_blank";
-const ICON_MIXED: &str = "indeterminate_check_box";
+pub(in crate::pages) const ICON_CHECKED: &str = "check_box";
+pub(in crate::pages) const ICON_UNCHECKED: &str = "check_box_outline_blank";
+pub(in crate::pages) const ICON_MIXED: &str = "indeterminate_check_box";
 const ICON_FOLDER: &str = "folder";
 
-const INTERACTIVE_SELECTOR: &str = "a, button, input, .node-table__cell--actions";
+pub(in crate::pages) const INTERACTIVE_SELECTOR: &str =
+    "a, button, input, .node-table__cell--actions";
 
 #[derive(Clone, Copy)]
 pub struct TableActions {
@@ -148,7 +149,7 @@ fn selection_of(nodes: &[Node], selected: &HashSet<NodeId>) -> Selection {
 }
 
 #[component]
-fn Checkbox(
+pub(in crate::pages) fn Checkbox(
     #[prop(into)] icon: Signal<&'static str>,
     #[prop(into)] checked: Signal<String>,
     #[prop(into)] label: Signal<String>,

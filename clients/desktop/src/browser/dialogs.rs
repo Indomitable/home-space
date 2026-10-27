@@ -10,13 +10,14 @@ use api_client::{
 };
 use protocol::{Conflict, MoveResponse, Node, NodeId, NodeKind, OnConflict};
 
-use super::HOME;
+use super::{HOME, trash::files};
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},
     locale::short_date,
     theme,
 };
 
+const LOST_AND_FOUND: &str = "Lost & Found";
 const NAME_INPUT: &str = "dialog-name";
 const DIALOG_WIDTH: f32 = 420.0;
 const CONFLICTS_WIDTH: f32 = 560.0;
@@ -47,6 +48,8 @@ pub enum Outcome {
     Task(Task<Message>),
     Closed,
     Done,
+    /// A restore went through; the response says what came back and where to.
+    Restored(MoveResponse),
     Failed,
 }
 
@@ -67,14 +70,18 @@ enum Kind {
     Delete {
         nodes: Vec<Node>,
     },
+    /// Confirms permanently deleting the `count` files in the recycle bin.
+    EmptyTrash {
+        count: usize,
+    },
     /// Files that clash at a destination; the user decides how to go on.
     Conflicts {
         title: String,
         conflicts: Vec<Conflict>,
         /// What to send again with the chosen mode.
         retry: Retry,
-        /// The dialog that held the request, shown again on cancel.
-        back: Box<Kind>,
+        /// The dialog that held the request, shown again on cancel; none closes the dialog.
+        back: Option<Box<Kind>>,
     },
 }
 
@@ -85,6 +92,8 @@ enum Retry {
         ids: Vec<NodeId>,
         destination: Option<NodeId>,
     },
+    /// Move binned files back to Lost & Found.
+    Restore { ids: Vec<NodeId> },
 }
 
 impl Retry {
@@ -93,6 +102,10 @@ impl Retry {
         match self.clone() {
             Retry::Move { ids, destination } => Task::perform(
                 async move { client.move_nodes(&ids, destination, on_conflict).await },
+                Message::Placed,
+            ),
+            Retry::Restore { ids } => Task::perform(
+                async move { client.restore_trashed(&ids, on_conflict).await },
                 Message::Placed,
             ),
         }
@@ -150,18 +163,39 @@ impl Dialog {
         Self::with(Kind::Delete { nodes })
     }
 
+    /// Confirms permanently deleting the `count` files in the recycle bin.
+    pub fn empty_trash(count: usize) -> Self {
+        Self::with(Kind::EmptyTrash { count })
+    }
+
+    /// Lists the files that a restore of `ids` could not put back, as `response` reports.
+    pub fn restore_conflicts(ids: Vec<NodeId>, response: MoveResponse) -> Self {
+        let title = conflicts_title(response.conflicts.len(), LOST_AND_FOUND);
+        Self::with(Kind::Conflicts {
+            title,
+            conflicts: response.conflicts,
+            retry: Retry::Restore { ids },
+            back: None,
+        })
+    }
+
     /// Applies `message`; `folder` is the folder the browser shows.
     pub fn update(&mut self, client: &Client, folder: Option<NodeId>, message: Message) -> Outcome {
         match message {
             Message::NameChanged(value) => {
                 match &mut self.kind {
                     Kind::NewFolder { name } | Kind::Rename { name, .. } => *name = value,
-                    Kind::Move { .. } | Kind::Delete { .. } | Kind::Conflicts { .. } => {}
+                    Kind::Move { .. }
+                    | Kind::Delete { .. }
+                    | Kind::EmptyTrash { .. }
+                    | Kind::Conflicts { .. } => {}
                 }
                 Outcome::Task(Task::none())
             }
             Message::Cancel => match &self.kind {
-                Kind::Conflicts { back, .. } => {
+                Kind::Conflicts {
+                    back: Some(back), ..
+                } => {
                     self.kind = (**back).clone();
                     self.saving = false;
                     self.error = None;
@@ -200,7 +234,13 @@ impl Dialog {
                 }
                 Outcome::Task(Task::none())
             }
-            Message::Placed(Ok(response)) if response.conflicts.is_empty() => Outcome::Done,
+            Message::Placed(Ok(response)) if response.conflicts.is_empty() => match &self.kind {
+                Kind::Conflicts {
+                    retry: Retry::Restore { .. },
+                    ..
+                } => Outcome::Restored(response),
+                _ => Outcome::Done,
+            },
             Message::Placed(Ok(response)) => {
                 self.hold_back(response);
                 Outcome::Task(Task::none())
@@ -235,7 +275,7 @@ impl Dialog {
             title,
             conflicts: response.conflicts,
             retry,
-            back: Box::new(self.kind.clone()),
+            back: Some(Box::new(self.kind.clone())),
         };
         self.saving = false;
         self.error = None;
@@ -273,6 +313,7 @@ impl Dialog {
                 Some(Retry::Move { ids, destination }.send(&client, OnConflict::Abort))
             }
             Kind::Conflicts { .. } => None,
+            Kind::EmptyTrash { .. } => Some(perform(async move { client.empty_trash().await })),
             Kind::Delete { nodes } => {
                 let ids = ids_of(nodes);
                 Some(perform(async move {
@@ -313,16 +354,26 @@ impl Dialog {
                 "Move here",
             ),
             Kind::Delete { nodes } => (
-                titled("Delete", nodes),
-                text("This also deletes everything inside folders and can't be undone.").into(),
-                "Delete",
+                format!("{} to recycle bin?", titled("Move", nodes)),
+                text("Files inside folders are moved too. You can restore them from the recycle bin.")
+                    .into(),
+                "Move to bin",
+            ),
+            Kind::EmptyTrash { count } => (
+                "Empty recycle bin".to_owned(),
+                text(format!(
+                    "Permanently delete {}? This cannot be undone.",
+                    files(*count)
+                ))
+                .into(),
+                "Empty recycle bin",
             ),
             Kind::Conflicts {
                 title, conflicts, ..
             } => return self.conflicts_view(title, conflicts),
         };
         let confirm_style = match self.kind {
-            Kind::Delete { .. } => button::danger,
+            Kind::EmptyTrash { .. } => button::danger,
             _ => button::primary,
         };
         let submit = button(text(if self.saving { "Working…" } else { action }))
@@ -641,5 +692,98 @@ mod tests {
         assert!(matches!(outcome, Outcome::Failed));
         assert!(!dialog.saving);
         assert!(dialog.error.is_some());
+    }
+
+    fn restoring() -> Dialog {
+        Dialog::restore_conflicts(vec![NodeId(Uuid::from_u128(1))], clash(None))
+    }
+
+    #[test]
+    fn restore_clashes_are_titled_with_lost_and_found() {
+        let dialog = restoring();
+
+        let Kind::Conflicts { title, back, .. } = &dialog.kind else {
+            panic!("expected the conflicts dialog");
+        };
+        assert_eq!(title, "1 file already exists in Lost & Found");
+        assert!(back.is_none());
+    }
+
+    #[test]
+    fn cancelling_restore_clashes_closes_the_dialog() {
+        let mut dialog = restoring();
+
+        let outcome = dialog.update(&client(), None, Message::Cancel);
+
+        assert!(matches!(outcome, Outcome::Closed));
+    }
+
+    #[test]
+    fn choosing_a_mode_sends_the_restore_again() {
+        let mut dialog = restoring();
+
+        let outcome = dialog.update(&client(), None, Message::Resolve(OnConflict::Override));
+
+        assert!(matches!(outcome, Outcome::Task(_)));
+        assert!(dialog.saving);
+    }
+
+    #[test]
+    fn a_restore_without_clashes_reports_what_came_back() {
+        let mut dialog = restoring();
+        dialog.saving = true;
+
+        let outcome = dialog.update(
+            &client(),
+            None,
+            Message::Placed(Ok(MoveResponse::default())),
+        );
+
+        assert!(matches!(outcome, Outcome::Restored(_)));
+    }
+
+    #[test]
+    fn deleting_offers_the_recycle_bin() {
+        let dialog = Dialog::delete(vec![node("a.txt", 1)]);
+        let mut ui = iced_test::simulator(dialog.view());
+
+        assert!(ui.find("Move “a.txt” to recycle bin?").is_ok());
+        assert!(ui.find("Move to bin").is_ok());
+        assert!(ui.find("Delete").is_err());
+    }
+
+    #[test]
+    fn deleting_lost_and_found_shows_the_servers_message_in_the_dialog() {
+        let mut dialog = Dialog::delete(vec![node("Lost & Found", 1)]);
+        dialog.saving = true;
+        let err = ApiError::Api {
+            code: protocol::ErrorCode::Conflict,
+            message: "Lost & Found cannot be deleted".to_owned(),
+        };
+
+        let outcome = dialog.update(&client(), None, Message::Finished(Err(err)));
+
+        assert!(matches!(outcome, Outcome::Failed));
+        assert_eq!(
+            dialog.error.as_deref(),
+            Some("Lost & Found cannot be deleted")
+        );
+    }
+
+    #[test]
+    fn emptying_the_bin_asks_for_confirmation_with_the_count() {
+        let mut dialog = Dialog::empty_trash(3);
+        {
+            let mut ui = iced_test::simulator(dialog.view());
+            assert!(
+                ui.find("Permanently delete 3 files? This cannot be undone.")
+                    .is_ok()
+            );
+        }
+
+        let outcome = dialog.update(&client(), None, Message::Submit);
+
+        assert!(matches!(outcome, Outcome::Task(_)));
+        assert!(dialog.saving);
     }
 }

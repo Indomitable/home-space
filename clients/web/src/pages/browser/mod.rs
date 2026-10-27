@@ -1,7 +1,7 @@
 mod breadcrumbs;
 mod details;
 mod menu;
-mod node_table;
+pub(super) mod node_table;
 mod toolbar;
 
 use std::collections::HashSet;

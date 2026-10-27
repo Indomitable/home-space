@@ -5,6 +5,7 @@ mod grid;
 mod search;
 mod selection;
 mod toolbar;
+mod trash;
 
 use std::{
     path::PathBuf,
@@ -90,6 +91,8 @@ pub enum Message {
     DownloadPlanned(Result<Vec<DownloadFile>, String>),
     Dialog(dialogs::Message),
     Details(details::Message),
+    OpenTrash,
+    Trash(trash::Message),
     Transfer(transfers::Message),
     Shortcut(Shortcut),
     Modifiers(Modifiers),
@@ -142,6 +145,8 @@ pub struct State {
     menu: Option<Menu>,
     dialog: Option<Dialog>,
     details: Option<details::State>,
+    /// The recycle bin, when it is shown instead of the folder.
+    trash: Option<trash::State>,
     transfers: Transfers,
     dropping: bool,
     search: Search,
@@ -168,6 +173,7 @@ impl State {
             menu: None,
             dialog: None,
             details: None,
+            trash: None,
             transfers: Transfers::default(),
             dropping: false,
             search: Search::default(),
@@ -273,6 +279,8 @@ impl State {
             Message::UploadPlanned(..) | Message::DownloadPlanned(_) => Task::none(),
             Message::Dialog(message) => self.dialog_update(message),
             Message::Details(message) => self.details_update(message),
+            Message::OpenTrash => self.open_trash(),
+            Message::Trash(message) => self.trash_update(message),
             Message::Transfer(message) => {
                 let reload = matches!(message, transfers::Message::BatchDone(Direction::Upload));
                 let task = self
@@ -325,7 +333,13 @@ impl State {
                     self.selection.retain(&self.listing.nodes);
                     Task::none()
                 };
-                Task::batch([details, listing])
+                let trash = match (&mut self.trash, &event) {
+                    (Some(trash), protocol::Event::TrashChanged | protocol::Event::Resync) => {
+                        trash.load(&self.client).map(Message::Trash)
+                    }
+                    _ => Task::none(),
+                };
+                Task::batch([details, listing, trash])
             }
             Message::SearchChanged(query) => match self.search.change(query) {
                 Some(seq) => Task::perform(
@@ -375,6 +389,7 @@ impl State {
 
     fn open_folder(&mut self, folder: Option<NodeId>) -> Task<Message> {
         self.folder = folder;
+        self.trash = None;
         self.search.clear();
         self.loading = true;
         self.error = None;
@@ -383,6 +398,47 @@ impl State {
         self.menu = None;
         self.last_click = None;
         self.load()
+    }
+
+    fn open_trash(&mut self) -> Task<Message> {
+        self.search.clear();
+        self.error = None;
+        self.details = None;
+        self.menu = None;
+        self.selection.clear();
+        let mut trash = trash::State::open();
+        let task = trash.load(&self.client);
+        self.trash = Some(trash);
+        task.map(Message::Trash)
+    }
+
+    fn trash_update(&mut self, message: trash::Message) -> Task<Message> {
+        let Some(trash) = &mut self.trash else {
+            return Task::none();
+        };
+        match trash.update(&self.client, self.modifiers, message) {
+            trash::Outcome::Task(task) => task.map(Message::Trash),
+            trash::Outcome::Conflicts { ids, response } => {
+                self.dialog = Some(Dialog::restore_conflicts(ids, *response));
+                Task::none()
+            }
+            trash::Outcome::ConfirmEmpty(count) => {
+                self.dialog = Some(Dialog::empty_trash(count));
+                Task::none()
+            }
+            trash::Outcome::OpenFolder(id) => self.open_folder(Some(id)),
+        }
+    }
+
+    /// Fetches the listing the browser currently shows.
+    fn reload(&mut self) -> Task<Message> {
+        match &mut self.trash {
+            Some(trash) => trash.load(&self.client).map(Message::Trash),
+            None => {
+                self.loading = true;
+                self.load()
+            }
+        }
     }
 
     fn click(&mut self, id: NodeId) -> Task<Message> {
@@ -496,9 +552,19 @@ impl State {
             Outcome::Done => {
                 self.dialog = None;
                 self.selection.clear();
-                self.load()
+                if let Some(trash) = &mut self.trash {
+                    trash.clear_selection();
+                }
+                self.reload()
             }
-            Outcome::Failed => self.load(),
+            Outcome::Restored(response) => {
+                self.dialog = None;
+                if let Some(trash) = &mut self.trash {
+                    trash.restored_with(&response);
+                }
+                self.reload()
+            }
+            Outcome::Failed => self.reload(),
         }
     }
 
@@ -514,6 +580,15 @@ impl State {
         } else if self.search.is_active() {
             if shortcut == Shortcut::Escape {
                 self.search.clear();
+            }
+            Task::none()
+        } else if let Some(trash) = &mut self.trash {
+            match shortcut {
+                Shortcut::Escape => trash.clear_selection(),
+                Shortcut::SelectAll => trash.select_all(),
+                Shortcut::Refresh => return self.reload(),
+                Shortcut::Parent => return self.open_folder(self.folder),
+                _ => {}
             }
             Task::none()
         } else {
@@ -629,6 +704,13 @@ impl State {
 
         let page = if self.search.is_active() {
             column![header, self.search.view()].spacing(SPACING)
+        } else if let Some(trash) = &self.trash {
+            column![
+                header,
+                trash::State::crumbs(),
+                trash.view().map(Message::Trash)
+            ]
+            .spacing(SPACING)
         } else {
             let mut page =
                 column![header, self.breadcrumbs(), toolbar::view(&selected)].spacing(SPACING);
@@ -1189,5 +1271,65 @@ mod tests {
         let update = state.update(Message::Server(protocol::Event::Resync));
 
         assert!(matches!(update, Update::Task(task) if task.units() > 0));
+    }
+
+    #[test]
+    fn the_toolbar_opens_the_recycle_bin() {
+        let state = state_with_listing();
+        let mut ui = simulator(state.view());
+
+        ui.click("Recycle bin").expect("the entry is shown");
+
+        let messages: Vec<_> = ui.into_messages().collect();
+        assert!(matches!(messages.as_slice(), [Message::OpenTrash]));
+    }
+
+    #[test]
+    fn opening_the_recycle_bin_loads_it() {
+        let mut state = state_with_listing();
+
+        let update = state.update(Message::OpenTrash);
+
+        assert!(matches!(update, Update::Task(task) if task.units() > 0));
+        assert!(state.trash.is_some());
+    }
+
+    #[test]
+    fn a_trash_change_reloads_the_open_bin_only() {
+        let mut state = state_with_listing();
+        let update = state.update(Message::Server(protocol::Event::TrashChanged));
+        assert!(matches!(update, Update::Task(task) if task.units() == 0));
+
+        let _ = state.update(Message::OpenTrash);
+        let update = state.update(Message::Server(protocol::Event::TrashChanged));
+        assert!(matches!(update, Update::Task(task) if task.units() > 0));
+    }
+
+    #[test]
+    fn opening_a_folder_leaves_the_recycle_bin() {
+        let mut state = state_with_listing();
+        let _ = state.update(Message::OpenTrash);
+
+        let _ = state.update(Message::Open(None));
+
+        assert!(state.trash.is_none());
+    }
+
+    #[test]
+    fn restore_clashes_open_the_conflicts_dialog() {
+        let mut state = state_with_listing();
+        let _ = state.update(Message::OpenTrash);
+        let response = protocol::MoveResponse {
+            conflicts: vec![protocol::Conflict {
+                source: node(FILE_NAME, NodeKind::File, FILE_ID),
+                path: format!("/{FILE_NAME}"),
+                existing: None,
+            }],
+            ..protocol::MoveResponse::default()
+        };
+
+        let _ = state.update(Message::Trash(trash::Message::Restored(Ok(response))));
+
+        assert!(state.dialog.is_some());
     }
 }

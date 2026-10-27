@@ -43,6 +43,7 @@ pub struct TableActions {
     pub download: Callback<Node>,
     pub details: Callback<Node>,
     pub delete: Callback<Vec<Node>>,
+    pub lost_and_found: Signal<Option<NodeId>>,
 }
 
 #[component]
@@ -265,6 +266,7 @@ fn NodeRow(node: Node, actions: TableActions) -> impl IntoView {
         download,
         details,
         delete,
+        lost_and_found,
         ..
     } = actions;
     let is_folder = node.kind == NodeKind::Folder;
@@ -449,14 +451,16 @@ fn NodeRow(node: Node, actions: TableActions) -> impl IntoView {
                                     moving.set(Some(vec![target.get_value()]))
                                 })
                             />
-                            <MenuItem
-                                icon="delete"
-                                label="Delete"
-                                danger=true
-                                on_select=Callback::new(move |()| {
-                                    delete.run(vec![target.get_value()])
-                                })
-                            />
+                            <Show when=move || lost_and_found.get() != Some(node_id)>
+                                <MenuItem
+                                    icon="delete"
+                                    label="Delete"
+                                    danger=true
+                                    on_select=Callback::new(move |()| {
+                                        delete.run(vec![target.get_value()])
+                                    })
+                                />
+                            </Show>
                         </Menu>
                     }
                         .into_any()

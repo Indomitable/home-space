@@ -11,6 +11,7 @@ pub fn Toolbar(
     selected_count: Signal<usize>,
     on_move: Callback<()>,
     on_delete: Callback<()>,
+    can_delete: Signal<bool>,
     on_new_folder: Callback<()>,
     on_upload: Callback<Vec<File>>,
 ) -> impl IntoView {
@@ -24,7 +25,9 @@ pub fn Toolbar(
                     icon="more_horiz"
                 >
                     <MenuItem icon="drive_file_move" label="Move" on_select=on_move />
-                    <MenuItem icon="delete" label="Delete" danger=true on_select=on_delete />
+                    <Show when=move || can_delete.get()>
+                        <MenuItem icon="delete" label="Delete" danger=true on_select=on_delete />
+                    </Show>
                 </Menu>
             </Show>
             <button class="button" on:click=move |_| on_new_folder.run(())>

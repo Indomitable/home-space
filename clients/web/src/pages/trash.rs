@@ -133,7 +133,17 @@ pub fn TrashPage(auth: Auth) -> impl IntoView {
     view! {
         <main class="explorer">
             <div class="explorer__header">
-                <h2 class="explorer__title">"Recycle bin"</h2>
+                <nav class="breadcrumbs" aria-label="Folder path">
+                    <A href="/" exact=true attr:class="breadcrumbs__link">
+                        "Home"
+                    </A>
+                    <span class="breadcrumbs__separator" aria-hidden="true">
+                        "/"
+                    </span>
+                    <span class="breadcrumbs__link" aria-current="page">
+                        "Recycle bin"
+                    </span>
+                </nav>
                 <div class="explorer__toolbar">
                     <button
                         class="button button--primary"
@@ -143,6 +153,7 @@ pub fn TrashPage(auth: Auth) -> impl IntoView {
                             restore.run(OnConflict::Abort)
                         }
                     >
+                        <Icon name="restore_from_trash" />
                         "Restore"
                     </button>
                     <button
@@ -150,6 +161,7 @@ pub fn TrashPage(auth: Auth) -> impl IntoView {
                         disabled=is_empty
                         on:click=move |_| emptying.set(Some(items.read_untracked().len()))
                     >
+                        <Icon name="delete_forever" />
                         "Empty recycle bin"
                     </button>
                 </div>

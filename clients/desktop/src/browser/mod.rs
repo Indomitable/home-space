@@ -501,6 +501,13 @@ impl State {
                 self.dialog = Some(dialog);
                 task.map(Message::Dialog)
             }
+            (Action::Delete, _)
+                if selected
+                    .iter()
+                    .any(|node| node.id == self.me.lost_and_found_id) =>
+            {
+                Task::none()
+            }
             (Action::Delete, _) => {
                 self.dialog = Some(Dialog::delete(selected));
                 Task::none()
@@ -712,8 +719,12 @@ impl State {
             ]
             .spacing(SPACING)
         } else {
-            let mut page =
-                column![header, self.breadcrumbs(), toolbar::view(&selected)].spacing(SPACING);
+            let mut page = column![
+                header,
+                self.breadcrumbs(),
+                toolbar::view(&selected, self.me.lost_and_found_id)
+            ]
+            .spacing(SPACING);
             if let Some(error) = &self.error {
                 page = page.push(container(text(error.as_str())).style(theme::error));
             }
@@ -750,8 +761,8 @@ impl State {
             let (cursor, items, panel) = match menu {
                 Menu::Actions(cursor) => (
                     cursor,
-                    context_menu::item_count(&selected),
-                    context_menu::view(&selected),
+                    context_menu::item_count(&selected, self.me.lost_and_found_id),
+                    context_menu::view(&selected, self.me.lost_and_found_id),
                 ),
                 Menu::Crumbs(cursor) => {
                     let hidden = self.hidden_crumbs();
@@ -959,6 +970,7 @@ mod tests {
         let me = Me {
             id: protocol::UserId(Uuid::nil()),
             username: "alice".to_owned(),
+            lost_and_found_id: NodeId(Uuid::nil()),
         };
         let (mut state, _task) = State::open(Client::new("http://localhost"), me);
         let listing = Listing {
@@ -1044,6 +1056,19 @@ mod tests {
         ui.click("Rename").expect("rename is shown");
 
         assert_eq!(ui.into_messages().count(), 0);
+    }
+
+    #[test]
+    fn delete_does_nothing_for_lost_and_found() {
+        let mut state = state_with_listing();
+        state.me.lost_and_found_id = id(FOLDER_ID);
+        let _ = state.update(Message::Toggle(id(FOLDER_ID)));
+        let _ = state.update(Message::Toggle(id(FILE_ID)));
+
+        let _ = state.update(Message::Shortcut(Shortcut::Delete));
+        let _ = state.update(Message::Act(Action::Delete));
+
+        assert!(state.dialog.is_none());
     }
 
     #[test]

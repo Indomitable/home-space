@@ -78,7 +78,7 @@ Folders have the MIME type `inode/directory`.
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/auth/login`, `/auth/refresh`, `/auth/logout` | JWT access + rotating refresh tokens |
-| GET | `/me` | current user |
+| GET | `/me` | current user: `{id, username, lost_and_found_id}` |
 | GET | `/nodes?parent_id=` | list folder (root when omitted) |
 | GET / PATCH / DELETE | `/nodes/{id}` | metadata / rename or move / delete (to the recycle bin; 409 for Lost & Found) |
 | POST | `/nodes/move` | `{ids, parent_id, on_conflict?}` → `{moved, skipped, conflicts, target}`; `on_conflict` is `abort` (default: report clashes, change nothing), `override` (merge) or `skip` (destination untouched, clashing files go to the recycle bin) |

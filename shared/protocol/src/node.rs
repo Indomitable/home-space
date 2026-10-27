@@ -55,7 +55,8 @@ pub enum OnConflict {
     Abort,
     /// Merge into the existing file: its content becomes a version and the incoming one current.
     Override,
-    /// Leave the existing file untouched and do not place the clashing files.
+    /// Leave the existing file untouched and do not place the clashing files: a restore keeps
+    /// them in the recycle bin, a move puts them there.
     Skip,
 }
 
@@ -69,12 +70,23 @@ pub struct Conflict {
     pub existing: Option<Node>,
 }
 
+/// Body of `POST /nodes/move`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MoveRequest {
+    pub ids: Vec<NodeId>,
+    /// The destination folder; `null` for the root.
+    pub parent_id: Option<NodeId>,
+    #[serde(default)]
+    pub on_conflict: OnConflict,
+}
+
 /// Result of moving or restoring several nodes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MoveResponse {
     /// The nodes at their final location, which is the destination when they were merged.
     pub moved: Vec<Node>,
-    /// Files that were not placed because of [`OnConflict::Skip`].
+    /// Files that were not placed because of [`OnConflict::Skip`]: still in the recycle bin after
+    /// a restore, moved to it by a move.
     pub skipped: Vec<NodeId>,
     /// The clashes found; only filled for [`OnConflict::Abort`], in which case nothing changed.
     pub conflicts: Vec<Conflict>,
@@ -140,6 +152,16 @@ mod tests {
             r#""override""#
         );
         assert_eq!(OnConflict::default(), OnConflict::Abort);
+    }
+
+    #[test]
+    fn move_request_defaults_to_abort_and_takes_a_null_parent() {
+        let id = Uuid::nil();
+        let request: MoveRequest =
+            serde_json::from_str(&format!(r#"{{"ids":["{id}"],"parent_id":null}}"#))
+                .expect("request");
+        assert_eq!(request.on_conflict, OnConflict::Abort);
+        assert_eq!(request.parent_id, None);
     }
 
     #[test]

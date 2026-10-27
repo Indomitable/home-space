@@ -3,7 +3,10 @@ use std::collections::{HashMap, HashSet, VecDeque, hash_map::Entry};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-use crate::{Db, DbError, Node, NodeId, NodeKind, OnConflict, UserId};
+use crate::{
+    Db, DbError, Node, NodeId, NodeKind, OnConflict, UserId,
+    trash::{bin_subtree, special_folders},
+};
 
 /// MIME type stored for folders.
 pub const FOLDER_MIME: &str = "inode/directory";
@@ -87,7 +90,7 @@ pub struct MoveBatch {
     pub target: Option<Node>,
     /// The selected nodes at their final location; a merge destination when they were merged.
     pub moved: Vec<Node>,
-    /// Files left where they were because of [`OnConflict::Skip`].
+    /// Files not placed because of [`OnConflict::Skip`]: left in place, or binned by a move.
     pub skipped: Vec<Node>,
     /// The clashes found; only filled for [`OnConflict::Abort`], in which case nothing changed.
     pub conflicts: Vec<MoveConflict>,
@@ -95,6 +98,8 @@ pub struct MoveBatch {
     pub deleted: Vec<Node>,
     pub content_changed: Vec<NodeId>,
     pub blob_ops: Vec<BlobOp>,
+    /// Whether skipped files were moved to the recycle bin; they are in `skipped` and `deleted`.
+    pub binned: bool,
 }
 
 /// Ids whose stored content must be removed after a deletion.
@@ -111,6 +116,7 @@ struct Effects {
     content_changed: Vec<NodeId>,
     blob_ops: Vec<BlobOp>,
     skipped: Vec<Node>,
+    binned: bool,
 }
 
 struct Placement {
@@ -254,7 +260,7 @@ impl Db {
                 name,
                 touch: true,
             };
-            place(&mut tx, owner, first, &HashSet::new(), &mut effects)
+            place(&mut tx, owner, first, &HashSet::new(), None, &mut effects)
                 .await?
                 .unwrap_or(current)
         };
@@ -287,7 +293,11 @@ impl Db {
             Some(id) => Some(lock_folder(&mut tx, owner, id).await?),
             None => None,
         };
-        let batch = move_into(&mut tx, owner, sources, target, on_conflict).await?;
+        let bin = match on_conflict {
+            OnConflict::Skip => Some(special_folders(&mut tx, owner).await?.trash_id),
+            OnConflict::Abort | OnConflict::Override => None,
+        };
+        let batch = move_into(&mut tx, owner, sources, target, on_conflict, bin).await?;
         tx.commit().await?;
         Ok(batch)
     }
@@ -584,12 +594,14 @@ async fn relocate(conn: &mut PgConnection, placement: &Placement) -> Result<Node
 /// Moves several selected nodes into `target`, applying `on_conflict` to clashing files.
 ///
 /// `sources` and `target` must be locked. Binned files can be moved too: they come out live.
+/// Files skipped for a clash stay where they are, or go to the recycle bin `bin` when given.
 pub(crate) async fn move_into(
     conn: &mut PgConnection,
     owner: UserId,
     sources: Vec<Node>,
     target: Option<Node>,
     on_conflict: OnConflict,
+    bin: Option<NodeId>,
 ) -> Result<MoveBatch, DbError> {
     let parent = target.as_ref().map(|folder| folder.id);
     let mut batch = MoveBatch {
@@ -621,7 +633,7 @@ pub(crate) async fn move_into(
             parent,
             touch: true,
         };
-        if let Some(node) = place(conn, owner, placement, &skip, &mut effects).await? {
+        if let Some(node) = place(conn, owner, placement, &skip, bin, &mut effects).await? {
             batch.moved.push(node);
         }
     }
@@ -630,6 +642,7 @@ pub(crate) async fn move_into(
     batch.deleted = effects.deleted;
     batch.content_changed = effects.content_changed;
     batch.blob_ops = effects.blob_ops;
+    batch.binned = effects.binned;
     Ok(batch)
 }
 
@@ -709,13 +722,15 @@ async fn plan_conflicts(
 
 /// Moves nodes into place, merging with same-named nodes at the destination.
 ///
-/// Files in `skip` stay where they are, and so do the folders that still hold them.
+/// Files in `skip` stay where they are, and so do the folders that still hold them, unless
+/// `bin` is given: then they go to that recycle bin and the emptied folders are removed.
 /// Returns the final location of the first node, `None` when it was skipped.
 async fn place(
     conn: &mut PgConnection,
     owner: UserId,
     first: Placement,
     skip: &HashSet<NodeId>,
+    bin: Option<NodeId>,
     effects: &mut Effects,
 ) -> Result<Option<Node>, DbError> {
     let mut pending = vec![first];
@@ -726,6 +741,18 @@ async fn place(
         let first_placement = is_first;
         is_first = false;
         if skip.contains(&placement.node.id) {
+            if let Some(trash_id) = bin {
+                bin_subtree(
+                    conn,
+                    owner,
+                    placement.node.id,
+                    placement.node.parent_id,
+                    trash_id,
+                )
+                .await?;
+                effects.deleted.push(placement.node.clone());
+                effects.binned = true;
+            }
             effects.skipped.push(placement.node);
             continue;
         }
@@ -1033,7 +1060,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../../migrations")]
-    async fn skipping_a_move_keeps_clashing_files_and_their_folders(pool: PgPool) {
+    async fn skipping_a_move_bins_clashing_files_and_removes_emptied_folders(pool: PgPool) {
         let db = Db::from_pool(pool);
         let tree = tree(&db).await;
 
@@ -1048,32 +1075,67 @@ mod tests {
             .expect("move");
 
         assert!(batch.conflicts.is_empty());
+        assert!(batch.binned);
         assert_eq!(
             batch.skipped.iter().map(|node| node.id).collect::<Vec<_>>(),
             [tree.clashing.id]
         );
-        let clashing = db
-            .get_node(tree.alice, tree.clashing.id)
-            .await
-            .expect("clash");
+        // The destination is untouched.
         let existing = db
             .get_node(tree.alice, tree.existing.id)
             .await
             .expect("existing");
-        assert_ne!(clashing.parent_id, existing.parent_id);
         assert_eq!(existing.version, 1);
-        // The other files moved; the source folders that still hold the clash stay.
+        // The clashing file is in the bin with the path it had.
+        assert!(db.get_node(tree.alice, tree.clashing.id).await.is_err());
+        let binned = db.list_trash(tree.alice).await.expect("trash");
+        assert_eq!(binned.len(), 1);
+        assert_eq!(binned[0].node.id, tree.clashing.id);
+        assert_eq!(binned[0].original_path, "/Photos/2024/a.jpg");
+        // The other files moved and the emptied source folders are gone.
         for moved in [tree.fresh.id, tree.nested_fresh.id] {
             let node = db.get_node(tree.alice, moved).await.expect("moved");
             assert_ne!(node.parent_id, Some(tree.source_photos.id));
         }
-        assert!(db.get_node(tree.alice, tree.source_photos.id).await.is_ok());
+        assert!(
+            db.get_node(tree.alice, tree.source_photos.id)
+                .await
+                .is_err()
+        );
         assert!(
             batch
                 .deleted
                 .iter()
-                .all(|node| node.id != tree.source_photos.id)
+                .any(|node| node.id == tree.source_photos.id)
         );
+        assert!(
+            batch
+                .deleted
+                .iter()
+                .any(|node| node.id == tree.clashing.id && node.parent_id.is_some())
+        );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn overriding_a_move_merges_clashing_files_without_binning(pool: PgPool) {
+        let db = Db::from_pool(pool);
+        let tree = tree(&db).await;
+
+        let batch = db
+            .move_nodes(
+                tree.alice,
+                &[tree.source_photos.id],
+                Some(tree.target.id),
+                OnConflict::Override,
+            )
+            .await
+            .expect("move");
+
+        assert!(!batch.binned);
+        assert!(batch.skipped.is_empty());
+        assert!(db.list_trash(tree.alice).await.expect("trash").is_empty());
+        assert!(db.get_node(tree.alice, tree.existing.id).await.is_ok());
+        assert!(db.get_node(tree.alice, tree.clashing.id).await.is_err());
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -1101,6 +1163,13 @@ mod tests {
             .await
             .expect("skip");
         assert_eq!(skipped.skipped.len(), 2);
+        let binned = db.list_trash(alice).await.expect("trash");
+        let mut paths = binned
+            .iter()
+            .map(|item| item.original_path.as_str())
+            .collect::<Vec<_>>();
+        paths.sort_unstable();
+        assert_eq!(paths, ["/one/same.txt", "/two/same.txt"]);
         assert_eq!(
             skipped.moved.iter().map(|node| node.id).collect::<Vec<_>>(),
             [other.id]

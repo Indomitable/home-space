@@ -32,6 +32,14 @@ pub fn short_date(time: OffsetDateTime) -> String {
     )
 }
 
+/// Title of the dialog listing files that already exist at `location`, e.g. `“Photos”`.
+pub fn conflicts_title(count: usize, location: &str) -> String {
+    match count {
+        1 => format!("1 file already exists in {location}"),
+        _ => format!("{count} files already exist in {location}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use time::macros::datetime;
@@ -60,6 +68,18 @@ mod tests {
         assert_eq!(
             short_date(datetime!(2026-03-04 05:06 UTC)),
             "2026-03-04 05:06"
+        );
+    }
+
+    #[test]
+    fn conflict_titles_agree_with_the_count() {
+        assert_eq!(
+            conflicts_title(1, "“Photos”"),
+            "1 file already exists in “Photos”"
+        );
+        assert_eq!(
+            conflicts_title(3, "Lost & Found"),
+            "3 files already exist in Lost & Found"
         );
     }
 }

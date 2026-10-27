@@ -517,3 +517,234 @@ async fn same_names_can_be_deleted_and_reused(pool: PgPool) {
     let live = app.upload(&alice, "name=a.txt", "three").await;
     assert_eq!(live.status, StatusCode::CREATED);
 }
+
+async fn move_nodes(
+    app: &TestApp,
+    token: &str,
+    ids: &[&str],
+    parent: Option<&str>,
+    on_conflict: Option<&str>,
+) -> common::Response {
+    let mut body = json!({ "ids": ids, "parent_id": parent });
+    if let Some(mode) = on_conflict {
+        body["on_conflict"] = json!(mode);
+    }
+    app.json(Method::POST, "/api/v1/nodes/move", Some(token), body)
+        .await
+}
+
+async fn content(app: &TestApp, token: &str, id: &str) -> Vec<u8> {
+    app.get(&format!("/api/v1/files/{id}/content"), token)
+        .await
+        .body
+}
+
+/// `target/Photos/2024/a.jpg` and `src/Photos/2024/a.jpg` (clashing) plus `src/Photos/new.jpg`.
+struct Clash {
+    target: String,
+    existing: String,
+    src: String,
+    photos: String,
+    clashing: String,
+    fresh: String,
+}
+
+async fn clash(app: &TestApp, token: &str) -> Clash {
+    let target = folder(app, token, "target", None).await;
+    let photos = folder(app, token, "Photos", Some(&target)).await;
+    let year = folder(app, token, "2024", Some(&photos)).await;
+    let existing = upload(app, token, &year, "a.jpg", "live").await;
+    let src = folder(app, token, "src", None).await;
+    let source_photos = folder(app, token, "Photos", Some(&src)).await;
+    let source_year = folder(app, token, "2024", Some(&source_photos)).await;
+    let clashing = upload(app, token, &source_year, "a.jpg", "incoming").await;
+    let fresh = upload(app, token, &source_photos, "new.jpg", "new").await;
+    Clash {
+        target,
+        existing,
+        src,
+        photos: source_photos,
+        clashing,
+        fresh,
+    }
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn aborting_a_move_reports_nested_clashes_and_changes_nothing(pool: PgPool) {
+    let app = setup(pool).await;
+    let alice = app.user_token("alice").await;
+    let c = clash(&app, &alice).await;
+
+    // Abort is the default.
+    let response = move_nodes(&app, &alice, &[&c.photos], Some(&c.target), None).await;
+
+    assert_eq!(response.status, StatusCode::OK);
+    let body = response.json();
+    assert_eq!(body["moved"], json!([]));
+    assert_eq!(body["conflicts"].as_array().map(Vec::len), Some(1));
+    assert_eq!(body["conflicts"][0]["path"], "Photos/2024/a.jpg");
+    assert_eq!(body["conflicts"][0]["source"]["id"], c.clashing);
+    assert_eq!(body["conflicts"][0]["existing"]["id"], c.existing);
+    assert_eq!(body["target"]["id"], c.target);
+    let source = app.get(&format!("/api/v1/nodes/{}", c.fresh), &alice).await;
+    assert_eq!(source.json()["parent_id"], c.photos);
+    assert_eq!(content(&app, &alice, &c.existing).await, b"live");
+    assert_eq!(app.get("/api/v1/trash", &alice).await.json(), json!([]));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn overriding_a_move_merges_like_a_single_move(pool: PgPool) {
+    let app = setup(pool).await;
+    let alice = app.user_token("alice").await;
+    let c = clash(&app, &alice).await;
+
+    let response = move_nodes(
+        &app,
+        &alice,
+        &[&c.photos],
+        Some(&c.target),
+        Some("override"),
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::OK);
+    let body = response.json();
+    assert_eq!(body["conflicts"], json!([]));
+    assert_eq!(body["skipped"], json!([]));
+    assert_eq!(content(&app, &alice, &c.existing).await, b"incoming");
+    let versions = app
+        .get(&format!("/api/v1/nodes/{}/versions", c.existing), &alice)
+        .await;
+    assert_eq!(versions.json().as_array().map(Vec::len), Some(1));
+    let gone = app
+        .get(&format!("/api/v1/nodes/{}", c.clashing), &alice)
+        .await;
+    assert_eq!(gone.status, StatusCode::NOT_FOUND);
+    assert_eq!(app.get("/api/v1/trash", &alice).await.json(), json!([]));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn skipping_a_move_bins_clashing_files_and_announces_it(pool: PgPool) {
+    let app = setup(pool).await;
+    let alice = app.user_token("alice").await;
+    let c = clash(&app, &alice).await;
+    let mut events = app.state.hub.subscribe(user_id(&app, &alice).await);
+
+    let response = move_nodes(&app, &alice, &[&c.photos], Some(&c.target), Some("skip")).await;
+
+    assert_eq!(response.status, StatusCode::OK);
+    let body = response.json();
+    assert_eq!(body["skipped"], json!([c.clashing]));
+    assert_eq!(content(&app, &alice, &c.existing).await, b"live");
+    let versions = app
+        .get(&format!("/api/v1/nodes/{}/versions", c.existing), &alice)
+        .await;
+    assert_eq!(versions.json(), json!([]));
+    let trash = app.get("/api/v1/trash", &alice).await.json();
+    assert_eq!(trash.as_array().map(Vec::len), Some(1));
+    assert_eq!(trash[0]["node"]["id"], c.clashing);
+    assert_eq!(trash[0]["original_path"], "/src/Photos/2024/a.jpg");
+    assert_eq!(trash[0]["node"]["parent_id"], Value::Null);
+    // The file that did not clash moved; the emptied source folder is gone.
+    let fresh = app.get(&format!("/api/v1/nodes/{}", c.fresh), &alice).await;
+    assert_ne!(fresh.json()["parent_id"], c.photos);
+    let emptied = app
+        .get(&format!("/api/v1/nodes/{}", c.photos), &alice)
+        .await;
+    assert_eq!(emptied.status, StatusCode::NOT_FOUND);
+    let source = app.get(&format!("/api/v1/nodes/{}", c.src), &alice).await;
+    assert_eq!(source.status, StatusCode::OK);
+    let mut seen = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        seen.push(event);
+    }
+    assert!(seen.contains(&Event::TrashChanged));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn moving_without_a_skipped_file_does_not_announce_the_bin(pool: PgPool) {
+    let app = setup(pool).await;
+    let alice = app.user_token("alice").await;
+    let dir = folder(&app, &alice, "dir", None).await;
+    let file = upload(&app, &alice, &dir, "a.txt", "x").await;
+    let mut events = app.state.hub.subscribe(user_id(&app, &alice).await);
+
+    let response = move_nodes(&app, &alice, &[&file], None, Some("skip")).await;
+
+    assert_eq!(response.json()["moved"][0]["parent_id"], Value::Null);
+    while let Ok(event) = events.try_recv() {
+        assert_ne!(event, Event::TrashChanged);
+    }
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn duplicates_inside_one_move_selection_are_reported(pool: PgPool) {
+    let app = setup(pool).await;
+    let alice = app.user_token("alice").await;
+    let one = folder(&app, &alice, "one", None).await;
+    let two = folder(&app, &alice, "two", None).await;
+    let target = folder(&app, &alice, "target", None).await;
+    let a = upload(&app, &alice, &one, "same.txt", "1").await;
+    let b = upload(&app, &alice, &two, "same.txt", "2").await;
+
+    let response = move_nodes(&app, &alice, &[&a, &b], Some(&target), Some("abort")).await;
+
+    let body = response.json();
+    let conflicts = body["conflicts"].as_array().expect("conflicts");
+    assert_eq!(conflicts.len(), 2);
+    assert!(conflicts.iter().all(|c| c["existing"].is_null()));
+    assert!(conflicts.iter().all(|c| c["path"] == "same.txt"));
+    assert_eq!(body["moved"], json!([]));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn moving_validates_the_target_and_ownership(pool: PgPool) {
+    let app = setup(pool).await;
+    let alice = app.user_token("alice").await;
+    let bob = app.user_token("bob").await;
+    let dir = folder(&app, &alice, "dir", None).await;
+    let inner = folder(&app, &alice, "inner", Some(&dir)).await;
+    let file = upload(&app, &alice, &dir, "a.txt", "x").await;
+
+    let cycle = move_nodes(&app, &alice, &[&dir], Some(&inner), None).await;
+    assert_eq!(cycle.status, StatusCode::BAD_REQUEST);
+    let foreign = move_nodes(&app, &bob, &[&file], None, None).await;
+    assert_eq!(foreign.status, StatusCode::NOT_FOUND);
+    let not_a_folder = move_nodes(&app, &alice, &[&inner], Some(&file), None).await;
+    assert_ne!(not_a_folder.status, StatusCode::OK);
+    let unauthenticated = app
+        .send(
+            Method::POST,
+            "/api/v1/nodes/move",
+            None,
+            Body::from(r#"{"ids":[],"parent_id":null}"#),
+            Some("application/json"),
+        )
+        .await;
+    assert_eq!(unauthenticated.status, StatusCode::UNAUTHORIZED);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn restore_overrides_do_not_leak_the_bin_folder(pool: PgPool) {
+    let app = setup(pool).await;
+    let alice = app.user_token("alice").await;
+    let found = lost_and_found(&app, &alice).await;
+    upload(&app, &alice, &found, "a.txt", "live").await;
+    let dir = folder(&app, &alice, "dir", None).await;
+    let binned = upload(&app, &alice, &dir, "a.txt", "binned").await;
+    delete(&app, &alice, &format!("/api/v1/nodes/{dir}")).await;
+    let mut events = app.state.hub.subscribe(user_id(&app, &alice).await);
+
+    let aborted = restore(&app, &alice, &[&binned], "abort").await.json();
+    assert_eq!(aborted["conflicts"][0]["source"]["parent_id"], Value::Null);
+    restore(&app, &alice, &[&binned], "override").await;
+
+    let mut seen = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        seen.push(event);
+    }
+    assert!(seen.iter().any(|event| matches!(
+        event,
+        Event::NodeDeleted { id, parent_id: None } if id.to_string() == binned
+    )));
+}

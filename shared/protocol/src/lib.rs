@@ -15,8 +15,8 @@ pub use error::{ErrorBody, ErrorCode};
 pub use event::Event;
 pub use ids::{NodeId, UserId};
 pub use node::{
-    Conflict, CreateFolderRequest, FileVersion, ListQuery, MoveResponse, Node, NodeKind,
-    OnConflict, UpdateRequest, UploadQuery,
+    Conflict, CreateFolderRequest, FileVersion, ListQuery, MoveRequest, MoveResponse, Node,
+    NodeKind, OnConflict, UpdateRequest, UploadQuery,
 };
 pub use search::{SearchHit, SearchQuery};
 pub use ticket::{TicketRequest, TicketResponse};

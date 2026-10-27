@@ -1,5 +1,6 @@
 mod app_bar;
 mod browser;
+mod conflict_dialog;
 mod delete_dialog;
 mod login;
 mod move_dialog;

@@ -2,9 +2,13 @@ use std::collections::HashSet;
 
 use leptos::{prelude::*, task::spawn_local};
 
-use api_client::listing::{Sort, sort_nodes};
-use protocol::{Node, NodeId, NodeKind};
+use api_client::{
+    format::conflicts_title,
+    listing::{Sort, sort_nodes},
+};
+use protocol::{Conflict, Node, NodeId, NodeKind, OnConflict};
 
+use super::conflict_dialog::ConflictDialog;
 use crate::{icon::Icon, session, session::Auth};
 
 #[component]
@@ -46,23 +50,39 @@ pub fn MoveDialog(
         });
     });
 
-    let confirm = move |_| {
+    // The title and clashes of a move that was held back, until the user chooses.
+    let conflicts = RwSignal::new(None::<(String, Vec<Conflict>)>);
+    let send = Callback::new(move |mode: OnConflict| {
         let destination: Option<NodeId> = target.get_untracked();
         let ids = ids.clone();
         spawn_local(async move {
-            let client = session::client();
-            for id in ids {
-                if let Err(err) = client.move_to(id, destination).await {
+            match session::client().move_nodes(&ids, destination, mode).await {
+                Ok(response) if !response.conflicts.is_empty() => {
+                    let name = response
+                        .target
+                        .map_or_else(|| "Home".to_owned(), |folder| folder.name);
+                    let title = conflicts_title(response.conflicts.len(), &format!("“{name}”"));
+                    conflicts.set(Some((title, response.conflicts)));
+                }
+                Ok(_) => {
+                    moving.set(None);
+                    selected.update(HashSet::clear);
+                    reload.update(|count| *count += 1);
+                }
+                Err(err) => {
                     error.set(Some(auth.fail(&err)));
                     reload.update(|count| *count += 1);
-                    return;
                 }
             }
-            moving.set(None);
-            selected.update(HashSet::clear);
-            reload.update(|count| *count += 1);
         });
-    };
+    });
+    let choose = Callback::new(move |mode: Option<OnConflict>| {
+        conflicts.set(None);
+        if let Some(mode) = mode {
+            send.run(mode);
+        }
+    });
+    let confirm = move |_| send.run(OnConflict::Abort);
 
     view! {
         <div class="modal" on:click=move |_| moving.set(None)>
@@ -142,5 +162,12 @@ pub fn MoveDialog(
                 </div>
             </div>
         </div>
+        {move || {
+            conflicts
+                .get()
+                .map(|(title, conflicts)| {
+                    view! { <ConflictDialog title conflicts on_choose=choose /> }
+                })
+        }}
     }
 }

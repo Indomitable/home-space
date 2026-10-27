@@ -17,13 +17,14 @@ use tokio_util::io::ReaderStream;
 use db::{MoveOutcome, NodeUpdate, StoreOutcome};
 use notifications::Event;
 use protocol::{
-    CreateFolderRequest, FileVersion, ListQuery, Node, NodeId, TicketRequest, UpdateRequest,
-    UploadQuery,
+    CreateFolderRequest, FileVersion, ListQuery, MoveRequest, MoveResponse, Node, NodeId,
+    TicketRequest, UpdateRequest, UploadQuery,
 };
 
 use crate::{
     ApiError, AppState,
     extract::{AuthUser, TicketQuery},
+    routes::trash::move_response,
 };
 
 const FALLBACK_MIME: &str = "application/octet-stream";
@@ -31,6 +32,7 @@ const FALLBACK_MIME: &str = "application/octet-stream";
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/nodes", get(list))
+        .route("/nodes/move", post(move_nodes))
         .route("/nodes/{id}", get(get_node).patch(update).delete(delete))
         .route("/nodes/{id}/ancestors", get(ancestors))
         .route("/folders", post(create_folder))
@@ -249,6 +251,34 @@ async fn update(
     let outcome = state.files.update(user.id, id, changes).await?;
     let node = publish_moved(&state, user.id, outcome).await;
     Ok(Json(node))
+}
+
+async fn move_nodes(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(request): Json<MoveRequest>,
+) -> Result<Json<MoveResponse>, ApiError> {
+    let batch = state
+        .files
+        .move_nodes(
+            user.id,
+            &request.ids,
+            request.parent_id,
+            request.on_conflict,
+        )
+        .await?;
+    publish_changes(
+        &state,
+        user.id,
+        &batch.updated,
+        &batch.deleted,
+        batch.content_changed.clone(),
+    )
+    .await;
+    if batch.binned {
+        state.hub.publish(user.id, Event::TrashChanged);
+    }
+    Ok(Json(move_response(batch)))
 }
 
 async fn publish_moved(state: &AppState, owner: db::UserId, outcome: MoveOutcome) -> Node {

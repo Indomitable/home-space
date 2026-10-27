@@ -9,6 +9,7 @@ pub const REFRESH: &str = "/api/v1/auth/refresh";
 pub const LOGOUT: &str = "/api/v1/auth/logout";
 pub const ME: &str = "/api/v1/me";
 pub const NODES: &str = "/api/v1/nodes";
+pub const NODES_MOVE: &str = "/api/v1/nodes/move";
 pub const FOLDERS: &str = "/api/v1/folders";
 pub const FILES: &str = "/api/v1/files";
 pub const TRASH: &str = "/api/v1/trash";

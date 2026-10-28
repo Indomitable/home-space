@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use web_sys::{File, HtmlInputElement};
 
 use super::{
-    files_of,
+    file_drop::files_of,
     menu::{Menu, MenuItem},
 };
 

@@ -16,8 +16,7 @@ pub fn App() -> impl IntoView {
     let auth = Auth::start();
     let uploads = RwSignal::new(Vec::<UploadItem>::new());
     provide_context(uploads);
-    let hub = StoredValue::new_local(events::Hub::default());
-    provide_context(hub);
+    let hub = events::provide_hub();
     Effect::new(move |_| {
         if auth.user.read().is_some() {
             hub.with_value(events::Hub::start);

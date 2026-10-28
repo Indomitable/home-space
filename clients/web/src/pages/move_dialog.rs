@@ -9,14 +9,16 @@ use api_client::{
 use protocol::{Conflict, Node, NodeId, NodeKind, OnConflict};
 
 use super::conflict_dialog::ConflictDialog;
-use crate::{icon::Icon, session, session::Auth};
+use crate::{components::ErrorAlert, icon::Icon, load, session, session::Auth};
 
+/// Picks a destination folder and moves `nodes` there; `refresh` reloads the listing behind
+/// the dialog once the move is done.
 #[component]
 pub fn MoveDialog(
     nodes: Vec<Node>,
     moving: RwSignal<Option<Vec<Node>>>,
     selected: RwSignal<HashSet<NodeId>>,
-    reload: RwSignal<u32>,
+    refresh: impl Fn() + Copy + Send + Sync + 'static,
     auth: Auth,
 ) -> impl IntoView {
     let ids: Vec<NodeId> = nodes.iter().map(|node| node.id).collect();
@@ -30,25 +32,27 @@ pub fn MoveDialog(
     let error = RwSignal::new(None::<String>);
     let target = Memo::new(move |_| trail.read().last().map(|folder| folder.id));
 
-    Effect::new(move |_| {
-        let wanted = target.get();
-        let moving_ids = moving_ids.clone();
-        spawn_local(async move {
-            match session::client().list(wanted).await {
-                Ok(listing) => {
-                    let mut listing: Vec<Node> = listing
-                        .into_iter()
-                        .filter(|entry| {
-                            entry.kind == NodeKind::Folder && !moving_ids.contains(&entry.id)
-                        })
-                        .collect();
-                    sort_nodes(&mut listing, Sort::default());
-                    folders.set(listing);
-                }
-                Err(err) => error.set(Some(auth.fail(&err))),
+    load::load(
+        move || {
+            let wanted = target.get();
+            let moving_ids = moving_ids.clone();
+            async move {
+                let listing = session::client().list(wanted).await?;
+                let mut listing: Vec<Node> = listing
+                    .into_iter()
+                    .filter(|entry| {
+                        entry.kind == NodeKind::Folder && !moving_ids.contains(&entry.id)
+                    })
+                    .collect();
+                sort_nodes(&mut listing, Sort::default());
+                Ok(listing)
             }
-        });
-    });
+        },
+        move |result| match result {
+            Ok(listing) => folders.set(listing),
+            Err(err) => error.set(Some(auth.fail(&err))),
+        },
+    );
 
     // The title and clashes of a move that was held back, until the user chooses.
     let conflicts = RwSignal::new(None::<(String, Vec<Conflict>)>);
@@ -67,11 +71,11 @@ pub fn MoveDialog(
                 Ok(_) => {
                     moving.set(None);
                     selected.update(HashSet::clear);
-                    reload.update(|count| *count += 1);
+                    refresh();
                 }
                 Err(err) => {
                     error.set(Some(auth.fail(&err)));
-                    reload.update(|count| *count += 1);
+                    refresh();
                 }
             }
         });
@@ -145,13 +149,7 @@ pub fn MoveDialog(
                         }
                     />
                 </ul>
-                {move || {
-                    error
-                        .get()
-                        .map(|message| {
-                            view! { <p class="alert alert--error" role="alert">{message}</p> }
-                        })
-                }}
+                <ErrorAlert message=error />
                 <div class="modal__actions">
                     <button class="button" on:click=move |_| moving.set(None)>
                         "Cancel"

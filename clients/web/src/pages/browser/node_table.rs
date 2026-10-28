@@ -2,8 +2,7 @@ use std::collections::HashSet;
 
 use leptos::{html::Input, prelude::*};
 use leptos_router::components::A;
-use wasm_bindgen::JsCast;
-use web_sys::{Element, KeyboardEvent, MouseEvent};
+use web_sys::KeyboardEvent;
 
 use api_client::{
     format::human_size,
@@ -13,6 +12,7 @@ use protocol::{Node, NodeId, NodeKind};
 
 use super::menu::{Menu, MenuItem};
 use crate::{
+    components::{RowCheckbox, SelectAll, select_on_click},
     icon::{Icon, node_icon},
     locale::short_date,
     route,
@@ -21,13 +21,7 @@ use crate::{
 const KEY_ENTER: &str = "Enter";
 const KEY_ESCAPE: &str = "Escape";
 
-pub(in crate::pages) const ICON_CHECKED: &str = "check_box";
-pub(in crate::pages) const ICON_UNCHECKED: &str = "check_box_outline_blank";
-pub(in crate::pages) const ICON_MIXED: &str = "indeterminate_check_box";
 const ICON_FOLDER: &str = "folder";
-
-pub(in crate::pages) const INTERACTIVE_SELECTOR: &str =
-    "a, button, input, .node-table__cell--actions";
 
 #[derive(Clone, Copy)]
 pub struct TableActions {
@@ -58,7 +52,10 @@ pub fn NodeTable(
             <thead class="node-table__head">
                 <tr>
                     <th class="node-table__header-cell node-table__header-cell--select">
-                        <SelectAll nodes selected=actions.selected />
+                        <SelectAll
+                            ids=Signal::derive(move || nodes.read().iter().map(|node| node.id).collect())
+                            selected=actions.selected
+                        />
                     </th>
                     <SortHeader sort key=SortKey::Name label="Name" />
                     <SortHeader
@@ -126,73 +123,6 @@ fn SortHeader(
             </button>
         </th>
     }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum Selection {
-    None,
-    Some,
-    All,
-}
-
-fn selection_of(nodes: &[Node], selected: &HashSet<NodeId>) -> Selection {
-    let count = nodes
-        .iter()
-        .filter(|node| selected.contains(&node.id))
-        .count();
-    if count == 0 {
-        Selection::None
-    } else if count == nodes.len() {
-        Selection::All
-    } else {
-        Selection::Some
-    }
-}
-
-#[component]
-pub(in crate::pages) fn Checkbox(
-    #[prop(into)] icon: Signal<&'static str>,
-    #[prop(into)] checked: Signal<String>,
-    #[prop(into)] label: Signal<String>,
-    on_toggle: Callback<()>,
-) -> impl IntoView {
-    view! {
-        <button
-            class="node-table__checkbox"
-            role="checkbox"
-            aria-checked=move || checked.get()
-            aria-label=move || label.get()
-            on:click=move |_| on_toggle.run(())
-        >
-            {move || view! { <Icon name=icon.get() /> }}
-        </button>
-    }
-}
-
-#[component]
-fn SelectAll(nodes: RwSignal<Vec<Node>>, selected: RwSignal<HashSet<NodeId>>) -> impl IntoView {
-    let state = Memo::new(move |_| selection_of(&nodes.read(), &selected.read()));
-    let icon = move || match state.get() {
-        Selection::None => ICON_UNCHECKED,
-        Selection::Some => ICON_MIXED,
-        Selection::All => ICON_CHECKED,
-    };
-    let checked = move || {
-        match state.get() {
-            Selection::None => "false",
-            Selection::Some => "mixed",
-            Selection::All => "true",
-        }
-        .to_owned()
-    };
-    let toggle = Callback::new(move |()| {
-        if state.get_untracked() == Selection::All {
-            selected.update(HashSet::clear);
-        } else {
-            selected.set(nodes.read_untracked().iter().map(|node| node.id).collect());
-        }
-    });
-    view! { <Checkbox icon checked label="Select all" on_toggle=toggle /> }
 }
 
 #[component]
@@ -286,7 +216,6 @@ fn NodeRow(node: Node, actions: TableActions) -> impl IntoView {
             .as_ref()
             .is_some_and(|(id, _)| *id == node_id)
     };
-    let is_selected = move || selected.read().contains(&node_id);
     let rename_input = NodeRef::<Input>::new();
     Effect::new(move |_| {
         if let Some(input) = rename_input.get() {
@@ -294,49 +223,14 @@ fn NodeRow(node: Node, actions: TableActions) -> impl IntoView {
             input.select();
         }
     });
-    let toggle = Callback::new(move |()| {
-        selected.update(|ids| {
-            if !ids.remove(&node_id) {
-                ids.insert(node_id);
-            }
-        });
-    });
-    let select = move |event: MouseEvent| {
-        let interactive = event
-            .target()
-            .and_then(|target| target.dyn_into::<Element>().ok())
-            .is_some_and(|element| matches!(element.closest(INTERACTIVE_SELECTOR), Ok(Some(_))));
-        if !interactive {
-            if event.ctrl_key() || event.meta_key() || event.shift_key() {
-                toggle.run(());
-            } else {
-                selected.set(HashSet::from([node_id]));
-            }
-        }
-    };
-    let checkbox_icon = move || {
-        if is_selected() {
-            ICON_CHECKED
-        } else {
-            ICON_UNCHECKED
-        }
-    };
-    let checkbox_state = move || is_selected().to_string();
-    let checkbox_label = format!("Select {}", node.name);
-
     view! {
         <tr
             class="node-table__row"
-            class:node-table__row--selected=is_selected
-            on:click=select
+            class:node-table__row--selected=move || selected.read().contains(&node_id)
+            on:click=select_on_click(node_id, selected)
         >
             <td class="node-table__cell node-table__cell--select">
-                <Checkbox
-                    icon=Signal::derive(checkbox_icon)
-                    checked=Signal::derive(checkbox_state)
-                    label=checkbox_label
-                    on_toggle=toggle
-                />
+                <RowCheckbox id=node_id name=node.name.clone() selected />
             </td>
             <td class="node-table__cell">
                 {move || if editing() {

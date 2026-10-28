@@ -1,9 +1,9 @@
 use leptos::{prelude::*, task::spawn_local};
 
 use api_client::{ApiError, format::human_size};
-use protocol::{FileVersion, Node, NodeId, NodeKind, TicketRequest};
+use protocol::{Event, FileVersion, Node, NodeId, NodeKind, TicketRequest};
 
-use crate::{icon::Icon, locale::short_date, session};
+use crate::{components::ErrorAlert, events, icon::Icon, load, locale::short_date, session};
 
 const FOLDER_LABEL: &str = "Folder";
 
@@ -22,24 +22,27 @@ async fn fetch(id: NodeId) -> Result<(Node, Vec<FileVersion>), ApiError> {
 pub fn DetailsPanel(
     id: NodeId,
     details: RwSignal<Option<NodeId>>,
-    refresh: RwSignal<u32>,
     auth: session::Auth,
 ) -> impl IntoView {
     let state = RwSignal::new(None::<(Node, Vec<FileVersion>)>);
     let error = RwSignal::new(None::<String>);
     let confirming = RwSignal::new(None::<i32>);
 
-    Effect::new(move |_| {
-        refresh.track();
-        spawn_local(async move {
-            match fetch(id).await {
-                Ok(loaded) => {
-                    state.set(Some(loaded));
-                    error.set(None);
-                }
-                Err(err) => error.set(Some(auth.fail(&err))),
+    let loaded = load::load(
+        move || fetch(id),
+        move |result| match result {
+            Ok(loaded) => {
+                state.set(Some(loaded));
+                error.set(None);
             }
-        });
+            Err(err) => error.set(Some(auth.fail(&err))),
+        },
+    );
+    events::use_events(move |event| match event {
+        Event::NodeDeleted { id: gone, .. } if gone == id => details.set(None),
+        Event::NodeUpdated { node } if node.id == id => loaded.refetch(),
+        Event::Resync => loaded.refetch(),
+        _ => {}
     });
 
     let download = move |version: i32| {
@@ -69,7 +72,7 @@ pub fn DetailsPanel(
             if let Err(err) = session::client().delete_version(id, version).await {
                 error.set(Some(auth.fail(&err)));
             }
-            refresh.update(|count| *count += 1);
+            loaded.refetch();
         });
     };
 
@@ -87,13 +90,7 @@ pub fn DetailsPanel(
                     <Icon name="close" />
                 </button>
             </header>
-            {move || {
-                error
-                    .get()
-                    .map(|message| {
-                        view! { <p class="alert alert--error" role="alert">{message}</p> }
-                    })
-            }}
+            <ErrorAlert message=error />
             {move || {
                 state
                     .get()

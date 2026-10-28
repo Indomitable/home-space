@@ -1,11 +1,13 @@
-use leptos::{prelude::*, task::spawn_local};
+use leptos::prelude::*;
 use leptos_router::{components::A, hooks::use_query_map};
 
 use api_client::format::human_size;
 use protocol::{NodeKind, SearchHit};
 
 use crate::{
+    components::ErrorAlert,
     icon::{Icon, node_icon},
+    load,
     locale::short_date,
     route,
     session::{self, Auth},
@@ -53,25 +55,36 @@ pub fn SearchPage(auth: Auth) -> impl IntoView {
     let status = RwSignal::new(Status::Idle);
 
     Effect::new(move |_| {
-        let wanted = term.get();
-        if wanted.is_empty() {
+        if term.read().is_empty() {
             hits.set(Vec::new());
             status.set(Status::Idle);
         } else {
             status.set(Status::Loading);
-            spawn_local(async move {
-                let outcome = session::client().search(&wanted).await;
-                if term.get_untracked() == wanted {
-                    match outcome {
-                        Ok(found) => {
-                            hits.set(found);
-                            status.set(Status::Done);
-                        }
-                        Err(err) => status.set(Status::Failed(auth.fail(&err))),
-                    }
-                }
-            });
         }
+    });
+    load::load(
+        move || {
+            let wanted = term.get();
+            async move {
+                if wanted.is_empty() {
+                    None
+                } else {
+                    Some(session::client().search(&wanted).await)
+                }
+            }
+        },
+        move |outcome| match outcome {
+            Some(Ok(found)) => {
+                hits.set(found);
+                status.set(Status::Done);
+            }
+            Some(Err(err)) => status.set(Status::Failed(auth.fail(&err))),
+            None => {}
+        },
+    );
+    let failure = Signal::derive(move || match status.get() {
+        Status::Failed(message) => Some(message),
+        _ => None,
     });
 
     view! {
@@ -88,12 +101,7 @@ pub fn SearchPage(auth: Auth) -> impl IntoView {
                     }}
                 </h2>
             </div>
-            {move || match status.get() {
-                Status::Failed(message) => {
-                    Some(view! { <p class="alert alert--error" role="alert">{message}</p> })
-                }
-                _ => None,
-            }}
+            <ErrorAlert message=failure />
             <div class="explorer__scroll">
                 <Show when=move || !hits.read().is_empty()>
                     <table class="node-table">

@@ -1,7 +1,7 @@
 use leptos::{ev::SubmitEvent, prelude::*, task::spawn_local};
 use leptos_router::components::Redirect;
 
-use crate::session::Auth;
+use crate::{components::ErrorAlert, session::Auth};
 
 #[component]
 pub fn Login(auth: Auth) -> impl IntoView {
@@ -59,13 +59,7 @@ pub fn Login(auth: Auth) -> impl IntoView {
                             on:input:target=move |event| password.set(event.target().value())
                         />
                     </label>
-                    {move || {
-                        error
-                            .get()
-                            .map(|message| {
-                                view! { <p class="alert alert--error" role="alert">{message}</p> }
-                            })
-                    }}
+                    <ErrorAlert message=error />
                     <button
                         type="submit"
                         class="button button--primary button--block"

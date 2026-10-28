@@ -4,6 +4,9 @@ use std::{
 };
 
 use gloo_timers::future::TimeoutFuture;
+use leptos::prelude::{
+    LocalStorage, SetValue, StoredValue, WithValue, expect_context, on_cleanup, provide_context,
+};
 use tokio::sync::oneshot;
 use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{MessageEvent, WebSocket};
@@ -90,6 +93,20 @@ impl Hub {
             id,
         }
     }
+}
+
+/// Shares one [`Hub`] with every component below the caller.
+pub fn provide_hub() -> StoredValue<Hub, LocalStorage> {
+    let hub = StoredValue::new_local(Hub::default());
+    provide_context(hub);
+    hub
+}
+
+/// Passes every live event to `on_event` until the calling component unmounts.
+pub fn use_events(on_event: impl Fn(Event) + 'static) {
+    let hub = expect_context::<StoredValue<Hub, LocalStorage>>();
+    let subscription = StoredValue::new_local(Some(hub.with_value(|hub| hub.subscribe(on_event))));
+    on_cleanup(move || subscription.set_value(None));
 }
 
 /// Keeps a handler registered with a [`Hub`]; dropping it unsubscribes.

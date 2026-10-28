@@ -2,21 +2,16 @@ use std::collections::HashSet;
 
 use leptos::{prelude::*, task::spawn_local};
 use leptos_router::components::A;
-use wasm_bindgen::JsCast;
-use web_sys::{Element, MouseEvent};
 
 use api_client::format::{conflicts_title, human_size};
 use protocol::{Conflict, Event, NodeId, OnConflict, TrashItem};
 
-use super::{
-    browser::node_table::{
-        Checkbox, ICON_CHECKED, ICON_MIXED, ICON_UNCHECKED, INTERACTIVE_SELECTOR,
-    },
-    conflict_dialog::ConflictDialog,
-};
+use super::conflict_dialog::ConflictDialog;
 use crate::{
+    components::{ErrorAlert, RowCheckbox, SelectAll, select_on_click},
     events,
     icon::{Icon, node_icon},
+    load,
     locale::short_date,
     route,
     session::{self, Auth},
@@ -44,36 +39,29 @@ pub fn TrashPage(auth: Auth) -> impl IntoView {
     let selected = RwSignal::new(HashSet::<NodeId>::new());
     let error = RwSignal::new(None::<String>);
     let restored = RwSignal::new(None::<Restored>);
-    let reload = RwSignal::new(0_u32);
     let conflicts = RwSignal::new(None::<(String, Vec<Conflict>)>);
     let emptying = RwSignal::new(None::<usize>);
 
-    Effect::new(move |_| {
-        reload.track();
-        spawn_local(async move {
-            match session::client().trash().await {
-                Ok(listing) => {
-                    items.set(listing);
-                    error.set(None);
-                }
-                Err(err) => error.set(Some(auth.fail(&err))),
+    let trash = load::load(
+        || async { session::client().trash().await },
+        move |result| match result {
+            Ok(listing) => {
+                items.set(listing);
+                error.set(None);
             }
-        });
-    });
+            Err(err) => error.set(Some(auth.fail(&err))),
+        },
+    );
     Effect::new(move |_| {
         let listing = items.read();
         selected.update(|ids| ids.retain(|id| listing.iter().any(|item| item.node.id == *id)));
     });
 
-    let hub = expect_context::<StoredValue<events::Hub, LocalStorage>>();
-    let subscription = StoredValue::new_local(Some(hub.with_value(|hub| {
-        hub.subscribe(move |event| {
-            if matches!(event, Event::TrashChanged | Event::Resync) {
-                reload.update(|count| *count += 1);
-            }
-        })
-    })));
-    on_cleanup(move || subscription.set_value(None));
+    events::use_events(move |event| {
+        if matches!(event, Event::TrashChanged | Event::Resync) {
+            trash.refetch();
+        }
+    });
 
     let restore = Callback::new(move |mode: OnConflict| {
         let ids: Vec<NodeId> = items
@@ -98,11 +86,11 @@ pub fn TrashPage(auth: Auth) -> impl IntoView {
                         folder: response.target.map(|folder| folder.id),
                     }));
                     selected.update(HashSet::clear);
-                    reload.update(|count| *count += 1);
+                    trash.refetch();
                 }
                 Err(err) => {
                     error.set(Some(auth.fail(&err)));
-                    reload.update(|count| *count += 1);
+                    trash.refetch();
                 }
             }
         });
@@ -123,7 +111,7 @@ pub fn TrashPage(auth: Auth) -> impl IntoView {
                 }
                 Err(err) => error.set(Some(auth.fail(&err))),
             }
-            reload.update(|count| *count += 1);
+            trash.refetch();
         });
     };
 
@@ -166,13 +154,7 @@ pub fn TrashPage(auth: Auth) -> impl IntoView {
                     </button>
                 </div>
             </div>
-            {move || {
-                error
-                    .get()
-                    .map(|message| {
-                        view! { <p class="alert alert--error" role="alert">{message}</p> }
-                    })
-            }}
+            <ErrorAlert message=error />
             {move || {
                 restored
                     .get()
@@ -196,7 +178,12 @@ pub fn TrashPage(auth: Auth) -> impl IntoView {
                     <thead class="node-table__head">
                         <tr>
                             <th class="node-table__header-cell node-table__header-cell--select">
-                                <SelectAll items selected />
+                                <SelectAll
+                                    ids=Signal::derive(move || {
+                                        items.read().iter().map(|item| item.node.id).collect()
+                                    })
+                                    selected
+                                />
                             </th>
                             <th class="node-table__header-cell">"Name"</th>
                             <th class="node-table__header-cell node-table__header-cell--modified">
@@ -265,96 +252,17 @@ pub fn TrashPage(auth: Auth) -> impl IntoView {
 }
 
 #[component]
-fn SelectAll(
-    items: RwSignal<Vec<TrashItem>>,
-    selected: RwSignal<HashSet<NodeId>>,
-) -> impl IntoView {
-    let count = move || {
-        let chosen = selected.read();
-        items
-            .read()
-            .iter()
-            .filter(|item| chosen.contains(&item.node.id))
-            .count()
-    };
-    let all = move || !items.read().is_empty() && count() == items.read().len();
-    let icon = move || match count() {
-        0 => ICON_UNCHECKED,
-        _ if all() => ICON_CHECKED,
-        _ => ICON_MIXED,
-    };
-    let checked = move || {
-        match count() {
-            0 => "false",
-            _ if all() => "true",
-            _ => "mixed",
-        }
-        .to_owned()
-    };
-    let toggle = Callback::new(move |()| {
-        if all() {
-            selected.update(HashSet::clear);
-        } else {
-            selected.set(
-                items
-                    .read_untracked()
-                    .iter()
-                    .map(|item| item.node.id)
-                    .collect(),
-            );
-        }
-    });
-    view! { <Checkbox icon checked label="Select all" on_toggle=toggle /> }
-}
-
-#[component]
 fn TrashRow(item: TrashItem, selected: RwSignal<HashSet<NodeId>>) -> impl IntoView {
     let node_id = item.node.id;
     let icon = node_icon(&item.node);
-    let is_selected = move || selected.read().contains(&node_id);
-    let toggle = Callback::new(move |()| {
-        selected.update(|ids| {
-            if !ids.remove(&node_id) {
-                ids.insert(node_id);
-            }
-        });
-    });
-    let select = move |event: MouseEvent| {
-        let interactive = event
-            .target()
-            .and_then(|target| target.dyn_into::<Element>().ok())
-            .is_some_and(|element| matches!(element.closest(INTERACTIVE_SELECTOR), Ok(Some(_))));
-        if !interactive {
-            if event.ctrl_key() || event.meta_key() || event.shift_key() {
-                toggle.run(());
-            } else {
-                selected.set(HashSet::from([node_id]));
-            }
-        }
-    };
-    let checkbox_icon = move || {
-        if is_selected() {
-            ICON_CHECKED
-        } else {
-            ICON_UNCHECKED
-        }
-    };
-    let checkbox_state = move || is_selected().to_string();
-    let checkbox_label = format!("Select {}", item.node.name);
-
     view! {
         <tr
             class="node-table__row"
-            class:node-table__row--selected=is_selected
-            on:click=select
+            class:node-table__row--selected=move || selected.read().contains(&node_id)
+            on:click=select_on_click(node_id, selected)
         >
             <td class="node-table__cell node-table__cell--select">
-                <Checkbox
-                    icon=Signal::derive(checkbox_icon)
-                    checked=Signal::derive(checkbox_state)
-                    label=checkbox_label
-                    on_toggle=toggle
-                />
+                <RowCheckbox id=node_id name=item.node.name.clone() selected />
             </td>
             <td class="node-table__cell">
                 <span class="node-table__name">

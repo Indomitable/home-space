@@ -40,7 +40,7 @@ fn update_upload(
 
 pub fn start_upload(
     uploads: RwSignal<Vec<UploadItem>>,
-    reload: RwSignal<u32>,
+    on_done: impl Fn() + 'static,
     auth: Auth,
     parent: Option<NodeId>,
     files: Vec<File>,
@@ -73,7 +73,7 @@ pub fn start_upload(
                 }
             }
         }
-        reload.update(|count| *count += 1);
+        on_done();
     });
 }
 

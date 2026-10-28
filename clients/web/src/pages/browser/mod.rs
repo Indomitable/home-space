@@ -1,30 +1,29 @@
 mod breadcrumbs;
 mod details;
+mod file_drop;
+mod listing;
 mod menu;
-pub(super) mod node_table;
+mod node_table;
 mod toolbar;
 
 use std::collections::HashSet;
 
-use leptos::{ev, html::Input, prelude::*, task::spawn_local};
-use leptos_router::hooks::use_params_map;
-use web_sys::{DragEvent, File, FileList};
+use leptos::{html::Input, prelude::*, task::spawn_local};
+use web_sys::File;
 
-use api_client::{
-    ApiError,
-    listing::{Sort, affects_path, apply_event, sort_nodes},
-};
-use protocol::{Event, Node, NodeId, TicketRequest};
+use protocol::{Node, NodeId, TicketRequest};
 
 use self::{
     breadcrumbs::Breadcrumbs,
     details::DetailsPanel,
+    file_drop::use_file_drop,
+    listing::Listing,
     node_table::{NodeTable, TableActions},
     toolbar::Toolbar,
 };
 use super::{delete_dialog::DeleteDialog, move_dialog::MoveDialog};
 use crate::{
-    events, route,
+    components::ErrorAlert,
     session::{self, Auth},
     uploads::{UploadItem, start_upload},
 };
@@ -34,45 +33,17 @@ pub fn Browser(auth: Auth) -> impl IntoView {
     view! { <Explorer auth /> }
 }
 
-async fn fetch(folder: Option<NodeId>) -> Result<(Vec<Node>, Vec<Node>), ApiError> {
-    let client = session::client();
-    let listing = client.list(folder).await?;
-    let path = match folder {
-        Some(id) => {
-            let mut path = client.ancestors(id).await?;
-            path.push(client.get(id).await?);
-            path
-        }
-        None => Vec::new(),
-    };
-    Ok((listing, path))
-}
-
-const FILES_TYPE: &str = "Files";
-const DROP_EFFECT_COPY: &str = "copy";
-const DROP_EFFECT_NONE: &str = "none";
-
-fn carries_files(event: &DragEvent) -> bool {
-    event
-        .data_transfer()
-        .is_some_and(|transfer| transfer.types().includes(&FILES_TYPE.into(), 0))
-}
-
-fn files_of(list: &FileList) -> Vec<File> {
-    (0..list.length())
-        .filter_map(|index| list.get(index))
-        .collect()
-}
-
 #[component]
 fn Explorer(auth: Auth) -> impl IntoView {
-    let params = use_params_map();
-    let folder = Memo::new(move |_| params.read().get("id").and_then(|id| route::parse_id(&id)));
-    let nodes = RwSignal::new(Vec::<Node>::new());
-    let sort = RwSignal::new(Sort::default());
-    let crumbs = RwSignal::new(Vec::<Node>::new());
-    let error = RwSignal::new(None::<String>);
-    let reload = RwSignal::new(0_u32);
+    let listing = Listing::new(auth);
+    let Listing {
+        folder,
+        nodes,
+        crumbs,
+        sort,
+        error,
+        ..
+    } = listing;
     let moving = RwSignal::new(None::<Vec<Node>>);
     let deleting = RwSignal::new(None::<Vec<Node>>);
     let selected = RwSignal::new(HashSet::<NodeId>::new());
@@ -82,65 +53,6 @@ fn Explorer(auth: Auth) -> impl IntoView {
     let saving = RwSignal::new(false);
     let draft_input = NodeRef::<Input>::new();
     let details = RwSignal::new(None::<NodeId>);
-    let details_refresh = RwSignal::new(0_u32);
-
-    Effect::new(move |_| {
-        let wanted = folder.get();
-        reload.track();
-        spawn_local(async move {
-            match fetch(wanted).await {
-                Ok((mut listing, path)) if folder.get_untracked() == wanted => {
-                    sort_nodes(&mut listing, sort.get_untracked());
-                    nodes.set(listing);
-                    crumbs.set(path);
-                    error.set(None);
-                }
-                Ok(_) => {}
-                Err(err) => error.set(Some(auth.fail(&err))),
-            }
-        });
-    });
-
-    Effect::new(move |_| {
-        let sort = sort.get();
-        nodes.update(|listing| sort_nodes(listing, sort));
-    });
-
-    let hub = expect_context::<StoredValue<events::Hub, LocalStorage>>();
-    let subscription = StoredValue::new_local(Some(hub.with_value(|hub| {
-        hub.subscribe(move |event| {
-            if let Some(open) = details.get_untracked() {
-                match &event {
-                    Event::NodeDeleted { id, .. } if *id == open => details.set(None),
-                    Event::NodeUpdated { node } if node.id == open => {
-                        details_refresh.update(|count| *count += 1)
-                    }
-                    Event::Resync => details_refresh.update(|count| *count += 1),
-                    _ => {}
-                }
-            }
-            if matches!(event, Event::Resync) || affects_path(&crumbs.get_untracked(), &event) {
-                reload.update(|count| *count += 1);
-            } else {
-                nodes.update(|listing| {
-                    apply_event(
-                        listing,
-                        folder.get_untracked(),
-                        &event,
-                        sort.get_untracked(),
-                    )
-                });
-            }
-        })
-    })));
-    on_cleanup(move || subscription.set_value(None));
-
-    let settle = move |result: Result<(), ApiError>| {
-        if let Err(err) = result {
-            error.set(Some(auth.fail(&err)));
-        }
-        reload.update(|count| *count += 1);
-    };
 
     Effect::new(move |_| {
         folder.track();
@@ -192,7 +104,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                     draft.set(None);
                 }
                 saving.set(false);
-                settle(result);
+                listing.settle(result);
             });
         }
     });
@@ -216,7 +128,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                     renaming.set(None);
                 }
                 saving.set(false);
-                settle(result);
+                listing.settle(result);
             });
         }
     });
@@ -232,7 +144,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                 }
             }
             selected.update(HashSet::clear);
-            settle(outcome);
+            listing.settle(outcome);
         });
     });
     let selected_nodes = move || -> Vec<Node> {
@@ -279,51 +191,17 @@ fn Explorer(auth: Auth) -> impl IntoView {
     });
     let upload = Callback::new(move |files: Vec<File>| {
         if can_add.get_untracked() {
-            start_upload(uploads, reload, auth, folder.get_untracked(), files);
+            start_upload(
+                uploads,
+                move || listing.refetch(),
+                auth,
+                folder.get_untracked(),
+                files,
+            );
         }
     });
 
-    let drag_depth = RwSignal::new(0_u32);
-    let dragging = Memo::new(move |_| drag_depth.get() > 0);
-    let on_enter = window_event_listener(ev::dragenter, move |event| {
-        if carries_files(&event) {
-            event.prevent_default();
-            if can_add.get_untracked() {
-                drag_depth.update(|depth| *depth += 1);
-            }
-        }
-    });
-    let on_over = window_event_listener(ev::dragover, move |event| {
-        if carries_files(&event) {
-            event.prevent_default();
-            if let Some(transfer) = event.data_transfer() {
-                let effect = if can_add.get_untracked() {
-                    DROP_EFFECT_COPY
-                } else {
-                    DROP_EFFECT_NONE
-                };
-                transfer.set_drop_effect(effect);
-            }
-        }
-    });
-    let on_leave = window_event_listener(ev::dragleave, move |event| {
-        if carries_files(&event) {
-            drag_depth.update(|depth| *depth = depth.saturating_sub(1));
-        }
-    });
-    let on_drop = window_event_listener(ev::drop, move |event| {
-        event.prevent_default();
-        drag_depth.set(0);
-        if let Some(list) = event.data_transfer().and_then(|transfer| transfer.files()) {
-            upload.run(files_of(&list));
-        }
-    });
-    on_cleanup(move || {
-        on_enter.remove();
-        on_over.remove();
-        on_leave.remove();
-        on_drop.remove();
-    });
+    let dragging = use_file_drop(can_add, upload);
 
     let actions = TableActions {
         draft,
@@ -355,13 +233,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                         on_upload=upload
                     />
                 </div>
-                {move || {
-                    error
-                        .get()
-                        .map(|message| {
-                            view! { <p class="alert alert--error" role="alert">{message}</p> }
-                        })
-                }}
+                <ErrorAlert message=error />
                 <div class="explorer__body" class:explorer__body--with-details=move || details.get().is_some()>
                     <div class="explorer__scroll">
                         <NodeTable nodes sort actions draft_input />
@@ -380,7 +252,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                     {move || {
                         details
                             .get()
-                            .map(|id| view! { <DetailsPanel id details refresh=details_refresh auth /> })
+                            .map(|id| view! { <DetailsPanel id details auth /> })
                     }}
                 </div>
         </main>
@@ -400,7 +272,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
         {move || {
             moving
                 .get()
-                .map(|nodes| view! { <MoveDialog nodes moving selected reload auth /> })
+                .map(|nodes| view! { <MoveDialog nodes moving selected refresh=move || listing.refetch() auth /> })
         }}
         {move || {
             deleting

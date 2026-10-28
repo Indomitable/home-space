@@ -1,6 +1,8 @@
 mod app;
+mod components;
 mod events;
 mod icon;
+mod load;
 mod locale;
 mod pages;
 mod route;

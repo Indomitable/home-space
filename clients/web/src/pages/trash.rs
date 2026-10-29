@@ -52,10 +52,6 @@ pub fn TrashPage(auth: Auth) -> impl IntoView {
             Err(err) => error.set(Some(auth.fail(&err))),
         },
     );
-    Effect::new(move |_| {
-        let listing = items.read();
-        selected.update(|ids| ids.retain(|id| listing.iter().any(|item| item.node.id == *id)));
-    });
 
     events::use_events(move |event| {
         if matches!(event, Event::TrashChanged | Event::Resync) {
@@ -115,7 +111,14 @@ pub fn TrashPage(auth: Auth) -> impl IntoView {
         });
     };
 
-    let selected_count = move || selected.read().len();
+    let selected_count = move || {
+        let ids = selected.read();
+        items
+            .read()
+            .iter()
+            .filter(|item| ids.contains(&item.node.id))
+            .count()
+    };
     let is_empty = move || items.read().is_empty();
 
     view! {

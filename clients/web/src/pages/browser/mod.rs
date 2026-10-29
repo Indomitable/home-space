@@ -39,6 +39,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
     let Listing {
         folder,
         nodes,
+        sorted,
         crumbs,
         sort,
         error,
@@ -61,17 +62,22 @@ fn Explorer(auth: Auth) -> impl IntoView {
         renaming.set(None);
         selected.update(HashSet::clear);
     });
-    Effect::new(move |_| {
-        let listing = nodes.read();
-        selected.update(|ids| ids.retain(|id| listing.iter().any(|node| node.id == *id)));
+
+    let selected_nodes = Memo::new(move |_| {
+        let ids = selected.read();
+        sorted
+            .read()
+            .iter()
+            .filter(|node| ids.contains(&node.id))
+            .cloned()
+            .collect::<Vec<_>>()
     });
-    Effect::new(move |_| {
-        let selection = selected.read();
-        let mut ids = selection.iter();
-        if let (Some(&only), None) = (ids.next(), ids.next())
-            && details.get_untracked().is_some_and(|open| open != only)
-        {
-            details.set(Some(only));
+
+    let details_target = Memo::new(move |_| {
+        let open = details.get()?;
+        match selected_nodes.read().as_slice() {
+            [only] => Some(only.id),
+            _ => Some(open),
         }
     });
     Effect::new(move |_| {
@@ -147,22 +153,13 @@ fn Explorer(auth: Auth) -> impl IntoView {
             listing.settle(outcome);
         });
     });
-    let selected_nodes = move || -> Vec<Node> {
-        let ids = selected.read();
-        nodes
-            .read()
-            .iter()
-            .filter(|node| ids.contains(&node.id))
-            .cloned()
-            .collect()
-    };
-    let move_selected = Callback::new(move |()| moving.set(Some(selected_nodes())));
-    let delete_selected = Callback::new(move |()| delete.run(selected_nodes()));
-    let selected_count = Signal::derive(move || selected.read().len());
+    let move_selected = Callback::new(move |()| moving.set(Some(selected_nodes.get_untracked())));
+    let delete_selected = Callback::new(move |()| delete.run(selected_nodes.get_untracked()));
+    let selected_count = Signal::derive(move || selected_nodes.read().len());
     let lost_and_found = Signal::derive(move || auth.user.get().map(|user| user.lost_and_found_id));
     let can_delete = Signal::derive(move || {
         let protected = lost_and_found.get();
-        protected.is_none_or(|id| !selected.read().contains(&id))
+        protected.is_none_or(|id| !selected_nodes.read().iter().any(|node| node.id == id))
     });
     // Lost & Found only receives restored files, so nothing is created or uploaded into it.
     let can_add = Signal::derive(move || {
@@ -234,9 +231,9 @@ fn Explorer(auth: Auth) -> impl IntoView {
                     />
                 </div>
                 <ErrorAlert message=error />
-                <div class="explorer__body" class:explorer__body--with-details=move || details.get().is_some()>
+                <div class="explorer__body" class:explorer__body--with-details=move || details_target.get().is_some()>
                     <div class="explorer__nodes">
-                        <NodeTable nodes sort actions draft_input />
+                        <NodeTable nodes=sorted sort actions draft_input />
                         <Show when=move || nodes.read().is_empty() && error.read().is_none() && draft.read().is_none()>
                             <p class="explorer__empty">
                                 {move || {
@@ -250,7 +247,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                         </Show>
                     </div>
                     {move || {
-                        details
+                        details_target
                             .get()
                             .map(|id| view! { <DetailsPanel id details auth /> })
                     }}

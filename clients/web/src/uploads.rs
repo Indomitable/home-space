@@ -107,7 +107,7 @@ fn overall_progress(items: &[UploadItem]) -> f64 {
 
 #[component]
 pub fn UploadPanel(uploads: RwSignal<Vec<UploadItem>>) -> impl IntoView {
-    let minimized = RwSignal::new(false);
+    let minimized_at = RwSignal::new(None::<u64>);
     let idle = move || !uploads.read().iter().any(is_pending);
     let has_done = move || {
         uploads
@@ -115,14 +115,15 @@ pub fn UploadPanel(uploads: RwSignal<Vec<UploadItem>>) -> impl IntoView {
             .iter()
             .any(|item| item.state == UploadState::Done)
     };
-    let count = Memo::new(move |_| uploads.read().len());
-    Effect::new(move |previous: Option<usize>| {
-        let now = count.get();
-        if previous.is_some_and(|before| now > before) {
-            minimized.set(false);
-        }
-        now
+    let newest = Memo::new(move |_| {
+        uploads
+            .read()
+            .iter()
+            .map(|item| item.id)
+            .max()
+            .unwrap_or_default()
     });
+    let minimized = Memo::new(move |_| minimized_at.get().is_some_and(|at| newest.get() <= at));
 
     view! {
         <Show when=move || !uploads.read().is_empty()>
@@ -144,7 +145,9 @@ pub fn UploadPanel(uploads: RwSignal<Vec<UploadItem>>) -> impl IntoView {
                         class="button button--ghost button--small upload-panel__icon"
                         aria-label=move || if minimized.get() { "Expand uploads" } else { "Minimize uploads" }
                         aria-expanded=move || (!minimized.get()).to_string()
-                        on:click=move |_| minimized.update(|value| *value = !*value)
+                        on:click=move |_| {
+                            minimized_at.set((!minimized.get_untracked()).then(|| newest.get_untracked()))
+                        }
                     >
                         {move || if minimized.get() { "▴" } else { "▾" }}
                     </button>

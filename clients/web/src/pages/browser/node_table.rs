@@ -42,7 +42,7 @@ pub struct TableActions {
 
 #[component]
 pub fn NodeTable(
-    nodes: RwSignal<Vec<Node>>,
+    nodes: Memo<Vec<Node>>,
     sort: RwSignal<Sort>,
     actions: TableActions,
     draft_input: NodeRef<Input>,

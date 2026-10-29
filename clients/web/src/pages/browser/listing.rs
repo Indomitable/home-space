@@ -34,6 +34,7 @@ async fn fetch(folder: Option<NodeId>) -> Loaded {
 pub(super) struct Listing {
     pub folder: Memo<Option<NodeId>>,
     pub nodes: RwSignal<Vec<Node>>,
+    pub sorted: Memo<Vec<Node>>,
     pub crumbs: RwSignal<Vec<Node>>,
     pub sort: RwSignal<Sort>,
     pub error: RwSignal<Option<String>>,
@@ -54,8 +55,7 @@ impl Listing {
         let resource = load::load(
             move || fetch(folder.get()),
             move |loaded: Loaded| match loaded {
-                Ok((mut listing, path)) => {
-                    sort_nodes(&mut listing, sort.get_untracked());
+                Ok((listing, path)) => {
                     nodes.set(listing);
                     crumbs.set(path);
                     error.set(None);
@@ -64,9 +64,10 @@ impl Listing {
             },
         );
 
-        Effect::new(move |_| {
-            let sort = sort.get();
-            nodes.update(|listing| sort_nodes(listing, sort));
+        let sorted = Memo::new(move |_| {
+            let mut listing = nodes.get();
+            sort_nodes(&mut listing, sort.get());
+            listing
         });
 
         events::use_events(move |event| {
@@ -87,6 +88,7 @@ impl Listing {
         Self {
             folder,
             nodes,
+            sorted,
             crumbs,
             sort,
             error,

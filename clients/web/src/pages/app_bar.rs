@@ -20,7 +20,7 @@ const SEARCH_DEBOUNCE: Duration = Duration::from_millis(250);
 pub fn AppBar(auth: Auth) -> impl IntoView {
     view! {
         <header class="app-bar">
-            <h1 class="app-bar__brand">"home-space"</h1>
+            <h1 class="app-bar__brand">"Home Space"</h1>
             <SearchBox />
             <span class="app-bar__spacer"></span>
             <A href=route::TRASH_PATH attr:class="button button--ghost">

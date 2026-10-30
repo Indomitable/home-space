@@ -114,6 +114,25 @@ pub struct UploadQuery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<NodeId>,
     pub name: String,
+    /// When the content was last changed on the client; omitted means now.
+    #[serde(
+        default,
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub modified_at: Option<OffsetDateTime>,
+}
+
+/// Query of `PUT /files/{id}/content`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContentQuery {
+    /// When the content was last changed on the client; omitted means now.
+    #[serde(
+        default,
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub modified_at: Option<OffsetDateTime>,
 }
 
 /// Body of `PATCH /nodes/{id}`.

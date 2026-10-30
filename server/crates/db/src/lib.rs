@@ -14,6 +14,7 @@ macro_rules! visible {
     };
 }
 
+mod changes;
 mod error;
 mod models;
 mod nodes;
@@ -23,11 +24,12 @@ mod trash;
 mod users;
 mod versions;
 
+pub use changes::{ChangeBatch, NodeChange};
 pub use error::DbError;
 pub use models::{FileVersion, Node, RefreshToken, User};
 pub use nodes::{
-    BlobOp, DeletedNodes, FOLDER_MIME, MoveBatch, MoveConflict, MoveOutcome, NewNode, NodeUpdate,
-    StoreOutcome,
+    BlobOp, DeletedNodes, FOLDER_MIME, MoveBatch, MoveConflict, MoveOutcome, NewContent, NewNode,
+    NodeUpdate, StoreOutcome,
 };
 pub use protocol::{NodeId, NodeKind, OnConflict, UserId};
 pub use search::{ContentState, RankedNode};

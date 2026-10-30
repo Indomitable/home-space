@@ -69,6 +69,20 @@ impl BlobStore {
         fs::rename(&staged.path, target).await
     }
 
+    /// Moves a staged blob into place as the stored content of a version.
+    pub async fn commit_version(
+        &self,
+        staged: StagedBlob,
+        owner: UserId,
+        version: Uuid,
+    ) -> io::Result<()> {
+        let target = self.version_path(owner, version);
+        if let Some(dir) = target.parent() {
+            fs::create_dir_all(dir).await?;
+        }
+        fs::rename(&staged.path, target).await
+    }
+
     /// Discards a staged blob.
     pub async fn discard(&self, staged: StagedBlob) {
         let _ = fs::remove_file(&staged.path).await;

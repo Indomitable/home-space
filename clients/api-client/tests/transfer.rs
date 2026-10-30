@@ -6,6 +6,7 @@ use wiremock::{
 
 use api_client::{ApiError, Client};
 use protocol::{ErrorCode, NodeId};
+use time::macros::datetime;
 
 const USER_ID: &str = "00000000-0000-0000-0000-000000000001";
 const NODE_ID: &str = "00000000-0000-0000-0000-000000000002";
@@ -73,6 +74,55 @@ async fn upload_sends_name_parent_and_body() {
         })
         .await
         .expect("upload");
+
+    assert_eq!(node.name, "a.txt");
+}
+
+#[tokio::test]
+async fn upload_modified_sends_the_modification_time() {
+    let server = MockServer::start().await;
+    let client = logged_in(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/files"))
+        .and(query_param("name", "a.txt"))
+        .and(query_param("modified_at", "2026-01-02T03:04:05Z"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(node_json()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    client
+        .upload_modified(
+            None,
+            "a.txt",
+            Some(datetime!(2026-01-02 03:04:05 UTC)),
+            || reqwest::Body::from("hello"),
+        )
+        .await
+        .expect("upload");
+}
+
+#[tokio::test]
+async fn replace_content_puts_the_body_with_the_modification_time() {
+    let server = MockServer::start().await;
+    let client = logged_in(&server).await;
+    Mock::given(method("PUT"))
+        .and(path(format!("/api/v1/files/{NODE_ID}/content")))
+        .and(query_param("modified_at", "2026-01-02T03:04:05Z"))
+        .and(body_bytes(b"hello".to_vec()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(node_json()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let node = client
+        .replace_content(
+            node_id(NODE_ID),
+            Some(datetime!(2026-01-02 03:04:05 UTC)),
+            || reqwest::Body::from("hello"),
+        )
+        .await
+        .expect("replace");
 
     assert_eq!(node.name, "a.txt");
 }
@@ -148,5 +198,53 @@ async fn download_of_a_missing_file_is_an_api_error() {
             code: ErrorCode::NotFound,
             ..
         }
+    ));
+}
+
+#[tokio::test]
+async fn changes_sends_the_cursor_and_decodes_the_page() {
+    let server = MockServer::start().await;
+    let client = logged_in(&server).await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/changes"))
+        .and(query_param("since", "41"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "changes": [
+                { "type": "upserted", "seq": 42, "node": node_json() },
+                { "type": "deleted", "seq": 43, "id": PARENT_ID },
+            ],
+            "cursor": 43,
+            "more": false,
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let page = client.changes(Some(41)).await.expect("changes");
+
+    assert_eq!((page.changes.len(), page.cursor, page.more), (2, 43, false));
+}
+
+#[tokio::test]
+async fn changes_after_a_pruned_cursor_are_gone() {
+    let server = MockServer::start().await;
+    let client = logged_in(&server).await;
+    Mock::given(method("GET"))
+        .and(path("/api/v1/changes"))
+        .respond_with(
+            ResponseTemplate::new(410)
+                .set_body_json(json!({ "error": "gone", "message": "no longer available" })),
+        )
+        .mount(&server)
+        .await;
+
+    let result = client.changes(Some(1)).await;
+
+    assert!(matches!(
+        result,
+        Err(ApiError::Api {
+            code: ErrorCode::Gone,
+            ..
+        })
     ));
 }

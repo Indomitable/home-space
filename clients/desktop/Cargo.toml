@@ -7,18 +7,23 @@ publish.workspace = true
 
 [dependencies]
 api-client.workspace = true
+hex = "0.4.3"
 iced = { version = "0.14.0", features = ["advanced", "svg", "tokio"] }
 keyring = { version = "4.2.0", optional = true }
+notify = "8.2.1"
 png = "0.18.1"
 protocol.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 rfd = "0.17.2"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+sha2 = "0.11.1"
 time.workspace = true
 tokio = { workspace = true, features = ["fs", "macros", "rt", "time"] }
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
 tokio-util = { version = "0.7.20", features = ["io"] }
+trash = "5.2.9"
 
 [features]
 # Keep the session in the system keyring (macOS Keychain, Secret Service, ...). Without it the

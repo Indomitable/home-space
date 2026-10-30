@@ -663,7 +663,7 @@ async fn write_part(
     out.flush().await
 }
 
-fn part_path(target: &Path) -> PathBuf {
+pub(crate) fn part_path(target: &Path) -> PathBuf {
     let mut name = target.as_os_str().to_owned();
     name.push(PART_SUFFIX);
     PathBuf::from(name)

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,12 @@ use store_keyring::{forget, load, save};
 pub struct Saved {
     pub server: String,
     pub refresh_token: String,
+}
+
+/// Where the app keeps its files between runs: `~/.local/share/home-space`.
+pub fn data_dir() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    Some(PathBuf::from(home).join(".local/share/home-space"))
 }
 
 /// The result of resuming the saved session at startup.
@@ -107,12 +114,11 @@ mod store_file {
     use std::io::{ErrorKind, Write};
     use std::path::PathBuf;
 
-    use super::Saved;
+    use super::{Saved, data_dir};
 
     /// `~/.local/share/home-space/session.json`.
     fn path() -> Option<PathBuf> {
-        let home = std::env::var_os("HOME")?;
-        Some(PathBuf::from(home).join(".local/share/home-space/session.json"))
+        Some(data_dir()?.join("session.json"))
     }
 
     pub fn load() -> Option<Saved> {

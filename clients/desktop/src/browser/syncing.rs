@@ -211,7 +211,7 @@ fn mapping_row<'a>(
     let target = match mapping.map(|mapping| mapping.local.as_deref()) {
         None => "Not synced".to_owned(),
         Some(None) => "Set to not sync".to_owned(),
-        Some(Some(local)) => local.display().to_string(),
+        Some(Some(local)) => display_path(local),
     };
     let mut actions = row![].spacing(SPACING / 2.0);
     match mapping {
@@ -266,6 +266,19 @@ fn plural(count: usize) -> String {
         "1 item".to_owned()
     } else {
         format!("{count} items")
+    }
+}
+
+/// `path` for display, with the home folder shortened to `~`.
+pub fn display_path(path: &Path) -> String {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    match home
+        .as_deref()
+        .and_then(|home| path.strip_prefix(home).ok())
+    {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
+        Some(rest) => format!("~/{}", rest.display()),
+        None => path.display().to_string(),
     }
 }
 
@@ -405,5 +418,13 @@ mod tests {
         assert_eq!(status.overall(), Some(Badge::Pending));
         status.problems = vec![(PathBuf::from("/sync/a"), "boom".to_owned())];
         assert_eq!(status.overall(), Some(Badge::Problem));
+    }
+
+    #[test]
+    fn paths_in_the_home_folder_are_shortened() {
+        let home = PathBuf::from(std::env::var_os("HOME").expect("HOME"));
+        assert_eq!(display_path(&home.join("Sync/Photos")), "~/Sync/Photos");
+        assert_eq!(display_path(&home), "~");
+        assert_eq!(display_path(Path::new("/Volumes/Ext")), "/Volumes/Ext");
     }
 }

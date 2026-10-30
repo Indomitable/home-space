@@ -814,7 +814,16 @@ impl State {
             .spacing(GRID_SPACING);
             match &self.details {
                 Some(details) => page.push(
-                    row![container(grid).width(Length::Fill), details.view()].spacing(SPACING),
+                    row![
+                        container(grid).width(Length::Fill),
+                        details.view(
+                            self.syncing
+                                .status()
+                                .location(Some(details.node_id()))
+                                .map(syncing::display_path)
+                        )
+                    ]
+                    .spacing(SPACING),
                 ),
                 None => page.push(grid),
             }

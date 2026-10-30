@@ -111,7 +111,8 @@ impl State {
         }
     }
 
-    pub fn view(&self) -> Element<'_, BrowserMessage> {
+    /// The panel; `synced_to` is where the node syncs on disk, if it does.
+    pub fn view(&self, synced_to: Option<String>) -> Element<'_, BrowserMessage> {
         let node = &self.node;
         let is_file = node.kind == NodeKind::File;
         let header = row![
@@ -140,6 +141,9 @@ impl State {
         facts = facts
             .push(fact("Created", short_date(node.created_at)))
             .push(fact("Modified", short_date(node.updated_at)));
+        if let Some(local) = synced_to {
+            facts = facts.push(fact("Synced to", local));
+        }
 
         let mut panel = column![header].spacing(SPACING);
         if let Some(error) = &self.error {

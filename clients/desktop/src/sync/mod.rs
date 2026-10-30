@@ -75,6 +75,8 @@ pub struct Status {
     pub mappings: Vec<Mapping>,
     /// Names of the mapped remote folders, as far as they are known.
     pub names: HashMap<NodeId, String>,
+    /// Where each synced folder is on disk, Home under `None`.
+    pub locations: HashMap<Option<NodeId>, PathBuf>,
     /// Paths with work ahead.
     pub pending: usize,
     /// Paths that failed, with why.
@@ -86,6 +88,11 @@ pub struct Status {
 impl Status {
     pub fn badge(&self, node: Option<NodeId>) -> Option<Badge> {
         self.badges.get(&node).copied()
+    }
+
+    /// Where the folder `node` syncs to, if it does.
+    pub fn location(&self, node: Option<NodeId>) -> Option<&Path> {
+        self.locations.get(&node).map(PathBuf::as_path)
     }
 
     /// The mapping set on `node` itself, if any.
@@ -546,10 +553,16 @@ impl Engine {
             .filter_map(|mapping| mapping.remote)
             .filter_map(|id| Some((id, self.mirror.nodes.get(&id)?.name.clone())))
             .collect();
+        let locations = layout
+            .folders
+            .iter()
+            .map(|(path, id)| (*id, path.clone()))
+            .collect();
         let status = Status {
             badges,
             mappings: self.mappings.clone(),
             names,
+            locations,
             pending: pending_paths.len(),
             problems,
             error,

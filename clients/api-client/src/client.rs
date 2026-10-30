@@ -243,6 +243,23 @@ impl Client {
         .await
     }
 
+    /// Moves a node into `parent` (the root when `None`) under a new name, in one step.
+    pub async fn relocate(
+        &self,
+        id: NodeId,
+        parent: Option<NodeId>,
+        name: &str,
+    ) -> Result<Node, ApiError> {
+        self.update(
+            id,
+            &UpdateRequest {
+                name: Some(name.to_owned()),
+                parent_id: Some(parent),
+            },
+        )
+        .await
+    }
+
     /// Moves several nodes into `parent`, or to the root when `None`.
     ///
     /// With [`OnConflict::Abort`] a clash changes nothing and is listed in the response;

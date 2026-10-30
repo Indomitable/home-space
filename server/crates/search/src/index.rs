@@ -347,7 +347,7 @@ mod tests {
     async fn upload(fx: &Fixture, parent: Option<NodeId>, name: &str, text: &'static str) -> Node {
         let node = fx
             .files
-            .upload(fx.alice, parent, name, None, body(text))
+            .upload(fx.alice, parent, name, None, None, body(text))
             .await
             .expect("upload")
             .into_node();
@@ -443,7 +443,7 @@ mod tests {
     async fn catch_up_indexes_nodes_created_without_the_index(pool: PgPool) {
         let fx = fixture(pool, Vec::new()).await;
         fx.files
-            .upload(fx.alice, None, "legacy.txt", None, body("x"))
+            .upload(fx.alice, None, "legacy.txt", None, None, body("x"))
             .await
             .expect("upload");
         assert!(names(&fx.index, fx.alice, "legacy").await.is_empty());
@@ -491,6 +491,7 @@ mod tests {
                 None,
                 "photo.jpg",
                 Some("image/jpeg"),
+                None,
                 body("zebra"),
             )
             .await
@@ -511,7 +512,7 @@ mod tests {
         fx.index.enqueue_content(fx.alice, node.id);
         eventually_finds(&fx, "alpha", &["notes.txt"]).await;
         fx.files
-            .replace_content(fx.alice, node.id, None, body("bravo"))
+            .replace_content(fx.alice, node.id, None, None, body("bravo"))
             .await
             .expect("replace");
         let report = fx.index.catch_up().await.expect("catch up");
@@ -528,7 +529,7 @@ mod tests {
         eventually_finds(&fx, "alpha", &["notes.txt"]).await;
         let outcome = fx
             .files
-            .upload(fx.alice, None, "notes.txt", None, body("bravo"))
+            .upload(fx.alice, None, "notes.txt", None, None, body("bravo"))
             .await
             .expect("upload");
         assert!(matches!(outcome, StoreOutcome::Versioned { .. }));

@@ -4,13 +4,16 @@ use reqwest::{RequestBuilder, Response, StatusCode};
 use serde::de::DeserializeOwned;
 use tokio::sync::Mutex as AsyncMutex;
 
-#[cfg(not(target_arch = "wasm32"))]
-use protocol::UploadQuery;
 use protocol::{
-    CreateFolderRequest, ErrorBody, FileVersion, ListQuery, LoginRequest, Me, MoveRequest,
-    MoveResponse, Node, NodeId, OnConflict, RefreshRequest, RestoreRequest, SearchHit, SearchQuery,
-    TicketRequest, TicketResponse, TokenPair, TrashItem, UpdateRequest, paths,
+    ChangesQuery, ChangesResponse, CreateFolderRequest, ErrorBody, FileVersion, ListQuery,
+    LoginRequest, Me, MoveRequest, MoveResponse, Node, NodeId, OnConflict, RefreshRequest,
+    RestoreRequest, SearchHit, SearchQuery, TicketRequest, TicketResponse, TokenPair, TrashItem,
+    UpdateRequest, paths,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use protocol::{ContentQuery, UploadQuery};
+#[cfg(not(target_arch = "wasm32"))]
+use time::OffsetDateTime;
 
 use crate::ApiError;
 
@@ -180,6 +183,16 @@ impl Client {
             .await
     }
 
+    /// Nodes changed after cursor `since`, or only the current cursor without it.
+    ///
+    /// Fails with [`ErrorCode::Gone`](protocol::ErrorCode::Gone) when the server no longer
+    /// keeps the changes after `since`; the caller then reads the whole tree again.
+    pub async fn changes(&self, since: Option<i64>) -> Result<ChangesResponse, ApiError> {
+        let query = ChangesQuery { since, limit: None };
+        self.send_json(|| self.http.get(self.url(paths::CHANGES)).query(&query))
+            .await
+    }
+
     /// Metadata of one node.
     pub async fn get(&self, id: NodeId) -> Result<Node, ApiError> {
         self.send_json(|| self.http.get(self.url(&paths::node(id))))
@@ -312,13 +325,54 @@ impl Client {
     where
         B: Fn() -> reqwest::Body,
     {
+        self.upload_modified(parent, name, None, body).await
+    }
+
+    /// Uploads a file whose content was last changed at `modified_at`.
+    ///
+    /// When a file of that name already holds content changed later, the upload is kept as
+    /// one of its versions and the returned file keeps its current content.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn upload_modified<B>(
+        &self,
+        parent: Option<NodeId>,
+        name: &str,
+        modified_at: Option<OffsetDateTime>,
+        body: B,
+    ) -> Result<Node, ApiError>
+    where
+        B: Fn() -> reqwest::Body,
+    {
         let query = UploadQuery {
             parent_id: parent,
             name: name.to_owned(),
+            modified_at,
         };
         self.send_json(|| {
             self.http
                 .post(self.url(paths::FILES))
+                .query(&query)
+                .body(body())
+        })
+        .await
+    }
+
+    /// Replaces the content of file `id`, last changed at `modified_at`; content older than
+    /// the current one is kept as a version instead.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn replace_content<B>(
+        &self,
+        id: NodeId,
+        modified_at: Option<OffsetDateTime>,
+        body: B,
+    ) -> Result<Node, ApiError>
+    where
+        B: Fn() -> reqwest::Body,
+    {
+        let query = ContentQuery { modified_at };
+        self.send_json(|| {
+            self.http
+                .put(self.url(&paths::file_content(id)))
                 .query(&query)
                 .body(body())
         })

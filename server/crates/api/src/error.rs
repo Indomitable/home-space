@@ -16,6 +16,8 @@ pub enum ApiError {
     Unauthorized,
     #[error("not found")]
     NotFound,
+    #[error("no longer available")]
+    Gone,
     #[error(transparent)]
     Auth(#[from] AuthError),
     #[error(transparent)]
@@ -45,6 +47,7 @@ impl ApiError {
             Self::Files(FilesError::InvalidName | FilesError::Cycle | FilesError::NotAFile) => {
                 (StatusCode::BAD_REQUEST, ErrorCode::BadRequest)
             }
+            Self::Gone => (StatusCode::GONE, ErrorCode::Gone),
             Self::Files(FilesError::TooLarge { .. }) => {
                 (StatusCode::PAYLOAD_TOO_LARGE, ErrorCode::PayloadTooLarge)
             }

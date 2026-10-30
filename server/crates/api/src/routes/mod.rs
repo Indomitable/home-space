@@ -1,4 +1,5 @@
 mod auth;
+mod changes;
 mod nodes;
 mod search;
 mod trash;
@@ -13,6 +14,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/health", get(health))
         .merge(auth::routes())
+        .merge(changes::routes())
         .merge(nodes::routes())
         .merge(trash::routes())
         .merge(search::routes())

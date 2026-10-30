@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque, hash_map::Entry};
 
 use sqlx::PgConnection;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
@@ -29,6 +30,17 @@ pub struct NewNode {
     pub mime: String,
 }
 
+/// Content to store in a file.
+#[derive(Clone, Debug)]
+pub struct NewContent {
+    pub size: i64,
+    pub sha256: Vec<u8>,
+    pub mime: String,
+    /// When the client last changed the content; `None` means now. A time in the future
+    /// counts as now.
+    pub modified_at: Option<OffsetDateTime>,
+}
+
 /// A blob operation the storage layer must perform after a database change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BlobOp {
@@ -51,13 +63,22 @@ pub enum StoreOutcome {
         node: Node,
         archived: Uuid,
     },
+    /// The content was older than the current one and was kept as version `archived`; the
+    /// current content did not change.
+    Archived {
+        node: Node,
+        archived: Uuid,
+    },
 }
 
 impl StoreOutcome {
     /// The file the content was stored in.
     pub fn into_node(self) -> Node {
         match self {
-            Self::Created(node) | Self::Unchanged(node) | Self::Versioned { node, .. } => node,
+            Self::Created(node)
+            | Self::Unchanged(node)
+            | Self::Versioned { node, .. }
+            | Self::Archived { node, .. } => node,
         }
     }
 }
@@ -305,25 +326,24 @@ impl Db {
     /// Stores content for the file `name` under `parent`.
     ///
     /// Creates the file, keeps the existing one when the content is identical, or archives
-    /// the previous content as a version.
+    /// the previous content as a version; see [`apply_content`] for how it settles which content stays current.
     pub async fn store_file(
         &self,
         owner: UserId,
         parent: Option<NodeId>,
         name: &str,
-        size: i64,
-        sha256: Vec<u8>,
-        mime: &str,
+        content: NewContent,
     ) -> Result<StoreOutcome, DbError> {
         let mut tx = self.pool().begin().await?;
         require_folder(&mut tx, owner, parent).await?;
         let existing = find_sibling(&mut tx, owner, parent, NodeKind::File, name, None).await?;
         let outcome = match existing {
-            Some(node) => apply_content(&mut tx, node, size, sha256, mime).await?,
+            Some(node) => apply_content(&mut tx, node, content).await?,
             None => {
                 let node = sqlx::query_as::<_, Node>(concat!(
-                    "INSERT INTO nodes (id, owner_id, parent_id, kind, name, size, sha256, mime) \
-                     VALUES ($1, $2, $3, 'file', $4, $5, $6, $7) RETURNING ",
+                    "INSERT INTO nodes \
+                     (id, owner_id, parent_id, kind, name, size, sha256, mime, updated_at) \
+                     VALUES ($1, $2, $3, 'file', $4, $5, $6, $7, COALESCE($8, now())) RETURNING ",
                     node_columns!(),
                     ""
                 ))
@@ -331,9 +351,10 @@ impl Db {
                 .bind(owner)
                 .bind(parent)
                 .bind(name)
-                .bind(size)
-                .bind(sha256)
-                .bind(mime)
+                .bind(content.size)
+                .bind(content.sha256)
+                .bind(content.mime)
+                .bind(clamp_to_now(content.modified_at))
                 .fetch_one(&mut *tx)
                 .await?;
                 StoreOutcome::Created(node)
@@ -349,16 +370,14 @@ impl Db {
         &self,
         owner: UserId,
         id: NodeId,
-        size: i64,
-        sha256: Vec<u8>,
-        mime: &str,
+        content: NewContent,
     ) -> Result<StoreOutcome, DbError> {
         let mut tx = self.pool().begin().await?;
         let node = lock_node(&mut tx, owner, id).await?;
         if node.kind != NodeKind::File {
             return Err(DbError::NotFound);
         }
-        let outcome = apply_content(&mut tx, node, size, sha256, mime).await?;
+        let outcome = apply_content(&mut tx, node, content).await?;
         tx.commit().await?;
         Ok(outcome)
     }
@@ -899,33 +918,85 @@ async fn archive_current(conn: &mut PgConnection, node: &Node) -> Result<Uuid, D
     Ok(id)
 }
 
+/// Stores new content in `node`.
+///
+/// Identical content changes nothing. Content changed by the client before the current one
+/// (`modified_at` older than `updated_at`) is kept as a version so neither side is lost while
+/// the newer content stays current; otherwise it becomes current and the previous content a
+/// version.
 async fn apply_content(
     conn: &mut PgConnection,
     node: Node,
-    size: i64,
-    sha256: Vec<u8>,
-    mime: &str,
+    content: NewContent,
 ) -> Result<StoreOutcome, DbError> {
-    if same_content(&node, size, Some(&sha256)) {
+    if same_content(&node, content.size, Some(&content.sha256)) {
         return Ok(StoreOutcome::Unchanged(node));
+    }
+    let modified_at = clamp_to_now(content.modified_at);
+    if let Some(at) = modified_at.filter(|at| *at < node.updated_at) {
+        return archive_older(conn, node, content, at).await;
     }
     let archived = archive_current(conn, &node).await?;
     let updated = sqlx::query_as::<_, Node>(concat!(
         "UPDATE nodes SET size = $2, sha256 = $3, mime = $4, version = version + 1, \
-         updated_at = now() WHERE id = $1 RETURNING ",
+         updated_at = COALESCE($5, now()) WHERE id = $1 RETURNING ",
         node_columns!(),
         ""
     ))
     .bind(node.id)
-    .bind(size)
-    .bind(sha256)
-    .bind(mime)
+    .bind(content.size)
+    .bind(content.sha256)
+    .bind(content.mime)
+    .bind(modified_at)
     .fetch_one(conn)
     .await?;
     Ok(StoreOutcome::Versioned {
         node: updated,
         archived,
     })
+}
+
+/// Keeps content older than the current one as a version, taking the current version number
+/// and moving the current content to the next one.
+async fn archive_older(
+    conn: &mut PgConnection,
+    node: Node,
+    content: NewContent,
+    modified_at: OffsetDateTime,
+) -> Result<StoreOutcome, DbError> {
+    let archived = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO file_versions \
+         (id, node_id, owner_id, version, size, sha256, mime, modified_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+    )
+    .bind(archived)
+    .bind(node.id)
+    .bind(node.owner_id)
+    .bind(node.version)
+    .bind(content.size)
+    .bind(content.sha256)
+    .bind(content.mime)
+    .bind(modified_at)
+    .execute(&mut *conn)
+    .await?;
+    let updated = sqlx::query_as::<_, Node>(concat!(
+        "UPDATE nodes SET version = version + 1 WHERE id = $1 RETURNING ",
+        node_columns!(),
+        ""
+    ))
+    .bind(node.id)
+    .fetch_one(conn)
+    .await?;
+    Ok(StoreOutcome::Archived {
+        node: updated,
+        archived,
+    })
+}
+
+/// A client time in the future would win every later conflict, so it counts as now.
+fn clamp_to_now(at: Option<OffsetDateTime>) -> Option<OffsetDateTime> {
+    at.map(|at| at.min(OffsetDateTime::now_utc()))
 }
 
 #[cfg(test)]

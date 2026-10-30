@@ -9,6 +9,8 @@ pub enum ErrorCode {
     Conflict,
     BadRequest,
     PayloadTooLarge,
+    /// What was asked for is no longer kept, such as pruned changes.
+    Gone,
     Internal,
 }
 

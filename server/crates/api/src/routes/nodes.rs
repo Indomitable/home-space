@@ -17,8 +17,8 @@ use tokio_util::io::ReaderStream;
 use db::{MoveOutcome, NodeUpdate, StoreOutcome};
 use notifications::Event;
 use protocol::{
-    CreateFolderRequest, FileVersion, ListQuery, MoveRequest, MoveResponse, Node, NodeId,
-    TicketRequest, UpdateRequest, UploadQuery,
+    ContentQuery, CreateFolderRequest, FileVersion, ListQuery, MoveRequest, MoveResponse, Node,
+    NodeId, TicketRequest, UpdateRequest, UploadQuery,
 };
 
 use crate::{
@@ -121,6 +121,7 @@ async fn upload(
             query.parent_id,
             &query.name,
             declared_type(&headers),
+            query.modified_at,
             body_stream(body),
         )
         .await?;
@@ -132,11 +133,18 @@ async fn replace_content(
     user: AuthUser,
     headers: HeaderMap,
     Path(id): Path<NodeId>,
+    Query(query): Query<ContentQuery>,
     body: Body,
 ) -> Result<Json<Node>, ApiError> {
     let outcome = state
         .files
-        .replace_content(user.id, id, declared_type(&headers), body_stream(body))
+        .replace_content(
+            user.id,
+            id,
+            declared_type(&headers),
+            query.modified_at,
+            body_stream(body),
+        )
         .await?;
     let (_, Json(node)) = publish_stored(&state, user.id, outcome).await;
     Ok(Json(node))
@@ -156,6 +164,13 @@ async fn publish_stored(
                 .hub
                 .publish(owner, Event::NodeCreated { node: node.clone() });
             (StatusCode::CREATED, Json(node))
+        }
+        StoreOutcome::Archived { node, .. } => {
+            let node = Node::from(node);
+            state
+                .hub
+                .publish(owner, Event::NodeUpdated { node: node.clone() });
+            (StatusCode::OK, Json(node))
         }
         StoreOutcome::Versioned { node, .. } => {
             state.search.enqueue_content(owner, node.id);

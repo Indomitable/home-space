@@ -31,6 +31,10 @@ pub struct Config {
 
     #[arg(long, env = "HOMESPACE_REFRESH_TTL_SECS", default_value_t = 30 * 24 * 3600)]
     pub refresh_ttl_secs: i64,
+
+    /// How long the change journal keeps entries; clients offline for longer resync fully.
+    #[arg(long, env = "HOMESPACE_CHANGES_RETENTION_DAYS", default_value_t = 30)]
+    pub changes_retention_days: i64,
 }
 
 impl Config {

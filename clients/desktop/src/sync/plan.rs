@@ -652,7 +652,7 @@ mod tests {
                 .into_iter()
                 .map(|(rel, entry)| (p(rel), entry))
                 .collect(),
-            blind: Vec::new(),
+            ..Scan::default()
         }
     }
 
@@ -1037,6 +1037,7 @@ mod tests {
         let blind = Scan {
             entries: HashMap::new(),
             blind: vec![PathBuf::from(ROOT)],
+            ..Scan::default()
         };
         assert_eq!(plan(&layout, &blind, &[base(1, "a.txt", "x")]), []);
     }

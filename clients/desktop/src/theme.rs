@@ -126,3 +126,11 @@ pub fn badge(theme: &Theme) -> container::Style {
         ..container::Style::default()
     }
 }
+
+/// Secondary text, such as where a folder syncs to.
+pub fn muted(theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(theme.extended_palette().background.strongest.color),
+        ..container::Style::default()
+    }
+}

@@ -13,7 +13,7 @@ use protocol::{Node, NodeKind};
 use super::{
     Message,
     selection::{Coverage, Selection},
-    syncing::badge_icon,
+    syncing::{badge_icon, display_path},
 };
 use crate::{
     ellipsis::ellipsized,
@@ -40,6 +40,7 @@ const SORT_ARROW_GAP: f32 = 8.0;
 pub(super) const ROW_SIZE: f32 = 15.0;
 pub(super) const EMPTY_PADDING: f32 = 32.0;
 const BADGE_SIZE: f32 = 12.0;
+const LOCATION_SIZE: f32 = 12.0;
 const BADGE_PADDING: f32 = 1.0;
 /// The icon cell, leaving room for the badge to sit on the icon's corner.
 const ICON_BOX: f32 = ICON_SIZE + 6.0;
@@ -120,9 +121,15 @@ pub fn rows<'a>(nodes: &'a [Node], selection: &Selection, sync: &Status) -> Elem
             .center_x(Length::Fill)
             .into()
     } else {
-        let rows = nodes
-            .iter()
-            .map(|node| node_row(node, selection.contains(node.id), sync.badge(Some(node.id))));
+        let rows = nodes.iter().map(|node| {
+            let location = sync.location(Some(node.id)).map(display_path);
+            node_row(
+                node,
+                selection.contains(node.id),
+                sync.badge(Some(node.id)),
+                location,
+            )
+        });
         scrollable(
             column(rows)
                 .spacing(ROW_GAP)
@@ -133,7 +140,12 @@ pub fn rows<'a>(nodes: &'a [Node], selection: &Selection, sync: &Status) -> Elem
     }
 }
 
-fn node_row(node: &Node, selected: bool, badge: Option<Badge>) -> Element<'_, Message> {
+fn node_row(
+    node: &Node,
+    selected: bool,
+    badge: Option<Badge>,
+    location: Option<String>,
+) -> Element<'_, Message> {
     let icon = node_icon(node);
     let tint = match icon {
         Icon::Folder => Tint::Accent,
@@ -152,7 +164,7 @@ fn node_row(node: &Node, selected: bool, badge: Option<Badge>) -> Element<'_, Me
         check(check_icon, Message::Toggle(node.id)),
         row![
             badged(icon.view(ICON_SIZE, tint), badge),
-            ellipsized(node.name.as_str(), ROW_SIZE, Alignment::Start).width(Length::Fill)
+            name_cell(node.name.as_str(), location)
         ]
         .spacing(CELL_SPACING / 1.5)
         .align_y(Alignment::Center)
@@ -170,6 +182,21 @@ fn node_row(node: &Node, selected: bool, badge: Option<Badge>) -> Element<'_, Me
     mouse_area(row_button)
         .on_right_press(Message::ContextMenu(node.id))
         .into()
+}
+
+/// The name, with the local folder it syncs to underneath when it has one.
+fn name_cell(name: &str, location: Option<String>) -> Element<'_, Message> {
+    let name = ellipsized(name, ROW_SIZE, Alignment::Start).width(Length::Fill);
+    match location {
+        Some(location) => column![
+            name,
+            container(ellipsized(location, LOCATION_SIZE, Alignment::Start).width(Length::Fill))
+                .style(theme::muted)
+        ]
+        .width(Length::Fill)
+        .into(),
+        None => name.into(),
+    }
 }
 
 /// `icon` with the sync `badge` on its lower right corner.

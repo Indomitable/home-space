@@ -44,6 +44,16 @@ pub enum Icon {
     Checked,
     Unchecked,
     Mixed,
+    Sync,
+    FolderOpen,
+    /// Sync badge: waiting to sync.
+    SyncPending,
+    /// Sync badge: in sync.
+    Synced,
+    /// Sync badge: syncing failed.
+    SyncProblem,
+    /// Sync badge: set to not sync.
+    SyncDisabled,
 }
 
 /// How an icon is tinted.
@@ -52,6 +62,7 @@ pub enum Tint {
     Text,
     Muted,
     Accent,
+    Success,
     Danger,
     Disabled,
 }
@@ -79,6 +90,12 @@ impl Icon {
             Self::Checked => include_bytes!("../assets/icons/check_box.svg"),
             Self::Unchecked => include_bytes!("../assets/icons/check_box_outline_blank.svg"),
             Self::Mixed => include_bytes!("../assets/icons/indeterminate_check_box.svg"),
+            Self::Sync => include_bytes!("../assets/icons/sync.svg"),
+            Self::FolderOpen => include_bytes!("../assets/icons/folder_open.svg"),
+            Self::SyncPending => include_bytes!("../assets/icons/schedule.svg"),
+            Self::Synced => include_bytes!("../assets/icons/check_circle.svg"),
+            Self::SyncProblem => include_bytes!("../assets/icons/sync_problem.svg"),
+            Self::SyncDisabled => include_bytes!("../assets/icons/sync_disabled.svg"),
         }
     }
 
@@ -100,6 +117,7 @@ fn tint_color(theme: &Theme, tint: Tint) -> Color {
         Tint::Text => palette.background.base.text,
         Tint::Muted => palette.background.strongest.color,
         Tint::Accent => palette.primary.base.color,
+        Tint::Success => palette.success.base.color,
         Tint::Danger => palette.danger.base.color,
         // The svg tint drops alpha, so blend with the background into an opaque colour.
         Tint::Disabled => mix(

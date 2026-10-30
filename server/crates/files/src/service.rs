@@ -2,11 +2,13 @@ use std::io;
 
 use bytes::Bytes;
 use futures_util::Stream;
+use time::OffsetDateTime;
 use tokio::fs;
 
 use db::{
-    BlobOp, Db, DeletedNodes, FOLDER_MIME, FileVersion, MoveBatch, MoveOutcome, NewNode, Node,
-    NodeId, NodeKind, NodeUpdate, OnConflict, StoreOutcome, TrashOutcome, TrashedNode, UserId,
+    BlobOp, Db, DeletedNodes, FOLDER_MIME, FileVersion, MoveBatch, MoveOutcome, NewContent,
+    NewNode, Node, NodeId, NodeKind, NodeUpdate, OnConflict, StoreOutcome, TrashOutcome,
+    TrashedNode, UserId,
 };
 
 use crate::{BlobStore, FilesError, store::StagedBlob};
@@ -52,13 +54,15 @@ impl FileService {
     /// Stores a file streamed from `body`.
     ///
     /// A new name creates the file, identical content under an existing name changes nothing,
-    /// and different content becomes a new version of the existing file.
+    /// and different content becomes a new version of the existing file. Content last changed
+    /// at `modified_at`, before the existing file, is kept as one of its versions instead.
     pub async fn upload<S>(
         &self,
         owner: UserId,
         parent: Option<NodeId>,
         name: &str,
         content_type: Option<&str>,
+        modified_at: Option<OffsetDateTime>,
         body: S,
     ) -> Result<StoreOutcome, FilesError>
     where
@@ -74,20 +78,20 @@ impl FileService {
                 owner,
                 parent,
                 name,
-                size_as_i64(&staged),
-                staged.sha256.clone(),
-                &resolve_mime(content_type, name),
+                new_content(&staged, content_type, name, modified_at),
             )
             .await;
         self.finish_store(owner, staged, stored).await
     }
 
-    /// Replaces the content of an existing file; different content becomes a new version.
+    /// Replaces the content of an existing file; different content becomes a new version, or
+    /// an older one when it was last changed before the current content.
     pub async fn replace_content<S>(
         &self,
         owner: UserId,
         id: NodeId,
         content_type: Option<&str>,
+        modified_at: Option<OffsetDateTime>,
         body: S,
     ) -> Result<StoreOutcome, FilesError>
     where
@@ -103,9 +107,7 @@ impl FileService {
             .replace_file_content(
                 owner,
                 id,
-                size_as_i64(&staged),
-                staged.sha256.clone(),
-                &resolve_mime(content_type, &current.name),
+                new_content(&staged, content_type, &current.name, modified_at),
             )
             .await;
         self.finish_store(owner, staged, stored).await
@@ -135,6 +137,9 @@ impl FileService {
             StoreOutcome::Versioned { node, archived } => {
                 self.store.archive(owner, node.id, *archived).await?;
                 self.store.commit(staged, owner, node.id).await?;
+            }
+            StoreOutcome::Archived { archived, .. } => {
+                self.store.commit_version(staged, owner, *archived).await?;
             }
         }
         Ok(outcome)
@@ -310,6 +315,20 @@ fn size_as_i64(staged: &StagedBlob) -> i64 {
     i64::try_from(staged.size).unwrap_or(i64::MAX)
 }
 
+fn new_content(
+    staged: &StagedBlob,
+    content_type: Option<&str>,
+    name: &str,
+    modified_at: Option<OffsetDateTime>,
+) -> NewContent {
+    NewContent {
+        size: size_as_i64(staged),
+        sha256: staged.sha256.clone(),
+        mime: resolve_mime(content_type, name),
+        modified_at,
+    }
+}
+
 /// Picks the MIME type to store for a file.
 ///
 /// The type declared by the client wins unless it is missing, invalid or the generic
@@ -365,7 +384,7 @@ mod tests {
         let fx = fixture(pool, 1024).await;
         let node = fx
             .files
-            .upload(fx.alice, None, "note.txt", None, body("hello"))
+            .upload(fx.alice, None, "note.txt", None, None, body("hello"))
             .await
             .map(StoreOutcome::into_node)
             .expect("upload");
@@ -395,7 +414,7 @@ mod tests {
             .expect("b");
         let file = fx
             .files
-            .upload(fx.alice, Some(b.id), "f.txt", None, body("x"))
+            .upload(fx.alice, Some(b.id), "f.txt", None, None, body("x"))
             .await
             .map(StoreOutcome::into_node)
             .expect("file");
@@ -436,7 +455,7 @@ mod tests {
         let fx = fixture(pool, 1024).await;
         let node = fx
             .files
-            .upload(fx.alice, None, "note.txt", None, body("hello"))
+            .upload(fx.alice, None, "note.txt", None, None, body("hello"))
             .await
             .map(StoreOutcome::into_node)
             .expect("upload");
@@ -464,16 +483,35 @@ mod tests {
             .expect("folder");
         let result = fx
             .files
-            .upload(fx.bob, Some(folder.id), "x.txt", None, body("hi"))
+            .upload(fx.bob, Some(folder.id), "x.txt", None, None, body("hi"))
             .await;
         assert!(matches!(result, Err(FilesError::NotFound)));
     }
 
     async fn put(fx: &Fixture, parent: Option<NodeId>, name: &str, text: &'static str) -> Node {
         fx.files
-            .upload(fx.alice, parent, name, None, body(text))
+            .upload(fx.alice, parent, name, None, None, body(text))
             .await
             .map(StoreOutcome::into_node)
+            .expect("upload")
+    }
+
+    /// Now shifted by `offset`, at the microsecond precision the database keeps.
+    fn now_plus(offset: time::Duration) -> OffsetDateTime {
+        let at = OffsetDateTime::now_utc() + offset;
+        at.replace_nanosecond(at.nanosecond() / 1000 * 1000)
+            .expect("nanosecond")
+    }
+
+    async fn put_at(
+        fx: &Fixture,
+        name: &str,
+        text: &'static str,
+        at: OffsetDateTime,
+    ) -> StoreOutcome {
+        fx.files
+            .upload(fx.alice, None, name, None, Some(at), body(text))
+            .await
             .expect("upload")
     }
 
@@ -509,7 +547,7 @@ mod tests {
         let first = put(&fx, None, "a.txt", "same").await;
         let second = fx
             .files
-            .upload(fx.alice, None, "a.txt", None, body("same"))
+            .upload(fx.alice, None, "a.txt", None, None, body("same"))
             .await
             .expect("upload");
         assert!(matches!(second, StoreOutcome::Unchanged(ref node) if node.id == first.id));
@@ -531,6 +569,70 @@ mod tests {
         assert_eq!((second.id, second.version), (first.id, 2));
         assert_eq!(content_of(&fx, first.id).await, "two");
         assert_eq!(version_content(&fx, first.id, 1).await, "one");
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_new_file_takes_the_client_modification_time(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let at = now_plus(-time::Duration::hours(1));
+        let node = put_at(&fx, "a.txt", "one", at).await.into_node();
+        assert_eq!(node.updated_at, at);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_future_modification_time_counts_as_now(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let at = now_plus(time::Duration::days(1));
+        let node = put_at(&fx, "a.txt", "one", at).await.into_node();
+        assert!(node.updated_at < at);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn newer_content_becomes_current(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let first = put_at(&fx, "a.txt", "old", now_plus(-time::Duration::hours(2)))
+            .await
+            .into_node();
+        let newer = now_plus(-time::Duration::hours(1));
+        let outcome = put_at(&fx, "a.txt", "new", newer).await;
+        assert!(matches!(outcome, StoreOutcome::Versioned { .. }));
+        let node = outcome.into_node();
+        assert_eq!((node.version, node.updated_at), (2, newer));
+        assert_eq!(content_of(&fx, first.id).await, "new");
+        assert_eq!(version_content(&fx, first.id, 1).await, "old");
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn older_content_is_kept_as_a_version_and_the_current_one_stays(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let current_at = now_plus(-time::Duration::hours(1));
+        let first = put_at(&fx, "a.txt", "current", current_at)
+            .await
+            .into_node();
+        let outcome = put_at(&fx, "a.txt", "older", now_plus(-time::Duration::hours(2))).await;
+        assert!(matches!(outcome, StoreOutcome::Archived { .. }));
+        let node = outcome.into_node();
+        assert_eq!(
+            (node.id, node.version, node.updated_at),
+            (first.id, 2, current_at)
+        );
+        assert_eq!(content_of(&fx, first.id).await, "current");
+        assert_eq!(version_content(&fx, first.id, 1).await, "older");
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn replacing_with_older_content_keeps_it_as_a_version(pool: PgPool) {
+        let fx = fixture(pool, 1024).await;
+        let file = put(&fx, None, "a.txt", "current").await;
+        let older = now_plus(-time::Duration::hours(1));
+        let outcome = fx
+            .files
+            .replace_content(fx.alice, file.id, None, Some(older), body("older"))
+            .await
+            .expect("replace");
+        assert!(matches!(outcome, StoreOutcome::Archived { .. }));
+        assert_eq!(content_of(&fx, file.id).await, "current");
+        assert_eq!(version_content(&fx, file.id, 1).await, "older");
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -732,7 +834,7 @@ mod tests {
         let fx = fixture(pool, 3).await;
         let result = fx
             .files
-            .upload(fx.alice, None, "a.txt", None, body("hello"))
+            .upload(fx.alice, None, "a.txt", None, None, body("hello"))
             .await;
         assert!(matches!(result, Err(FilesError::TooLarge { limit: 3 })));
     }
@@ -884,7 +986,7 @@ mod tests {
         );
         not_found(
             fx.files
-                .upload(fx.alice, Some(trash), "b.txt", None, body("x"))
+                .upload(fx.alice, Some(trash), "b.txt", None, None, body("x"))
                 .await
                 .map(drop),
         );
@@ -985,7 +1087,7 @@ mod tests {
         ));
         assert!(matches!(
             fx.files
-                .replace_content(fx.alice, file.id, None, body("x"))
+                .replace_content(fx.alice, file.id, None, None, body("x"))
                 .await,
             Err(FilesError::NotFound)
         ));
@@ -1318,7 +1420,7 @@ mod tests {
         let live = put(&fx, None, "live.txt", "l").await;
         let bobs = fx
             .files
-            .upload(fx.bob, None, "bob.txt", None, body("bob"))
+            .upload(fx.bob, None, "bob.txt", None, None, body("bob"))
             .await
             .map(StoreOutcome::into_node)
             .expect("bob");
@@ -1371,13 +1473,13 @@ mod tests {
         let fx = fixture(pool, 1024).await;
         let file = fx
             .files
-            .upload(fx.alice, None, "a.txt", None, body("hi"))
+            .upload(fx.alice, None, "a.txt", None, None, body("hi"))
             .await
             .map(StoreOutcome::into_node)
             .expect("upload");
         let updated = fx
             .files
-            .replace_content(fx.alice, file.id, None, body("longer"))
+            .replace_content(fx.alice, file.id, None, None, body("longer"))
             .await
             .map(StoreOutcome::into_node)
             .expect("replace");

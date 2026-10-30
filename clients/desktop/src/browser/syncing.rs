@@ -8,12 +8,13 @@ use iced::{
     widget::{button, column, container, row, scrollable, space, text},
 };
 
+use api_client::format::human_size;
 use protocol::{Node, NodeId, NodeKind};
 
 use super::{HOME, Message};
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},
-    sync::{self, Badge, Command, Commands, Mapping, Status},
+    sync::{self, Activity, Badge, Command, Commands, Mapping, Status},
     theme,
 };
 
@@ -32,6 +33,27 @@ pub struct Syncing {
     status: Arc<Status>,
     /// Whether the sync settings are shown.
     pub settings: bool,
+    /// A picked folder waiting for the user to confirm it.
+    pub confirm: Option<Confirm>,
+    /// Why the last mapping was refused.
+    pub notice: Option<String>,
+}
+
+/// A local folder picked for a remote one, shown before syncing starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Confirm {
+    pub remote: Option<NodeId>,
+    /// The remote folder's name.
+    pub name: String,
+    pub local: PathBuf,
+    pub contents: Contents,
+}
+
+/// What a local folder already holds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Contents {
+    pub files: u64,
+    pub bytes: u64,
 }
 
 /// A context menu entry about syncing a folder.
@@ -51,9 +73,23 @@ impl Syncing {
         match update {
             sync::Update::Ready(commands) => self.commands = Some(commands),
             sync::Update::Status(status) => self.status = status,
-            sync::Update::Rejected(reason) => return Some(reason),
+            sync::Update::Rejected(reason) => {
+                self.notice = Some(reason.clone());
+                return Some(reason);
+            }
         }
         None
+    }
+
+    /// Starts syncing what was confirmed.
+    pub fn confirmed(&mut self) {
+        if let Some(confirm) = self.confirm.take() {
+            self.notice = None;
+            self.send(Command::Map(Mapping {
+                remote: confirm.remote,
+                local: Some(confirm.local),
+            }));
+        }
     }
 
     pub fn send(&self, command: Command) {
@@ -129,7 +165,17 @@ pub fn badge_icon(badge: Badge) -> (Icon, Tint) {
 
 /// The header button summing up the sync, which opens its settings.
 pub fn indicator(status: &Status) -> Element<'_, Message> {
+    let busy = match status.activity {
+        Activity::Checking => Some("Checking server…"),
+        Activity::Scanning => Some("Scanning…"),
+        Activity::Idle | Activity::Syncing => None,
+    };
     let (icon, tint, label) = match status.overall() {
+        _ if status.pending == 0 && busy.is_some() => (
+            Icon::SyncPending,
+            Tint::Accent,
+            busy.unwrap_or_default().to_owned(),
+        ),
         None => (Icon::Sync, Tint::Muted, "Sync".to_owned()),
         Some(Badge::Synced) => (Icon::Synced, Tint::Success, "Up to date".to_owned()),
         Some(Badge::Pending) => (
@@ -151,8 +197,80 @@ pub fn indicator(status: &Status) -> Element<'_, Message> {
     .into()
 }
 
+/// Asks before syncing a remote folder with the picked local folder, showing what it holds.
+pub fn confirm(confirm: &Confirm) -> Element<'_, Message> {
+    let name = confirm.name.as_str();
+    let explanation = if confirm.contents.files == 0 {
+        format!("The folder is empty. What “{name}” holds is downloaded into it.")
+    } else {
+        format!(
+            "It already holds {} ({}). They are uploaded to “{name}”, and what \
+             “{name}” holds is downloaded next to them. Where both have a file of \
+             the same name, the newer one stays current and the other is kept as an \
+             earlier version.",
+            files(confirm.contents.files),
+            human_size(i64::try_from(confirm.contents.bytes).unwrap_or(i64::MAX)),
+        )
+    };
+    let buttons = row![
+        space::horizontal(),
+        button(text("Cancel"))
+            .style(button::secondary)
+            .on_press(Message::SyncConfirm(false)),
+        button(text("Sync")).on_press(Message::SyncConfirm(true)),
+    ]
+    .spacing(SPACING);
+    let panel = column![
+        text(format!("Sync “{name}” with this folder?")).size(TITLE_SIZE),
+        text(display_path(&confirm.local)),
+        text(explanation).size(NOTE_SIZE),
+        buttons,
+    ]
+    .spacing(SPACING);
+    container(panel)
+        .padding(PANEL_PADDING)
+        .width(PANEL_WIDTH)
+        .style(theme::panel)
+        .into()
+}
+
+fn files(count: u64) -> String {
+    if count == 1 {
+        "1 file".to_owned()
+    } else {
+        format!("{count} files")
+    }
+}
+
+/// Counts the files under `path` and their size.
+pub async fn measure(path: PathBuf) -> Contents {
+    tokio::task::spawn_blocking(move || {
+        let mut contents = Contents::default();
+        let mut pending = vec![path];
+        while let Some(dir) = pending.pop() {
+            let Ok(listing) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in listing.flatten() {
+                let Ok(meta) = entry.metadata() else {
+                    continue;
+                };
+                if meta.is_dir() {
+                    pending.push(entry.path());
+                } else if meta.is_file() {
+                    contents.files += 1;
+                    contents.bytes += meta.len();
+                }
+            }
+        }
+        contents
+    })
+    .await
+    .unwrap_or_default()
+}
+
 /// The sync settings: what syncs where, and what went wrong.
-pub fn settings(status: &Status) -> Element<'_, Message> {
+pub fn settings<'a>(status: &'a Status, notice: Option<&'a str>) -> Element<'a, Message> {
     let close = button(Icon::Close.view(ICON_SIZE, Tint::Muted))
         .style(theme::tool)
         .on_press(Message::SyncSettings(false));
@@ -160,8 +278,8 @@ pub fn settings(status: &Status) -> Element<'_, Message> {
         row![text("Sync").size(TITLE_SIZE), space::horizontal(), close].align_y(Alignment::Center)
     ]
     .spacing(SPACING);
-    if let Some(error) = &status.error {
-        panel = panel.push(container(text(error.as_str())).style(theme::error));
+    for error in status.error.as_deref().into_iter().chain(notice) {
+        panel = panel.push(container(text(error)).style(theme::error));
     }
     if status.mapping(None).is_none() {
         panel = panel.push(mapping_row(HOME.to_owned(), None, None));
@@ -299,10 +417,14 @@ pub fn reveal(path: &Path) -> Result<(), String> {
 
 /// Asks for the local folder to sync with.
 pub async fn pick_folder() -> Option<PathBuf> {
+    // A single pick reads the panel's URL, which on macOS can be the parent of a folder that
+    // was just created in the panel; the list of selected folders is reliable.
     rfd::AsyncFileDialog::new()
         .set_title("Choose the local folder to sync with")
-        .pick_folder()
-        .await
+        .pick_folders()
+        .await?
+        .into_iter()
+        .next()
         .map(|folder| folder.path().to_path_buf())
 }
 

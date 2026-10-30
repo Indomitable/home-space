@@ -20,7 +20,10 @@ use std::{
     collections::HashMap,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -67,6 +70,19 @@ pub enum Update {
     Rejected(String),
 }
 
+/// What the engine is busy with.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Activity {
+    #[default]
+    Idle,
+    /// Reading what changed on the server.
+    Checking,
+    /// Looking through the local folders, hashing new and changed files.
+    Scanning,
+    /// Moving, transferring and deleting.
+    Syncing,
+}
+
 /// A snapshot of the sync for the interface.
 #[derive(Debug, Clone, Default)]
 pub struct Status {
@@ -83,6 +99,7 @@ pub struct Status {
     pub problems: Vec<(PathBuf, String)>,
     /// Why the last pass could not run, such as the server being unreachable.
     pub error: Option<String>,
+    pub activity: Activity,
 }
 
 impl Status {
@@ -196,6 +213,8 @@ fn run(client: Client, user: UserId) -> impl Stream<Item = Update> {
                     let Some(command) = command else { break };
                     if engine.handle(command, &mut output).await {
                         watcher = engine.watch(&changed);
+                        engine.activity = Activity::Checking;
+                        engine.report_now(&mut output).await;
                     }
                     due = Some(due.map_or(Instant::now(), |at| at.min(Instant::now())));
                 }
@@ -235,6 +254,18 @@ struct Engine {
     /// Set when the mapped folders must be read from scratch.
     reload: bool,
     problems: HashMap<PathBuf, Problem>,
+    /// Local paths the last scan could not read, with why.
+    unreadable: Vec<(PathBuf, String)>,
+    activity: Activity,
+    /// Set when the engine goes away, so a scan on a blocking thread stops with it; the
+    /// app cannot quit while one runs.
+    stop: Arc<AtomicBool>,
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
 }
 
 impl Engine {
@@ -254,6 +285,9 @@ impl Engine {
             mirror,
             store,
             problems: HashMap::new(),
+            unreadable: Vec::new(),
+            activity: Activity::Idle,
+            stop: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -316,9 +350,13 @@ impl Engine {
     /// local or remote changes call for one earlier.
     async fn pass(&mut self, output: &mut Sender<Update>) -> Result<Option<Duration>, SignedOut> {
         if self.mappings.iter().all(|m| m.local.is_none()) {
+            self.activity = Activity::Idle;
+            self.unreadable.clear();
             self.report(output, &Layout::default(), &[], None).await;
             return Ok(None);
         }
+        self.activity = Activity::Checking;
+        self.report_now(output).await;
         let refreshed = if self.reload {
             self.mirror.reload(&self.client, &self.mappings).await
         } else {
@@ -331,6 +369,7 @@ impl Engine {
             }
             Err(ApiError::Unauthorized) => return Err(SignedOut),
             Err(err) => {
+                self.activity = Activity::Idle;
                 let layout = Layout::new(&self.mirror.nodes, &self.mappings);
                 self.report(
                     output,
@@ -344,7 +383,10 @@ impl Engine {
         }
         let layout = Layout::new(&self.mirror.nodes, &self.mappings);
         let bases = self.store.bases().unwrap_or_default();
+        self.activity = Activity::Scanning;
+        self.report(output, &layout, &[], None).await;
         let scan = self.scan(&layout, &bases).await;
+        self.unreadable.clone_from(&scan.unreadable);
         let now = Instant::now();
         let planned = plan::plan(&layout, &scan, &bases);
         // A path with nothing left to do was resolved meanwhile, perhaps by the user.
@@ -363,11 +405,16 @@ impl Engine {
                 })
             })
             .collect();
-        self.report(output, &layout, &actions, None).await;
         if actions.is_empty() {
+            self.activity = Activity::Idle;
+            self.report(output, &layout, &[], None).await;
             return Ok(self.next_retry());
         }
+        self.activity = Activity::Syncing;
+        self.report(output, &layout, &actions, None).await;
         self.execute(output, &layout, actions).await?;
+        self.activity = Activity::Idle;
+        self.report(output, &layout, &[], None).await;
         Ok(Some(SETTLE))
     }
 
@@ -378,7 +425,8 @@ impl Engine {
             .iter()
             .map(|base| (base.path.clone(), base.clone()))
             .collect();
-        tokio::task::spawn_blocking(move || scan::scan(&roots, &skipped, &known))
+        let stop = Arc::clone(&self.stop);
+        tokio::task::spawn_blocking(move || scan::scan(&roots, &skipped, &known, &stop))
             .await
             .unwrap_or_else(|_| Scan {
                 blind: layout.roots.clone(),
@@ -521,6 +569,12 @@ impl Engine {
             .min()
     }
 
+    /// Reports with the layout of what is known now, between passes.
+    async fn report_now(&self, output: &mut Sender<Update>) {
+        let layout = Layout::new(&self.mirror.nodes, &self.mappings);
+        self.report(output, &layout, &[], None).await;
+    }
+
     async fn report(
         &self,
         output: &mut Sender<Update>,
@@ -533,7 +587,12 @@ impl Engine {
             .iter()
             .filter_map(|action| action.path().map(Path::to_path_buf))
             .collect();
-        let problem_paths: Vec<PathBuf> = self.problems.keys().cloned().collect();
+        let problem_paths: Vec<PathBuf> = self
+            .problems
+            .keys()
+            .chain(self.unreadable.iter().map(|(path, _)| path))
+            .cloned()
+            .collect();
         let badges = status::badges(
             layout,
             &self.mirror.nodes,
@@ -545,6 +604,7 @@ impl Engine {
             .problems
             .iter()
             .map(|(path, problem)| (path.clone(), problem.reason.clone()))
+            .chain(self.unreadable.iter().cloned())
             .collect();
         problems.sort();
         let names = self
@@ -566,6 +626,7 @@ impl Engine {
             pending: pending_paths.len(),
             problems,
             error,
+            activity: self.activity,
         };
         let _ = output.send(Update::Status(Arc::new(status))).await;
     }

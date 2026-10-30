@@ -117,6 +117,9 @@ pub enum Message {
     /// Asks for the local folder a remote folder (`None` for Home) syncs with.
     SyncPick(Option<NodeId>),
     SyncPicked(Option<NodeId>, Option<PathBuf>),
+    SyncMeasured(syncing::Confirm),
+    /// Whether to go ahead with the picked folder.
+    SyncConfirm(bool),
     SyncSet(sync::Mapping),
     SyncUnmap(Option<NodeId>),
     SyncOpenLocal(PathBuf),
@@ -378,10 +381,26 @@ impl State {
                 })
             }
             Message::SyncPicked(remote, Some(local)) => {
-                self.syncing.send(sync::Command::Map(sync::Mapping {
-                    remote,
-                    local: Some(local),
-                }));
+                let name = self.folder_name(remote);
+                Task::perform(syncing::measure(local.clone()), move |contents| {
+                    Message::SyncMeasured(syncing::Confirm {
+                        remote,
+                        name,
+                        local,
+                        contents,
+                    })
+                })
+            }
+            Message::SyncMeasured(confirm) => {
+                self.syncing.confirm = Some(confirm);
+                Task::none()
+            }
+            Message::SyncConfirm(true) => {
+                self.syncing.confirmed();
+                Task::none()
+            }
+            Message::SyncConfirm(false) => {
+                self.syncing.confirm = None;
                 Task::none()
             }
             Message::SyncPicked(_, None) => Task::none(),
@@ -698,6 +717,21 @@ impl State {
         }
     }
 
+    /// The name of folder `id` (`None` for Home) as far as it is known.
+    fn folder_name(&self, id: Option<NodeId>) -> String {
+        let Some(id) = id else {
+            return HOME.to_owned();
+        };
+        self.listing
+            .nodes
+            .iter()
+            .chain(&self.listing.path)
+            .find(|node| node.id == id)
+            .map(|node| node.name.clone())
+            .or_else(|| self.syncing.status().names.get(&id).cloned())
+            .unwrap_or_else(|| "this folder".to_owned())
+    }
+
     /// Lost & Found only receives restored files, so nothing is created or uploaded into it.
     fn in_lost_and_found(&self) -> bool {
         self.folder == Some(self.me.lost_and_found_id)
@@ -872,8 +906,14 @@ impl State {
         }
         if self.syncing.settings {
             layers.push(modal(
-                syncing::settings(self.syncing.status()),
+                syncing::settings(self.syncing.status(), self.syncing.notice.as_deref()),
                 Message::SyncSettings(false),
+            ));
+        }
+        if let Some(confirm) = &self.syncing.confirm {
+            layers.push(modal(
+                syncing::confirm(confirm),
+                Message::SyncConfirm(false),
             ));
         }
         if let Some(dialog) = &self.dialog {

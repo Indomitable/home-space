@@ -3,6 +3,7 @@ use std::{
     fs, io,
     io::Read,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use sha2::{Digest, Sha256};
@@ -24,6 +25,8 @@ pub struct Scan {
     /// Folders whose content is unknown: a missing mapped folder (such as an unmounted
     /// drive) or one that could not be listed. Nothing under them may be treated as deleted.
     pub blind: Vec<PathBuf>,
+    /// Why the blind folders and files could not be read, for the user.
+    pub unreadable: Vec<(PathBuf, String)>,
 }
 
 impl Scan {
@@ -45,19 +48,39 @@ pub fn is_ignored(name: &str) -> bool {
 /// Lists everything under `roots` except the `skipped` paths.
 ///
 /// Files are hashed unless their size and modification time match what `known` recorded at
-/// the same path. Symbolic links are not followed or synced.
-pub fn scan(roots: &[PathBuf], skipped: &HashSet<PathBuf>, known: &HashMap<PathBuf, Base>) -> Scan {
+/// the same path. Symbolic links are not followed or synced. Once `stop` is set the scan
+/// gives up, leaving every root blind.
+pub fn scan(
+    roots: &[PathBuf],
+    skipped: &HashSet<PathBuf>,
+    known: &HashMap<PathBuf, Base>,
+    stop: &AtomicBool,
+) -> Scan {
+    let stopped = || Scan {
+        blind: roots.to_vec(),
+        ..Scan::default()
+    };
     let mut scan = Scan::default();
     for root in roots {
         if !root.is_dir() {
             scan.blind.push(root.clone());
+            scan.unreadable
+                .push((root.clone(), "the folder is missing".to_owned()));
             continue;
         }
         let mut pending = vec![root.clone()];
         while let Some(dir) = pending.pop() {
-            let Ok(listing) = fs::read_dir(&dir) else {
-                scan.blind.push(dir);
-                continue;
+            if stop.load(Ordering::Relaxed) {
+                return stopped();
+            }
+            let listing = match fs::read_dir(&dir) {
+                Ok(listing) => listing,
+                Err(err) => {
+                    scan.unreadable
+                        .push((dir.clone(), format!("cannot read the folder: {err}")));
+                    scan.blind.push(dir);
+                    continue;
+                }
             };
             for entry in listing.flatten() {
                 let path = entry.path();
@@ -68,15 +91,22 @@ pub fn scan(roots: &[PathBuf], skipped: &HashSet<PathBuf>, known: &HashMap<PathB
                 if ignored || skipped.contains(&path) || roots.contains(&path) {
                     continue;
                 }
-                let Ok(meta) = entry.metadata() else {
-                    scan.blind.push(path);
-                    continue;
+                let meta = match entry.metadata() {
+                    Ok(meta) => meta,
+                    Err(err) => {
+                        scan.unreadable.push((path.clone(), err.to_string()));
+                        scan.blind.push(path);
+                        continue;
+                    }
                 };
                 if meta.is_dir() {
                     scan.entries.insert(path.clone(), LocalEntry::folder());
                     pending.push(path);
                 } else if meta.is_file() {
-                    let entry = file_entry(&path, &meta, known.get(&path));
+                    let entry = file_entry(&path, &meta, known.get(&path), stop);
+                    if stop.load(Ordering::Relaxed) {
+                        return stopped();
+                    }
                     scan.entries.insert(path, entry);
                 }
             }
@@ -85,14 +115,19 @@ pub fn scan(roots: &[PathBuf], skipped: &HashSet<PathBuf>, known: &HashMap<PathB
     scan
 }
 
-fn file_entry(path: &Path, meta: &fs::Metadata, known: Option<&Base>) -> LocalEntry {
+fn file_entry(
+    path: &Path,
+    meta: &fs::Metadata,
+    known: Option<&Base>,
+    stop: &AtomicBool,
+) -> LocalEntry {
     let size = meta.len();
     let mtime = meta.modified().map(nanos).unwrap_or(0);
     let sha256 = match known {
         Some(base) if base.kind == NodeKind::File && base.size == size && base.mtime == mtime => {
             base.sha256.clone()
         }
-        _ => hash_file(path).ok(),
+        _ => hash_file(path, stop).ok(),
     };
     LocalEntry {
         kind: NodeKind::File,
@@ -102,12 +137,15 @@ fn file_entry(path: &Path, meta: &fs::Metadata, known: Option<&Base>) -> LocalEn
     }
 }
 
-/// The lowercase hex SHA-256 of the file at `path`.
-pub fn hash_file(path: &Path) -> io::Result<String> {
+/// The lowercase hex SHA-256 of the file at `path`; fails as interrupted once `stop` is set.
+pub fn hash_file(path: &Path, stop: &AtomicBool) -> io::Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0; HASH_BUFFER];
     loop {
+        if stop.load(Ordering::Relaxed) {
+            return Err(io::ErrorKind::Interrupted.into());
+        }
         let read = file.read(&mut buffer)?;
         if read == 0 {
             break;
@@ -151,7 +189,12 @@ mod tests {
         fs::write(root.join("c.txt.part"), "x").expect("part");
         let skipped = HashSet::from([root.join("skip")]);
 
-        let scan = scan(std::slice::from_ref(&root), &skipped, &HashMap::new());
+        let scan = scan(
+            std::slice::from_ref(&root),
+            &skipped,
+            &HashMap::new(),
+            &AtomicBool::new(false),
+        );
 
         let mut paths: Vec<_> = scan.entries.keys().cloned().collect();
         paths.sort();
@@ -178,7 +221,12 @@ mod tests {
         };
         let known = HashMap::from([(path.clone(), base)]);
 
-        let scan = scan(std::slice::from_ref(&dir.0), &HashSet::new(), &known);
+        let scan = scan(
+            std::slice::from_ref(&dir.0),
+            &HashSet::new(),
+            &known,
+            &AtomicBool::new(false),
+        );
 
         assert_eq!(scan.entries[&path].sha256.as_deref(), Some("recorded"));
     }
@@ -190,9 +238,26 @@ mod tests {
             std::slice::from_ref(&root),
             &HashSet::new(),
             &HashMap::new(),
+            &AtomicBool::new(false),
         );
         assert!(scan.entries.is_empty());
         assert!(scan.is_blind(&root.join("anything")));
+    }
+
+    #[test]
+    fn a_stopped_scan_knows_nothing() {
+        let dir = TempDir::new("stopped");
+        fs::write(dir.0.join("a.txt"), "x").expect("a");
+
+        let scan = scan(
+            std::slice::from_ref(&dir.0),
+            &HashSet::new(),
+            &HashMap::new(),
+            &AtomicBool::new(true),
+        );
+
+        assert!(scan.entries.is_empty());
+        assert!(scan.is_blind(&dir.0.join("a.txt")));
     }
 
     #[test]

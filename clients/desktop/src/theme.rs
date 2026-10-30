@@ -117,3 +117,12 @@ pub fn error(theme: &Theme) -> container::Style {
         ..container::Style::default()
     }
 }
+
+/// The disc behind a sync badge, so it stays readable over the icon it sits on.
+pub fn badge(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(theme.extended_palette().background.base.color.into()),
+        border: Border::default().rounded(f32::MAX),
+        ..container::Style::default()
+    }
+}

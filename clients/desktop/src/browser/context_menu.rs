@@ -7,6 +7,7 @@ use protocol::{Node, NodeId};
 
 use super::{
     Message,
+    syncing::Entry,
     toolbar::{actions, menu_item},
 };
 use crate::{
@@ -20,12 +21,32 @@ const MENU_PADDING: f32 = 4.0;
 const EDGE_MARGIN: f32 = 8.0;
 const LABEL_SPACING: f32 = 12.0;
 
-/// The context menu for `selected`.
-pub fn view<'a>(selected: &[&Node], lost_and_found: NodeId) -> Element<'a, Message> {
+/// The context menu for `selected`, followed by the sync `entries`.
+pub fn view<'a>(
+    selected: &[&Node],
+    lost_and_found: NodeId,
+    entries: Vec<Entry>,
+) -> Element<'a, Message> {
     let items = actions(selected, lost_and_found)
         .into_iter()
-        .map(|(action, enabled)| menu_item(action, enabled));
+        .map(|(action, enabled)| menu_item(action, enabled))
+        .chain(entries.into_iter().map(entry));
     panel(items)
+}
+
+fn entry<'a>(entry: Entry) -> Element<'a, Message> {
+    button(
+        row![
+            entry.icon.view(ICON_SIZE, Tint::Text),
+            text(entry.label).width(Length::Fill)
+        ]
+        .spacing(LABEL_SPACING * 2.0)
+        .align_y(Alignment::Center),
+    )
+    .width(Length::Fill)
+    .style(theme::tool)
+    .on_press(entry.message)
+    .into()
 }
 
 /// A menu of `folders` that opens the chosen one.

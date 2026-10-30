@@ -6,6 +6,8 @@
 //! events and every few minutes.
 
 mod apply;
+#[cfg(test)]
+mod e2e;
 mod layout;
 mod model;
 mod plan;
@@ -71,6 +73,8 @@ pub struct Status {
     /// Badge of every synced node; Home is under `None`.
     pub badges: Badges,
     pub mappings: Vec<Mapping>,
+    /// Names of the mapped remote folders, as far as they are known.
+    pub names: HashMap<NodeId, String>,
     /// Paths with work ahead.
     pub pending: usize,
     /// Paths that failed, with why.
@@ -87,6 +91,21 @@ impl Status {
     /// The mapping set on `node` itself, if any.
     pub fn mapping(&self, node: Option<NodeId>) -> Option<&Mapping> {
         self.mappings.iter().find(|mapping| mapping.remote == node)
+    }
+
+    /// The state of the sync as a whole: the worst of all synced nodes, `None` while
+    /// nothing is synced.
+    pub fn overall(&self) -> Option<Badge> {
+        if self.error.is_some() || !self.problems.is_empty() {
+            return Some(Badge::Problem);
+        }
+        if self.pending > 0 {
+            return Some(Badge::Pending);
+        }
+        self.mappings
+            .iter()
+            .any(|mapping| mapping.local.is_some())
+            .then_some(Badge::Synced)
     }
 }
 
@@ -521,9 +540,16 @@ impl Engine {
             .map(|(path, problem)| (path.clone(), problem.reason.clone()))
             .collect();
         problems.sort();
+        let names = self
+            .mappings
+            .iter()
+            .filter_map(|mapping| mapping.remote)
+            .filter_map(|id| Some((id, self.mirror.nodes.get(&id)?.name.clone())))
+            .collect();
         let status = Status {
             badges,
             mappings: self.mappings.clone(),
+            names,
             pending: pending_paths.len(),
             problems,
             error,

@@ -6,18 +6,20 @@ use iced::font::Weight;
 use iced::widget::text::LineHeight;
 use iced::{
     Alignment, Element, Font, Length, Padding,
-    widget::{button, column, container, mouse_area, row, scrollable, text},
+    widget::{button, column, container, mouse_area, row, scrollable, stack, text},
 };
 use protocol::{Node, NodeKind};
 
 use super::{
     Message,
     selection::{Coverage, Selection},
+    syncing::badge_icon,
 };
 use crate::{
     ellipsis::ellipsized,
     icons::{ICON_SIZE, Icon, Tint, node_icon},
     locale::short_date,
+    sync::{Badge, Status},
     theme,
 };
 
@@ -37,6 +39,10 @@ pub(super) const HEADER_SIZE: f32 = 13.0;
 const SORT_ARROW_GAP: f32 = 8.0;
 pub(super) const ROW_SIZE: f32 = 15.0;
 pub(super) const EMPTY_PADDING: f32 = 32.0;
+const BADGE_SIZE: f32 = 12.0;
+const BADGE_PADDING: f32 = 1.0;
+/// The icon cell, leaving room for the badge to sit on the icon's corner.
+const ICON_BOX: f32 = ICON_SIZE + 6.0;
 
 /// Column titles with the select-all checkbox, aligned with [`rows`].
 pub fn header<'a>(coverage: Coverage, sort: Sort) -> Element<'a, Message> {
@@ -107,7 +113,7 @@ fn sort_button(
 }
 
 /// The scrolling list of rows, or a hint when the folder is empty.
-pub fn rows<'a>(nodes: &'a [Node], selection: &Selection) -> Element<'a, Message> {
+pub fn rows<'a>(nodes: &'a [Node], selection: &Selection, sync: &Status) -> Element<'a, Message> {
     if nodes.is_empty() {
         container(text("Nothing here yet. Drop files anywhere to upload."))
             .padding(EMPTY_PADDING)
@@ -116,7 +122,7 @@ pub fn rows<'a>(nodes: &'a [Node], selection: &Selection) -> Element<'a, Message
     } else {
         let rows = nodes
             .iter()
-            .map(|node| node_row(node, selection.contains(node.id)));
+            .map(|node| node_row(node, selection.contains(node.id), sync.badge(Some(node.id))));
         scrollable(
             column(rows)
                 .spacing(ROW_GAP)
@@ -127,7 +133,7 @@ pub fn rows<'a>(nodes: &'a [Node], selection: &Selection) -> Element<'a, Message
     }
 }
 
-fn node_row(node: &Node, selected: bool) -> Element<'_, Message> {
+fn node_row(node: &Node, selected: bool, badge: Option<Badge>) -> Element<'_, Message> {
     let icon = node_icon(node);
     let tint = match icon {
         Icon::Folder => Tint::Accent,
@@ -145,7 +151,7 @@ fn node_row(node: &Node, selected: bool) -> Element<'_, Message> {
     let cells = row![
         check(check_icon, Message::Toggle(node.id)),
         row![
-            icon.view(ICON_SIZE, tint),
+            badged(icon.view(ICON_SIZE, tint), badge),
             ellipsized(node.name.as_str(), ROW_SIZE, Alignment::Start).width(Length::Fill)
         ]
         .spacing(CELL_SPACING / 1.5)
@@ -164,6 +170,32 @@ fn node_row(node: &Node, selected: bool) -> Element<'_, Message> {
     mouse_area(row_button)
         .on_right_press(Message::ContextMenu(node.id))
         .into()
+}
+
+/// `icon` with the sync `badge` on its lower right corner.
+fn badged<'a>(icon: Element<'a, Message>, badge: Option<Badge>) -> Element<'a, Message> {
+    let mut layers = vec![
+        container(icon)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .align_y(Alignment::Center)
+            .into(),
+    ];
+    if let Some(badge) = badge {
+        let (badge, tint) = badge_icon(badge);
+        let disc = container(badge.view(BADGE_SIZE, tint))
+            .padding(BADGE_PADDING)
+            .style(theme::badge);
+        layers.push(
+            container(disc)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_right(Length::Fill)
+                .align_bottom(Length::Fill)
+                .into(),
+        );
+    }
+    stack(layers).width(ICON_BOX).height(ICON_BOX).into()
 }
 
 pub(super) fn check<'a, M: Clone + 'a>(icon: Icon, message: M) -> Element<'a, M> {

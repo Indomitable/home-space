@@ -4,6 +4,7 @@ mod dialogs;
 mod grid;
 mod search;
 mod selection;
+mod syncing;
 mod toolbar;
 mod trash;
 
@@ -33,12 +34,13 @@ use self::{
     dialogs::{Dialog, Outcome},
     search::Search,
     selection::Selection,
+    syncing::Syncing,
     toolbar::Action,
 };
 use crate::{
     events,
     icons::{ICON_SIZE, Icon, Tint},
-    theme,
+    sync, theme,
     transfers::{self, Batch, Direction, DownloadFile, Transfers, UploadPlan},
 };
 
@@ -111,6 +113,14 @@ pub enum Message {
     SearchClear,
     SignOut,
     SignedOut,
+    Sync(sync::Update),
+    /// Asks for the local folder a remote folder (`None` for Home) syncs with.
+    SyncPick(Option<NodeId>),
+    SyncPicked(Option<NodeId>, Option<PathBuf>),
+    SyncSet(sync::Mapping),
+    SyncUnmap(Option<NodeId>),
+    SyncOpenLocal(PathBuf),
+    SyncSettings(bool),
 }
 
 pub enum Update {
@@ -152,6 +162,7 @@ pub struct State {
     transfers: Transfers,
     dropping: bool,
     search: Search,
+    syncing: Syncing,
 }
 
 impl State {
@@ -179,6 +190,7 @@ impl State {
             transfers: Transfers::default(),
             dropping: false,
             search: Search::default(),
+            syncing: Syncing::default(),
         };
         // The window may have been resized before the browser opened.
         let size = window::latest()
@@ -334,6 +346,7 @@ impl State {
                 }
             }
             Message::Server(event) => {
+                self.syncing.send(sync::Command::RemoteChanged);
                 let details = self.sync_details(&event);
                 let listing = if matches!(event, protocol::Event::Resync)
                     || affects_path(&self.listing.path, &event)
@@ -351,6 +364,47 @@ impl State {
                     _ => Task::none(),
                 };
                 Task::batch([details, listing, trash])
+            }
+            Message::Sync(update) => {
+                if let Some(reason) = self.syncing.update(update) {
+                    self.error = Some(format!("Could not sync there: {reason}"));
+                }
+                Task::none()
+            }
+            Message::SyncPick(remote) => {
+                self.menu = None;
+                Task::perform(syncing::pick_folder(), move |local| {
+                    Message::SyncPicked(remote, local)
+                })
+            }
+            Message::SyncPicked(remote, Some(local)) => {
+                self.syncing.send(sync::Command::Map(sync::Mapping {
+                    remote,
+                    local: Some(local),
+                }));
+                Task::none()
+            }
+            Message::SyncPicked(_, None) => Task::none(),
+            Message::SyncSet(mapping) => {
+                self.menu = None;
+                self.syncing.send(sync::Command::Map(mapping));
+                Task::none()
+            }
+            Message::SyncUnmap(remote) => {
+                self.menu = None;
+                self.syncing.send(sync::Command::Unmap(remote));
+                Task::none()
+            }
+            Message::SyncOpenLocal(path) => {
+                self.menu = None;
+                if let Err(err) = syncing::reveal(&path) {
+                    self.error = Some(err);
+                }
+                Task::none()
+            }
+            Message::SyncSettings(open) => {
+                self.syncing.settings = open;
+                Task::none()
             }
             Message::SearchChanged(query) => match self.search.change(query) {
                 Some(seq) => Task::perform(
@@ -720,6 +774,7 @@ impl State {
         let header = row![
             text(self.me.username.as_str()).size(USERNAME_SIZE),
             space::horizontal(),
+            syncing::indicator(self.syncing.status()),
             self.search_box(),
             button("Sign out")
                 .style(button::secondary)
@@ -754,7 +809,7 @@ impl State {
             }
             let grid = column![
                 grid::header(self.selection.coverage(&self.listing.nodes), self.sort),
-                grid::rows(&self.listing.nodes, &self.selection),
+                grid::rows(&self.listing.nodes, &self.selection, self.syncing.status()),
             ]
             .spacing(GRID_SPACING);
             match &self.details {
@@ -783,11 +838,15 @@ impl State {
         }
         if let Some(menu) = self.menu {
             let (cursor, items, panel) = match menu {
-                Menu::Actions(cursor) => (
-                    cursor,
-                    context_menu::item_count(&selected, self.me.lost_and_found_id),
-                    context_menu::view(&selected, self.me.lost_and_found_id),
-                ),
+                Menu::Actions(cursor) => {
+                    let entries = self.syncing.entries(&selected);
+                    (
+                        cursor,
+                        context_menu::item_count(&selected, self.me.lost_and_found_id)
+                            + entries.len(),
+                        context_menu::view(&selected, self.me.lost_and_found_id, entries),
+                    )
+                }
                 Menu::Crumbs(cursor) => {
                     let hidden = self.hidden_crumbs();
                     (cursor, hidden.len(), context_menu::folders(hidden))
@@ -801,6 +860,12 @@ impl State {
                     .into(),
             );
             layers.push(pin(panel).position(position).into());
+        }
+        if self.syncing.settings {
+            layers.push(modal(
+                syncing::settings(self.syncing.status()),
+                Message::SyncSettings(false),
+            ));
         }
         if let Some(dialog) = &self.dialog {
             layers.push(modal(
@@ -873,6 +938,7 @@ impl State {
         Subscription::batch([
             event::listen_with(input),
             events::subscription(&self.client).map(Message::Server),
+            sync::subscription(&self.client, self.me.id).map(Message::Sync),
         ])
     }
 

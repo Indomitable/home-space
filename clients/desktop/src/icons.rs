@@ -44,6 +44,7 @@ pub enum Icon {
     Checked,
     Unchecked,
     Mixed,
+    More,
     Sync,
     FolderOpen,
     /// Sync badge: waiting to sync.
@@ -90,6 +91,7 @@ impl Icon {
             Self::Checked => include_bytes!("../assets/icons/check_box.svg"),
             Self::Unchecked => include_bytes!("../assets/icons/check_box_outline_blank.svg"),
             Self::Mixed => include_bytes!("../assets/icons/indeterminate_check_box.svg"),
+            Self::More => include_bytes!("../assets/icons/more_horiz.svg"),
             Self::Sync => include_bytes!("../assets/icons/sync.svg"),
             Self::FolderOpen => include_bytes!("../assets/icons/folder_open.svg"),
             Self::SyncPending => include_bytes!("../assets/icons/schedule.svg"),

@@ -8,7 +8,7 @@ use protocol::{Node, NodeId};
 use super::{
     Message,
     syncing::Entry,
-    toolbar::{actions, menu_item},
+    toolbar::{actions, menu_item, menu_row},
 };
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},
@@ -35,18 +35,14 @@ pub fn view<'a>(
 }
 
 fn entry<'a>(entry: Entry) -> Element<'a, Message> {
-    button(
-        row![
-            entry.icon.view(ICON_SIZE, Tint::Text),
-            text(entry.label).width(Length::Fill)
-        ]
-        .spacing(LABEL_SPACING * 2.0)
-        .align_y(Alignment::Center),
+    menu_row(
+        entry.icon,
+        Tint::Text,
+        entry.label,
+        "",
+        theme::tool,
+        Some(entry.message),
     )
-    .width(Length::Fill)
-    .style(theme::tool)
-    .on_press(entry.message)
-    .into()
 }
 
 /// A menu of `folders` that opens the chosen one.

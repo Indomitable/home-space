@@ -8,7 +8,6 @@ use iced::{
     widget::{button, column, container, row, scrollable, space, text},
 };
 
-use api_client::format::human_size;
 use protocol::{Node, NodeId, NodeKind};
 
 use super::{HOME, Message};
@@ -200,18 +199,6 @@ pub fn indicator(status: &Status) -> Element<'_, Message> {
 /// Asks before syncing a remote folder with the picked local folder, showing what it holds.
 pub fn confirm(confirm: &Confirm) -> Element<'_, Message> {
     let name = confirm.name.as_str();
-    let explanation = if confirm.contents.files == 0 {
-        format!("The folder is empty. What “{name}” holds is downloaded into it.")
-    } else {
-        format!(
-            "It already holds {} ({}). They are uploaded to “{name}”, and what \
-             “{name}” holds is downloaded next to them. Where both have a file of \
-             the same name, the newer one stays current and the other is kept as an \
-             earlier version.",
-            files(confirm.contents.files),
-            human_size(i64::try_from(confirm.contents.bytes).unwrap_or(i64::MAX)),
-        )
-    };
     let buttons = row![
         space::horizontal(),
         button(text("Cancel"))
@@ -223,7 +210,6 @@ pub fn confirm(confirm: &Confirm) -> Element<'_, Message> {
     let panel = column![
         text(format!("Sync “{name}” with this folder?")).size(TITLE_SIZE),
         text(display_path(&confirm.local)),
-        text(explanation).size(NOTE_SIZE),
         buttons,
     ]
     .spacing(SPACING);
@@ -232,14 +218,6 @@ pub fn confirm(confirm: &Confirm) -> Element<'_, Message> {
         .width(PANEL_WIDTH)
         .style(theme::panel)
         .into()
-}
-
-fn files(count: u64) -> String {
-    if count == 1 {
-        "1 file".to_owned()
-    } else {
-        format!("{count} files")
-    }
 }
 
 /// Counts the files under `path` and their size.

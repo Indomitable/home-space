@@ -234,18 +234,37 @@ pub fn menu_item<'a>(action: Action, enabled: bool) -> Element<'a, Message> {
         Action::Delete => theme::danger_tool,
         _ => theme::tool,
     };
+    menu_row(
+        action.icon(),
+        tint,
+        action.label(),
+        action.shortcut(),
+        style,
+        enabled.then_some(Message::Act(action)),
+    )
+}
+
+/// One row of the context menu; every entry is laid out by this.
+pub fn menu_row<'a>(
+    icon: Icon,
+    tint: Tint,
+    label: &'a str,
+    shortcut: &'a str,
+    style: fn(&iced::Theme, button::Status) -> button::Style,
+    message: Option<Message>,
+) -> Element<'a, Message> {
     button(
         row![
-            action.icon().view(ICON_SIZE, tint),
-            text(action.label()).width(Length::Fill),
-            text(action.shortcut()).size(TIP_SIZE),
+            icon.view(ICON_SIZE, tint),
+            text(label).width(Length::Fill),
+            text(shortcut).size(TIP_SIZE),
         ]
         .spacing(LABEL_SPACING * 2.0)
         .align_y(Alignment::Center),
     )
     .width(Length::Fill)
     .style(style)
-    .on_press_maybe(enabled.then_some(Message::Act(action)))
+    .on_press_maybe(message)
     .into()
 }
 

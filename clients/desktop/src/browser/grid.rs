@@ -6,9 +6,9 @@ use iced::font::Weight;
 use iced::widget::text::LineHeight;
 use iced::{
     Alignment, Element, Font, Length, Padding,
-    widget::{button, column, container, mouse_area, row, scrollable, stack, text},
+    widget::{button, column, container, mouse_area, row, scrollable, space, stack, text},
 };
-use protocol::{Node, NodeKind};
+use protocol::{Node, NodeId, NodeKind};
 
 use super::{
     Message,
@@ -69,6 +69,7 @@ pub fn header<'a>(coverage: Coverage, sort: Sort) -> Element<'a, Message> {
             DATE_WIDTH.into(),
             Alignment::Start
         ),
+        space().width(CHECK_WIDTH),
     ]
     .spacing(CELL_SPACING)
     .align_y(Alignment::Center);
@@ -171,6 +172,7 @@ fn node_row(
         .width(Length::Fill),
         ellipsized(size, ROW_SIZE, Alignment::End).width(SIZE_WIDTH),
         ellipsized(short_date(node.updated_at), ROW_SIZE, Alignment::Start).width(DATE_WIDTH),
+        menu_button(node.id),
     ]
     .spacing(CELL_SPACING)
     .align_y(Alignment::Center);
@@ -181,6 +183,16 @@ fn node_row(
         .on_press(Message::Click(node.id));
     mouse_area(row_button)
         .on_right_press(Message::ContextMenu(node.id))
+        .into()
+}
+
+/// The three dots that open the context menu for the row, like right-clicking it.
+fn menu_button<'a>(id: NodeId) -> Element<'a, Message> {
+    button(Icon::More.view(ICON_SIZE, Tint::Muted))
+        .padding(0)
+        .width(CHECK_WIDTH)
+        .style(button::text)
+        .on_press(Message::ContextMenu(id))
         .into()
 }
 

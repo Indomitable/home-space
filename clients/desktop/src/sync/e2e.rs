@@ -28,6 +28,8 @@ struct Setup {
     other: Client,
     output: mpsc::Sender<Update>,
     _updates: mpsc::Receiver<Update>,
+    commands: tokio::sync::mpsc::UnboundedReceiver<Command>,
+    _commands: tokio::sync::mpsc::UnboundedSender<Command>,
     remote: NodeId,
     local: PathBuf,
 }
@@ -72,6 +74,7 @@ async fn setup(name: &str) -> Setup {
         .id;
     let local = temp_dir(name);
     let (mut output, updates) = mpsc::channel(4096);
+    let (sender, commands) = tokio::sync::mpsc::unbounded_channel();
     let mut engine = Engine::load(mine, Store::in_memory().expect("store")).expect("engine");
     engine
         .handle(
@@ -86,6 +89,8 @@ async fn setup(name: &str) -> Setup {
         engine,
         other,
         output,
+        commands,
+        _commands: sender,
         _updates: updates,
         remote,
         local,
@@ -96,7 +101,7 @@ impl Setup {
     /// Runs passes until the engine has nothing left to do.
     async fn sync(&mut self) {
         for _ in 0..PASSES {
-            match self.engine.pass(&mut self.output).await {
+            match self.engine.pass(&mut self.output, &mut self.commands).await {
                 Ok(None) => return,
                 Ok(Some(_)) => {}
                 Err(_) => panic!("signed out"),

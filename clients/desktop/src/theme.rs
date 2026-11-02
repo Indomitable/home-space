@@ -134,3 +134,18 @@ pub fn muted(theme: &Theme) -> container::Style {
         ..container::Style::default()
     }
 }
+
+/// Text of something that cannot be used yet, such as a file waiting to be uploaded.
+pub fn disabled(theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(
+            theme
+                .extended_palette()
+                .background
+                .base
+                .text
+                .scale_alpha(DISABLED_ALPHA),
+        ),
+        ..container::Style::default()
+    }
+}

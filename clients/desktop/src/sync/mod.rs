@@ -11,6 +11,7 @@ mod e2e;
 mod layout;
 mod model;
 mod plan;
+mod queue;
 mod remote;
 mod scan;
 mod status;
@@ -41,12 +42,17 @@ use self::{
     apply::{Effect, Failure, Folders},
     layout::Layout,
     plan::{Action, Phase},
+    queue::{Progress, QueueItem},
     remote::{Delta, Mirror},
     scan::Scan,
     status::Badges,
     store::Store,
 };
-pub use self::{model::Mapping, status::Badge};
+pub use self::{
+    model::Mapping,
+    queue::{ItemState, Operation, QueueItem as Item, Summary},
+    status::Badge,
+};
 use crate::session;
 
 const BUFFER: usize = 64;
@@ -100,6 +106,8 @@ pub struct Status {
     /// Why the last pass could not run, such as the server being unreachable.
     pub error: Option<String>,
     pub activity: Activity,
+    /// Everything with work ahead, then what failed.
+    pub queue: Vec<Item>,
 }
 
 impl Status {
@@ -110,6 +118,17 @@ impl Status {
     /// Where the folder `node` syncs to, if it does.
     pub fn location(&self, node: Option<NodeId>) -> Option<&Path> {
         self.locations.get(&node).map(PathBuf::as_path)
+    }
+
+    /// The new files and folders waiting to be uploaded into `folder` (`None` for Home),
+    /// which the server's listing of it cannot show yet.
+    pub fn new_uploads_in(&self, folder: Option<NodeId>) -> impl Iterator<Item = &Item> {
+        self.queue.iter().filter(move |item| item.is_new_in(folder))
+    }
+
+    /// The queue in numbers.
+    pub fn summary(&self) -> Summary {
+        queue::summarize(&self.queue)
     }
 
     /// The mapping set on `node` itself, if any.
@@ -206,10 +225,16 @@ fn run(client: Client, user: UserId) -> impl Stream<Item = Update> {
         let (changed, mut local_changes) = mpsc::unbounded_channel();
         let mut watcher = engine.watch(&changed);
         let mut due = Some(Instant::now());
+        let mut interrupted: Option<Command> = None;
         loop {
             let wake = due.unwrap_or_else(|| Instant::now() + RESCAN);
             tokio::select! {
-                command = received.recv() => {
+                command = async {
+                    match interrupted.take() {
+                        Some(command) => Some(command),
+                        None => received.recv().await,
+                    }
+                } => {
                     let Some(command) = command else { break };
                     if engine.handle(command, &mut output).await {
                         watcher = engine.watch(&changed);
@@ -222,10 +247,11 @@ fn run(client: Client, user: UserId) -> impl Stream<Item = Update> {
                     due.get_or_insert_with(|| Instant::now() + SETTLE);
                 }
                 () = tokio::time::sleep_until(wake) => {
-                    match engine.pass(&mut output).await {
+                    match engine.pass(&mut output, &mut received).await {
                         Ok(next) => due = next.map(|delay| Instant::now() + delay),
                         Err(SignedOut) => break,
                     }
+                    interrupted = engine.interrupted.take();
                     // Our own writes during the pass were reported too; they need no pass.
                     while local_changes.try_recv().is_ok() {}
                 }
@@ -244,6 +270,8 @@ struct Problem {
     reason: String,
     attempts: u32,
     retry_at: Instant,
+    /// What was being done, when it is known.
+    item: Option<QueueItem>,
 }
 
 struct Engine {
@@ -257,9 +285,15 @@ struct Engine {
     /// Local paths the last scan could not read, with why.
     unreadable: Vec<(PathBuf, String)>,
     activity: Activity,
+    /// The work ahead as of the last plan, less what has finished since.
+    queue: Vec<QueueItem>,
+    /// Bytes moved so far by the transfers running.
+    progress: Progress,
     /// Set when the engine goes away, so a scan on a blocking thread stops with it; the
     /// app cannot quit while one runs.
     stop: Arc<AtomicBool>,
+    /// A command that arrived while a scan ran and cut it short, to be handled next.
+    interrupted: Option<Command>,
 }
 
 impl Drop for Engine {
@@ -287,7 +321,10 @@ impl Engine {
             problems: HashMap::new(),
             unreadable: Vec::new(),
             activity: Activity::Idle,
+            queue: Vec::new(),
+            progress: Progress::default(),
             stop: Arc::new(AtomicBool::new(false)),
+            interrupted: None,
         })
     }
 
@@ -348,10 +385,15 @@ impl Engine {
 
     /// Brings everything mapped in sync once; returns when the next pass is due unless
     /// local or remote changes call for one earlier.
-    async fn pass(&mut self, output: &mut Sender<Update>) -> Result<Option<Duration>, SignedOut> {
+    async fn pass(
+        &mut self,
+        output: &mut Sender<Update>,
+        commands: &mut mpsc::UnboundedReceiver<Command>,
+    ) -> Result<Option<Duration>, SignedOut> {
         if self.mappings.iter().all(|m| m.local.is_none()) {
             self.activity = Activity::Idle;
             self.unreadable.clear();
+            self.queue.clear();
             self.report(output, &Layout::default(), &[], None).await;
             return Ok(None);
         }
@@ -385,7 +427,10 @@ impl Engine {
         let bases = self.store.bases().unwrap_or_default();
         self.activity = Activity::Scanning;
         self.report(output, &layout, &[], None).await;
-        let scan = self.scan(&layout, &bases).await;
+        let Some(scan) = self.scan(&layout, &bases, commands).await else {
+            // A command cut the scan short; it is handled first, then the pass starts over.
+            return Ok(Some(Duration::ZERO));
+        };
         self.unreadable.clone_from(&scan.unreadable);
         let now = Instant::now();
         let planned = plan::plan(&layout, &scan, &bases);
@@ -405,6 +450,7 @@ impl Engine {
                 })
             })
             .collect();
+        self.queue = queue::items(&actions, &layout.folders);
         if actions.is_empty() {
             self.activity = Activity::Idle;
             self.report(output, &layout, &[], None).await;
@@ -414,11 +460,19 @@ impl Engine {
         self.report(output, &layout, &actions, None).await;
         self.execute(output, &layout, actions).await?;
         self.activity = Activity::Idle;
+        self.queue.clear();
         self.report(output, &layout, &[], None).await;
         Ok(Some(SETTLE))
     }
 
-    async fn scan(&self, layout: &Layout, bases: &[model::Base]) -> Scan {
+    /// Scans the local folders, or gives up with `None` when a command arrives meanwhile
+    /// (kept in `interrupted`), since the scan of a big folder takes long.
+    async fn scan(
+        &mut self,
+        layout: &Layout,
+        bases: &[model::Base],
+        commands: &mut mpsc::UnboundedReceiver<Command>,
+    ) -> Option<Scan> {
         let roots = layout.roots.clone();
         let skipped = layout.skipped.clone();
         let known = bases
@@ -426,12 +480,24 @@ impl Engine {
             .map(|base| (base.path.clone(), base.clone()))
             .collect();
         let stop = Arc::clone(&self.stop);
-        tokio::task::spawn_blocking(move || scan::scan(&roots, &skipped, &known, &stop))
-            .await
-            .unwrap_or_else(|_| Scan {
-                blind: layout.roots.clone(),
-                ..Scan::default()
-            })
+        let mut task =
+            tokio::task::spawn_blocking(move || scan::scan(&roots, &skipped, &known, &stop));
+        let blind = || Scan {
+            blind: layout.roots.clone(),
+            ..Scan::default()
+        };
+        tokio::select! {
+            scan = &mut task => Some(scan.unwrap_or_else(|_| blind())),
+            command = commands.recv() => {
+                // The scan gives up at its next folder or file chunk; wait for it to let go.
+                self.stop.store(true, Ordering::Relaxed);
+                let _ = task.await;
+                self.stop.store(false, Ordering::Relaxed);
+                // Without a command the app is going away, which ends the loop.
+                self.interrupted = command;
+                None
+            }
+        }
     }
 
     /// Runs the actions phase by phase; transfers run several at a time.
@@ -459,25 +525,40 @@ impl Engine {
             if phase == Phase::Transfer {
                 let snapshot = folders.clone();
                 let client = self.client.clone();
-                let mut outcomes = apply::execute_all(&client, &snapshot, now, TRANSFERS);
-                while let Some((action, outcome)) = outcomes.next().await {
-                    finish(&mut unfinished, &action);
-                    self.settle(&mut folders, action, outcome)?;
-                    if reported.elapsed() >= PROGRESS {
+                let progress = Arc::clone(&self.progress);
+                let mut outcomes =
+                    apply::execute_all(&client, &snapshot, &progress, now, TRANSFERS);
+                let mut tick = tokio::time::interval(PROGRESS);
+                loop {
+                    // A large file reports on the tick, between the ends of transfers.
+                    let due = tokio::select! {
+                        next = outcomes.next() => {
+                            let Some((action, outcome)) = next else { break };
+                            finish(&mut unfinished, &action);
+                            self.settle(&mut folders, action, outcome)?;
+                            reported.elapsed() >= PROGRESS
+                        }
+                        _ = tick.tick() => true,
+                    };
+                    if due {
                         reported = Instant::now();
+                        self.queue = queue::items(&unfinished, &folders);
                         self.report(output, layout, &unfinished, None).await;
                     }
                 }
             } else {
                 // One at a time, so each action sees the folders the previous ones created.
                 for action in now {
-                    let outcome = apply::execute(&self.client, &folders, action.clone()).await;
+                    let outcome =
+                        apply::execute(&self.client, &folders, &self.progress, action.clone())
+                            .await;
                     finish(&mut unfinished, &action);
                     self.settle(&mut folders, action, outcome)?;
                 }
             }
             if reported.elapsed() >= PROGRESS || phase == Phase::Delete {
                 reported = Instant::now();
+                self.queue = queue::items(&unfinished, &folders);
                 self.report(output, layout, &unfinished, None).await;
             }
         }
@@ -503,6 +584,7 @@ impl Engine {
             Err(Failure::SignedOut) => return Err(SignedOut),
             Err(Failure::Stale) => {}
             Err(Failure::Error(reason)) => {
+                let item = QueueItem::of(&action, folders);
                 if let Some(path) = path {
                     let attempts = self.problems.get(&path).map_or(1, |p| p.attempts + 1);
                     let backoff = RETRY
@@ -514,6 +596,7 @@ impl Engine {
                             reason,
                             attempts,
                             retry_at: Instant::now() + backoff,
+                            item,
                         },
                     );
                 }
@@ -618,6 +701,30 @@ impl Engine {
             .iter()
             .map(|(path, id)| (*id, path.clone()))
             .collect();
+        let moving = queue::snapshot(&self.progress);
+        let mut queue: Vec<QueueItem> = self
+            .queue
+            .iter()
+            .cloned()
+            .map(|item| item.with_progress(&moving))
+            .collect();
+        // What is moving now first; the sort keeps the order of the rest.
+        queue.sort_by_key(|item| item.state != ItemState::Active);
+        let mut failed: Vec<QueueItem> = self
+            .problems
+            .iter()
+            .map(|(path, problem)| match &problem.item {
+                Some(item) => item.clone().failed(problem.reason.clone()),
+                None => QueueItem::blocked(path, problem.reason.clone()),
+            })
+            .chain(
+                self.unreadable
+                    .iter()
+                    .map(|(path, reason)| QueueItem::blocked(path, reason.clone())),
+            )
+            .collect();
+        failed.sort_by(|a, b| a.path.cmp(&b.path));
+        queue.extend(failed);
         let status = Status {
             badges,
             mappings: self.mappings.clone(),
@@ -627,6 +734,7 @@ impl Engine {
             problems,
             error,
             activity: self.activity,
+            queue,
         };
         let _ = output.send(Update::Status(Arc::new(status))).await;
     }

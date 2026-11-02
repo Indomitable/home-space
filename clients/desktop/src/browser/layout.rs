@@ -11,8 +11,8 @@ use client_core::{labels::HOME, listing::collapsed_crumbs};
 use protocol::Node;
 
 use super::{
-    Menu, Message, State, anchor::Anchor, context_menu, context_menu::Placement, dialogs, grid,
-    search, syncing, toolbar,
+    Menu, Message, Page, State, anchor::Anchor, context_menu, context_menu::Placement, dialogs,
+    grid, search, sync_queue, syncing, toolbar,
 };
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},
@@ -29,6 +29,7 @@ const SEARCH_WIDTH: f32 = 280.0;
 const SEARCH_PLACEHOLDER: &str = "Search files and folders";
 const DROP_PADDING: f32 = 32.0;
 const TRASH: &str = "Recycle bin";
+const SYNC_QUEUE: &str = "Sync queue";
 const CRUMB_SEPARATOR: &str = "›";
 const CRUMB_OVERFLOW: &str = "…";
 
@@ -85,16 +86,24 @@ impl State {
         let header = self.header();
         if self.search.is_active() {
             column![header, self.search.view()].spacing(SPACING).into()
-        } else if let Some(trash) = &self.trash {
-            column![
-                header,
-                trail(crumb(TRASH, Message::OpenTrash)),
-                trash.view().map(Message::Trash)
-            ]
-            .spacing(SPACING)
-            .into()
         } else {
-            self.folder_page(header, selected)
+            match &self.page {
+                Page::Trash(trash) => column![
+                    header,
+                    trail(crumb(TRASH, Message::OpenTrash)),
+                    trash.view().map(Message::Trash)
+                ]
+                .spacing(SPACING)
+                .into(),
+                Page::SyncQueue => column![
+                    header,
+                    trail(crumb(SYNC_QUEUE, Message::OpenSyncQueue)),
+                    sync_queue::view(self.syncing.status())
+                ]
+                .spacing(SPACING)
+                .into(),
+                Page::Folder => self.folder_page(header, selected),
+            }
         }
     }
 
@@ -152,6 +161,7 @@ impl State {
             ),
             grid::rows(
                 &self.folder.listing.nodes,
+                self.folder.id,
                 &self.folder.selection,
                 self.syncing.status()
             ),

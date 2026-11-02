@@ -9,6 +9,7 @@ mod input;
 mod layout;
 mod search;
 mod selection;
+mod sync_queue;
 mod syncing;
 mod toolbar;
 mod trash;
@@ -63,6 +64,7 @@ pub enum Message {
     Details(details::Message),
     OpenTrash,
     Trash(trash::Message),
+    OpenSyncQueue,
     Transfer(transfers::Message),
     Shortcut(Shortcut),
     Modifiers(Modifiers),
@@ -90,6 +92,15 @@ enum Menu {
     Crumbs(Placement),
 }
 
+/// What the browser shows below the header, other than search results.
+enum Page {
+    Folder,
+    /// The recycle bin.
+    Trash(Box<trash::State>),
+    /// What the sync has left to do.
+    SyncQueue,
+}
+
 pub struct State {
     client: Client,
     me: Me,
@@ -101,8 +112,7 @@ pub struct State {
     menu: Option<Menu>,
     dialog: Option<Dialog>,
     details: Option<details::State>,
-    /// The recycle bin, when it is shown instead of the folder.
-    trash: Option<trash::State>,
+    page: Page,
     transfers: Transfers,
     dropping: bool,
     search: Search,
@@ -121,7 +131,7 @@ impl State {
             menu: None,
             dialog: None,
             details: None,
-            trash: None,
+            page: Page::Folder,
             transfers: Transfers::default(),
             dropping: false,
             search: Search::default(),
@@ -231,6 +241,7 @@ impl State {
             Message::Details(message) => self.details_update(message),
             Message::OpenTrash => self.open_trash(),
             Message::Trash(message) => self.trash_update(message),
+            Message::OpenSyncQueue => self.open_sync_queue(),
             Message::Transfer(message) => {
                 let reload = matches!(message, transfers::Message::BatchDone(Direction::Upload));
                 let task = self
@@ -276,10 +287,11 @@ impl State {
                 } else {
                     Task::none()
                 };
-                let trash = match (&mut self.trash, &event) {
-                    (Some(trash), protocol::Event::TrashChanged | protocol::Event::Resync) => {
-                        trash.load(&self.client).map(Message::Trash)
-                    }
+                let trash = match (&mut self.page, &event) {
+                    (
+                        Page::Trash(trash),
+                        protocol::Event::TrashChanged | protocol::Event::Resync,
+                    ) => trash.load(&self.client).map(Message::Trash),
                     _ => Task::none(),
                 };
                 Task::batch([details, listing, trash])
@@ -333,7 +345,7 @@ impl State {
     fn open_folder(&mut self, folder: Option<NodeId>) -> Task<Message> {
         self.previous = None;
         self.folder.open(folder);
-        self.trash = None;
+        self.page = Page::Folder;
         self.search.clear();
         self.details = None;
         self.menu = None;
@@ -343,18 +355,18 @@ impl State {
     /// Whether [`State::back`] has somewhere to go.
     fn can_go_back(&self) -> bool {
         self.search.is_active()
-            || self.trash.is_some()
+            || !matches!(self.page, Page::Folder)
             || self.previous.is_some()
             || self.folder.parent().is_some()
     }
 
-    /// Leaves the search or the recycle bin; in a folder, goes to the one a breadcrumb jump left
+    /// Leaves the search, the recycle bin or the sync queue; in a folder, goes to the one a breadcrumb jump left
     /// or else to the parent.
     fn back(&mut self) -> Task<Message> {
         if self.search.is_active() {
             self.search.clear();
             Task::none()
-        } else if self.trash.is_some() {
+        } else if !matches!(self.page, Page::Folder) {
             self.open_folder(self.folder.id)
         } else if let Some(previous) = self.previous {
             self.open_folder(previous)
@@ -373,12 +385,22 @@ impl State {
         self.folder.selection.clear();
         let mut trash = trash::State::open();
         let task = trash.load(&self.client);
-        self.trash = Some(trash);
+        self.page = Page::Trash(Box::new(trash));
         task.map(Message::Trash)
     }
 
+    fn open_sync_queue(&mut self) -> Task<Message> {
+        self.search.clear();
+        self.folder.error = None;
+        self.details = None;
+        self.menu = None;
+        self.folder.selection.clear();
+        self.page = Page::SyncQueue;
+        Task::none()
+    }
+
     fn trash_update(&mut self, message: trash::Message) -> Task<Message> {
-        let Some(trash) = &mut self.trash else {
+        let Page::Trash(trash) = &mut self.page else {
             return Task::none();
         };
         match trash.update(&self.client, self.modifiers, message) {
@@ -397,9 +419,9 @@ impl State {
 
     /// Fetches the listing the browser currently shows.
     fn reload(&mut self) -> Task<Message> {
-        match &mut self.trash {
-            Some(trash) => trash.load(&self.client).map(Message::Trash),
-            None => self.folder.reload(&self.client),
+        match &mut self.page {
+            Page::Trash(trash) => trash.load(&self.client).map(Message::Trash),
+            Page::Folder | Page::SyncQueue => self.folder.reload(&self.client),
         }
     }
 
@@ -499,14 +521,14 @@ impl State {
             Outcome::Done => {
                 self.dialog = None;
                 self.folder.selection.clear();
-                if let Some(trash) = &mut self.trash {
+                if let Page::Trash(trash) = &mut self.page {
                     trash.clear_selection();
                 }
                 self.reload()
             }
             Outcome::Restored(response) => {
                 self.dialog = None;
-                if let Some(trash) = &mut self.trash {
+                if let Page::Trash(trash) = &mut self.page {
                     trash.restored_with(&response);
                 }
                 self.reload()
@@ -529,7 +551,7 @@ impl State {
                 self.search.clear();
             }
             Task::none()
-        } else if let Some(trash) = &mut self.trash {
+        } else if let Page::Trash(trash) = &mut self.page {
             match shortcut {
                 Shortcut::Escape => trash.clear_selection(),
                 Shortcut::SelectAll => trash.select_all(),
@@ -539,6 +561,13 @@ impl State {
                 _ => {}
             }
             Task::none()
+        } else if matches!(self.page, Page::SyncQueue) {
+            match shortcut {
+                Shortcut::Escape | Shortcut::Back | Shortcut::Parent => {
+                    self.open_folder(self.folder.id)
+                }
+                _ => Task::none(),
+            }
         } else {
             match shortcut {
                 Shortcut::Escape => {

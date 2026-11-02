@@ -164,12 +164,10 @@ pub fn view<'a>(
                 Tool::new(Icon::Refresh, "Refresh", "F5", Some(Message::Refresh)),
                 Tool::new(Icon::Web, "Web", "", Some(Message::OpenInWeb(folder))),
             ],
-            vec![Tool::new(
-                Icon::Recycling,
-                "Recycle bin",
-                "",
-                Some(Message::OpenTrash),
-            )],
+            vec![
+                Tool::new(Icon::Sync, "Sync queue", "", Some(Message::OpenSyncQueue)),
+                Tool::new(Icon::Recycling, "Recycle bin", "", Some(Message::OpenTrash)),
+            ],
         )
     } else {
         let (trailing, leading): (Vec<_>, Vec<_>) = actions(selected, lost_and_found)

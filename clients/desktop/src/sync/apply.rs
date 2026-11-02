@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     io,
     path::{Path, PathBuf},
+    sync::Arc,
     time::SystemTime,
 };
 
@@ -16,6 +17,7 @@ use protocol::{ErrorCode, NodeId, NodeKind};
 use super::{
     model::{Base, LocalEntry, RemoteNode, datetime, nanos},
     plan::Action,
+    queue::{self, Active, Progress},
     scan::is_ignored,
 };
 use crate::transfers::part_path;
@@ -64,10 +66,11 @@ impl From<io::Error> for Failure {
 /// The remote folder for each local folder that has one, `None` standing for Home.
 pub type Folders = HashMap<PathBuf, Option<NodeId>>;
 
-/// Carries out `action`.
+/// Carries out `action`, reporting the bytes of a transfer to `progress`.
 pub async fn execute(
     client: &Client,
     folders: &Folders,
+    progress: &Progress,
     action: Action,
 ) -> Result<Vec<Effect>, Failure> {
     match action {
@@ -121,10 +124,12 @@ pub async fn execute(
             ])
         }
         Action::Download { node, path, expect } => {
-            let base = download(client, &node, &path, expect.as_ref()).await?;
+            let base = download(client, progress, &node, &path, expect.as_ref()).await?;
             Ok(vec![Effect::Base(base)])
         }
-        Action::Upload { node, path, local } => upload(client, folders, node, path, local).await,
+        Action::Upload { node, path, local } => {
+            upload(client, folders, progress, node, path, local).await
+        }
         Action::Adopt { node, path, local } => {
             Ok(vec![Effect::Base(Base::new(node, path, &local))])
         }
@@ -168,12 +173,13 @@ pub async fn execute(
 pub fn execute_all<'a>(
     client: &'a Client,
     folders: &'a Folders,
+    progress: &'a Progress,
     actions: Vec<Action>,
     limit: usize,
 ) -> impl iced::futures::Stream<Item = (Action, Result<Vec<Effect>, Failure>)> + 'a {
     stream::iter(actions)
         .map(move |action| async move {
-            let outcome = execute(client, folders, action.clone()).await;
+            let outcome = execute(client, folders, progress, action.clone()).await;
             (action, outcome)
         })
         .buffer_unordered(limit)
@@ -195,13 +201,15 @@ fn place(folders: &Folders, path: &Path) -> Result<(Option<NodeId>, String), Fai
 async fn upload(
     client: &Client,
     folders: &Folders,
+    progress: &Progress,
     node: Option<NodeId>,
     path: PathBuf,
     local: LocalEntry,
 ) -> Result<Vec<Effect>, Failure> {
+    let _active = Active::start(progress, &path);
     unchanged(&path, Some(&local)).await?;
     let modified = Some(datetime(local.mtime));
-    let body = || file_body(&path);
+    let body = || file_body(&path, progress);
     let stored = match node {
         Some(id) => client.replace_content(id, modified, body).await?,
         None => {
@@ -216,7 +224,7 @@ async fn upload(
         Base::new(stored.id, path, &local)
     } else {
         // The server's content changed later and stays current; ours is now a version.
-        download(client, &stored, &path, Some(&local)).await?
+        download(client, progress, &stored, &path, Some(&local)).await?
     };
     Ok(vec![Effect::Remote(stored), Effect::Base(base)])
 }
@@ -225,17 +233,19 @@ async fn upload(
 /// no longer `expect`. The file takes the node's modification time.
 async fn download(
     client: &Client,
+    progress: &Progress,
     node: &RemoteNode,
     path: &Path,
     expect: Option<&LocalEntry>,
 ) -> Result<Base, Failure> {
+    let _active = Active::start(progress, path);
     unchanged(path, expect).await?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).await?;
     }
     let response = client.download(node.id).await?;
     let part = part_path(path);
-    let written = write_part(response, &part, node).await;
+    let written = write_part(response, &part, node, progress, path).await;
     let sha256 = match written {
         Ok(sha256) => sha256,
         Err(err) => {
@@ -264,6 +274,8 @@ async fn write_part(
     response: reqwest::Response,
     part: &Path,
     node: &RemoteNode,
+    progress: &Progress,
+    path: &Path,
 ) -> io::Result<String> {
     let mut out = fs::File::create(part).await?;
     let mut hasher = Sha256::new();
@@ -272,6 +284,7 @@ async fn write_part(
         let chunk = chunk.map_err(io::Error::other)?;
         hasher.update(&chunk);
         out.write_all(&chunk).await?;
+        queue::advance(progress, path, chunk.len() as u64);
     }
     out.flush().await?;
     let out = out.into_std().await;
@@ -302,9 +315,20 @@ async fn unchanged(path: &Path, expect: Option<&LocalEntry>) -> Result<(), Failu
     if same { Ok(()) } else { Err(Failure::Stale) }
 }
 
-fn file_body(path: &Path) -> reqwest::Body {
+/// The body that sends the file at `path`, counting what has gone out in `progress`.
+fn file_body(path: &Path, progress: &Progress) -> reqwest::Body {
     match std::fs::File::open(path) {
-        Ok(file) => reqwest::Body::wrap_stream(ReaderStream::new(fs::File::from_std(file))),
+        Ok(file) => {
+            // A retried request sends the file again from the start.
+            queue::set(progress, path, 0);
+            let (progress, path) = (Arc::clone(progress), path.to_path_buf());
+            let sent = ReaderStream::new(fs::File::from_std(file)).inspect(move |chunk| {
+                if let Ok(chunk) = chunk {
+                    queue::advance(&progress, &path, chunk.len() as u64);
+                }
+            });
+            reqwest::Body::wrap_stream(sent)
+        }
         Err(err) => {
             reqwest::Body::wrap_stream(stream::once(async move { Err::<Vec<u8>, io::Error>(err) }))
         }

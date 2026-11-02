@@ -1,7 +1,6 @@
-use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::{Db, DbError, RefreshToken, UserId};
+use crate::{Db, DbError, RefreshToken};
 
 macro_rules! token_columns {
     () => {
@@ -10,28 +9,6 @@ macro_rules! token_columns {
 }
 
 impl Db {
-    /// Stores a new refresh token hash in the given family.
-    pub async fn insert_refresh_token(
-        &self,
-        user_id: UserId,
-        family_id: Uuid,
-        token_hash: &[u8],
-        expires_at: OffsetDateTime,
-    ) -> Result<(), DbError> {
-        sqlx::query(
-            "INSERT INTO refresh_tokens (id, user_id, family_id, token_hash, expires_at) \
-             VALUES ($1, $2, $3, $4, $5)",
-        )
-        .bind(Uuid::now_v7())
-        .bind(user_id)
-        .bind(family_id)
-        .bind(token_hash)
-        .bind(expires_at)
-        .execute(self.pool())
-        .await?;
-        Ok(())
-    }
-
     /// Finds a refresh token by its hash.
     pub async fn find_refresh_token(
         &self,
@@ -60,17 +37,5 @@ impl Db {
         .execute(self.pool())
         .await?;
         Ok(updated.rows_affected() == 1)
-    }
-
-    /// Revokes every active token of a family.
-    pub async fn revoke_refresh_family(&self, family_id: Uuid) -> Result<(), DbError> {
-        sqlx::query(
-            "UPDATE refresh_tokens SET revoked_at = now() \
-             WHERE family_id = $1 AND revoked_at IS NULL",
-        )
-        .bind(family_id)
-        .execute(self.pool())
-        .await?;
-        Ok(())
     }
 }

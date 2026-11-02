@@ -130,5 +130,9 @@ async fn ticket(
         }
         TicketRequest::Events => {}
     }
-    Ok(Json(state.auth.issue_ticket(user.id, &request)?))
+    Ok(Json(state.auth.issue_ticket(
+        user.id,
+        user.session_id,
+        &request,
+    )?))
 }

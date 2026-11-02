@@ -32,11 +32,14 @@ async fn upgrade(
 ) -> Result<Response, ApiError> {
     let (user_id, lifetime) = match query.ticket {
         Some(ticket) => (
-            state.auth.verify_ticket(&ticket, &TicketRequest::Events)?,
+            state
+                .auth
+                .verify_ticket(&ticket, &TicketRequest::Events)
+                .await?,
             state.auth.access_ttl().unsigned_abs(),
         ),
         None => {
-            let user = AuthUser::from_headers(&headers, &state)?;
+            let user = AuthUser::from_headers(&headers, &state).await?;
             (user.id, remaining_lifetime(user.token_exp))
         }
     };

@@ -2,6 +2,7 @@ use protocol::{Node, SearchHit};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use iced::Point;
 use iced_test::simulator;
 
 use super::*;
@@ -170,7 +171,10 @@ fn delete_does_nothing_for_lost_and_found() {
 fn context_menu_delete_opens_the_delete_dialog() {
     let mut state = state_with_listing();
 
-    let _ = state.update(Message::ContextMenu(id(FILE_ID)));
+    let _ = state.update(Message::ContextMenu(
+        id(FILE_ID),
+        Placement::cursor(Point::ORIGIN),
+    ));
     let _ = state.update(Message::Act(Action::Delete));
 
     assert!(state.menu.is_none());
@@ -267,7 +271,7 @@ fn the_overflow_crumb_opens_the_hidden_folders_menu() {
     let mut state = state_with_listing();
     open_deep_path(&mut state, 4);
 
-    let _ = state.update(Message::CrumbsMenu);
+    let _ = state.update(Message::CrumbsMenu(Placement::cursor(Point::ORIGIN)));
     let mut ui = simulator(state.view());
 
     assert!(matches!(state.menu, Some(Menu::Crumbs(_))));

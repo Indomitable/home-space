@@ -39,9 +39,6 @@ pub fn input(event: Event, status: event::Status, _window: window::Id) -> Option
         Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Back)) => {
             Some(Message::Shortcut(Shortcut::Back))
         }
-        Event::Mouse(mouse::Event::CursorMoved { position }) => {
-            Some(Message::CursorMoved(position))
-        }
         Event::Window(window::Event::Resized(size)) => Some(Message::Resized(size)),
         Event::Window(window::Event::FileHovered(_)) => Some(Message::FileHovered),
         Event::Window(window::Event::FileDropped(path)) => Some(Message::FileDropped(path)),

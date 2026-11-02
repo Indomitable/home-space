@@ -6,12 +6,15 @@ use iced::font::Weight;
 use iced::widget::text::LineHeight;
 use iced::{
     Alignment, Element, Font, Length, Padding,
-    widget::{button, column, container, mouse_area, row, scrollable, space, stack, text},
+    alignment::Horizontal,
+    widget::{button, column, container, row, scrollable, space, stack, text},
 };
 use protocol::{Node, NodeId, NodeKind};
 
 use super::{
     Message,
+    anchor::Anchor,
+    context_menu::Placement,
     selection::{Coverage, Selection},
     syncing::{badge_icon, display_path},
 };
@@ -181,18 +184,24 @@ fn node_row(
         .padding(ROW_PADDING)
         .style(theme::row(selected))
         .on_press(Message::Click(node.id));
-    mouse_area(row_button)
-        .on_right_press(Message::ContextMenu(node.id))
+    let id = node.id;
+    Anchor::new(row_button)
+        .on_right_press(move |cursor| Message::ContextMenu(id, Placement::cursor(cursor)))
         .into()
 }
 
 /// The three dots that open the context menu for the row, like right-clicking it.
 fn menu_button<'a>(id: NodeId) -> Element<'a, Message> {
-    button(Icon::More.view(ICON_SIZE, Tint::Muted))
+    let button = button(Icon::More.view(ICON_SIZE, Tint::Muted))
         .padding(0)
         .width(CHECK_WIDTH)
         .style(button::text)
-        .on_press(Message::ContextMenu(id))
+        // Never sent: the anchor takes the press, and only needs the button to look enabled.
+        .on_press(Message::CloseMenu);
+    Anchor::new(button)
+        .on_press(move |bounds| {
+            Message::ContextMenu(id, Placement::hanging(bounds, Horizontal::Right))
+        })
         .into()
 }
 

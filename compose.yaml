@@ -1,6 +1,8 @@
 # Start the app:   HOMESPACE_JWT_SECRET=<32+ chars> podman compose up --build
 # Add a user:      podman compose run --rm app user add <name>
 # Run all tests:   podman compose run --rm test
+# Try single sign-on with a local Keycloak: podman compose --profile oidc up -d keycloak
+#                  (see "Single sign-on" in the README)
 services:
   db:
     image: docker.io/library/postgres:latest
@@ -42,6 +44,19 @@ services:
     volumes:
       - files:/data
     restart: unless-stopped
+
+  # Optional Keycloak with a ready-made realm (user demo / demo) for trying single sign-on.
+  keycloak:
+    profiles: ["oidc"]
+    image: quay.io/keycloak/keycloak:latest
+    command: ["start-dev", "--import-realm", "--http-port=8180"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "127.0.0.1:8180:8180"
+    volumes:
+      - ./docs/keycloak/homespace-realm.json:/opt/keycloak/data/import/homespace-realm.json:ro,z
 
   test:
     profiles: ["test"]

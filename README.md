@@ -2,7 +2,7 @@
 
 ## Server
 
-Rust workspace in `server/`: `db` (sqlx/Postgres), `auth` (argon2 + JWT access/refresh tokens),
+Rust workspace in `server/`: `db` (sqlx/Postgres), `auth` (argon2 + JWT access/refresh tokens, optional OpenID Connect sign-in),
 `files` (blobs on disk + ownership-scoped tree), `search` (full-text index), `notifications`
 (per-user websocket events), `api` (axum REST + `/ws`), `app` (the `homespace` binary).
 
@@ -78,6 +78,8 @@ Folders have the MIME type `inode/directory`.
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/auth/login`, `/auth/refresh`, `/auth/logout` | JWT access + rotating refresh tokens |
+| GET | `/auth/providers` | how users can sign in: `{password, oidc: {name}?}` |
+| GET / GET / POST | `/auth/oidc/start`, `/auth/oidc/callback`, `/auth/oidc/exchange` | single sign-on, see [Single sign-on](#single-sign-on) |
 | GET | `/me` | current user: `{id, username, lost_and_found_id}` |
 | GET | `/nodes?parent_id=` | list folder (root when omitted) |
 | GET / PATCH / DELETE | `/nodes/{id}` | metadata / rename or move / delete (to the recycle bin; 409 for Lost & Found) |
@@ -130,6 +132,58 @@ a keychain prompt; build with `--features keyring` to keep it in the system keyr
 icon only comes from an app bundle: `cargo install cargo-bundle`, then
 `cd clients/desktop && cargo bundle --release` builds `Home Space.app` under `target/release/bundle/osx`.
 The icons in `clients/desktop/packaging` are rendered from `home-space.svg`.
+
+## Single sign-on
+
+Besides passwords, users can sign in through any OpenID Connect provider: Auth0, Keycloak,
+Authentik, Zitadel and so on. home-space is a confidential client of the provider (authorization
+code flow with PKCE); once the provider has vouched for the user, home-space issues its own
+tokens, so the rest of the API works as before. Setting `HOMESPACE_OIDC_ISSUER` turns it on:
+
+| Variable | |
+|---|---|
+| `HOMESPACE_PUBLIC_URL` | Address users reach the server at, e.g. `https://files.example.com`. Required. |
+| `HOMESPACE_OIDC_ISSUER` | Issuer URL of the provider. Required. |
+| `HOMESPACE_OIDC_CLIENT_ID`, `HOMESPACE_OIDC_CLIENT_SECRET` | The client registered at the provider. |
+| `HOMESPACE_OIDC_NAME` | Label on the sign-in button (default `Single sign-on`). |
+| `HOMESPACE_OIDC_REQUIRED_GROUP` | Only members of this group may sign in. Optional. |
+| `HOMESPACE_OIDC_GROUPS_CLAIM` | ID token claim listing the groups (default `groups`). |
+| `HOMESPACE_OIDC_SCOPES` | Default `openid profile email`. |
+| `HOMESPACE_PASSWORD_LOGIN` | `false` allows only the provider. Default `true`. |
+
+The issuer and public URL must use https (plain http is accepted for `localhost` only). Register
+`<HOMESPACE_PUBLIC_URL>/api/v1/auth/oidc/callback` as the redirect URI at the provider.
+
+- **Keycloak:** create a confidential client in your realm with the standard flow on; the issuer
+  is `https://<host>/realms/<realm>`. For groups, add a *Group Membership* mapper (full path off)
+  to the client's dedicated scope.
+- **Auth0:** create a *Regular Web Application*; the issuer is `https://<tenant>.<region>.auth0.com/`
+  (with the trailing slash). Auth0 only puts custom claims in tokens under a namespace, so for
+  groups add an Action that sets e.g. `https://files.example.com/groups` on the ID token and
+  point `HOMESPACE_OIDC_GROUPS_CLAIM` at it.
+
+A user is created on first sign-in, named after `preferred_username`, then the e-mail's local
+part, then the subject (a number is added if the name is taken). Accounts are matched on the
+provider's stable subject id, never on e-mail. They have no password, so they cannot use password
+login, and the CLI can still give them one (`user passwd`).
+
+Desktop clients open the system browser and receive the result on a loopback port; the web client
+is redirected to `/login/callback`. In both, the server hands back a 60 second, single-use code
+that only the client holding the PKCE verifier can exchange for tokens.
+
+To try it locally with Keycloak (user `demo` / password `demo`, in group `family`):
+
+```sh
+podman-compose --profile oidc up -d keycloak     # http://127.0.0.1:8180, admin / admin
+cd server && HOMESPACE_PUBLIC_URL=http://127.0.0.1:8080 \
+  HOMESPACE_OIDC_ISSUER=http://127.0.0.1:8180/realms/homespace \
+  HOMESPACE_OIDC_CLIENT_ID=homespace HOMESPACE_OIDC_CLIENT_SECRET=homespace-dev-secret \
+  HOMESPACE_OIDC_NAME=Keycloak HOMESPACE_OIDC_REQUIRED_GROUP=family cargo run -p app -- serve
+```
+
+The realm (`docs/keycloak/homespace-realm.json`) allows the redirect URIs of the server on 8080 and
+of `trunk serve` on 8081; set `HOMESPACE_PUBLIC_URL` to the address the browser uses. Keycloak runs
+on the host network name `127.0.0.1` here, so run the server on the host rather than in Compose.
 
 ## Compose
 

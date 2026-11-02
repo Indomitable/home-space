@@ -144,5 +144,10 @@ podman-compose --profile test run --rm test   # server + client tests against th
 podman-compose down                           # add -v to also delete the database and files
 ```
 
+The signing secret can also come from a file (`HOMESPACE_JWT_SECRET_FILE`, e.g. a Docker/Podman
+secret). To rotate it, set the new value and move the old one to `HOMESPACE_JWT_SECRET_PREVIOUS`;
+sessions keep working, and the old value can be removed once access tokens (15 minutes by default)
+signed with it have expired.
+
 Postgres is published on `127.0.0.1:5433` (`HOMESPACE_DB_PORT`) and the app on `127.0.0.1:8080`
 (`HOMESPACE_PORT`), so it does not clash with the `scripts/db.sh` database on 5432.

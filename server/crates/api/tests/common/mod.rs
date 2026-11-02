@@ -46,6 +46,7 @@ pub async fn setup(pool: PgPool) -> TestApp {
     let (search, _worker) = SearchIndex::start(db.clone(), store.clone(), Vec::new());
     let config = AuthConfig {
         jwt_secret: b"integration-test-secret-integration".to_vec(),
+        previous_jwt_secrets: Vec::new(),
         access_ttl: time::Duration::minutes(15),
         refresh_ttl: time::Duration::days(30),
     };

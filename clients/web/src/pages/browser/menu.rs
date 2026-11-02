@@ -89,7 +89,9 @@ fn measure(element: &HtmlElement) -> (f64, f64) {
 
 /// Where the panel's left goes: right-aligned with the trigger, kept inside the viewport.
 fn left(trigger_right: f64, panel: f64, viewport: f64) -> f64 {
-    (trigger_right - panel).min(viewport - panel - MENU_GAP).max(MENU_GAP)
+    (trigger_right - panel)
+        .min(viewport - panel - MENU_GAP)
+        .max(MENU_GAP)
 }
 
 /// Where the panel's top goes: under the trigger, or above it when it would run off the bottom.

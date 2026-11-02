@@ -27,6 +27,7 @@ version = "0.3.106"
 features = [
     "Blob",
     "CloseEvent",
+    "Crypto",
     "CssStyleDeclaration",
     "DataTransfer",
     "DomRect",

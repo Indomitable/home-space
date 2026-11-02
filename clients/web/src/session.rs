@@ -2,11 +2,14 @@ use std::sync::Arc;
 
 use leptos::{prelude::*, task::spawn_local};
 
-use api_client::{ApiError, Client};
+use api_client::{ApiError, Client, Pkce, VERIFIER_BYTES};
 use protocol::Me;
 
 const REFRESH_TOKEN_KEY: &str = "homespace.refresh_token";
 const INVALID_LOGIN_MESSAGE: &str = "Invalid username or password";
+const OIDC_VERIFIER_KEY: &str = "homespace.oidc_verifier";
+const OIDC_CALLBACK_PATH: &str = "/login/callback";
+const OIDC_EXPIRED_MESSAGE: &str = "The sign-in expired. Please try again.";
 
 thread_local! {
     static CLIENT: Client = build_client();
@@ -35,6 +38,11 @@ fn persist_refresh_token(token: Option<&str>) {
             None => storage.remove_item(REFRESH_TOKEN_KEY),
         };
     }
+}
+
+/// Kept only for the tab that started a single sign-on, and only until it comes back.
+fn session_storage() -> Option<web_sys::Storage> {
+    web_sys::window()?.session_storage().ok().flatten()
 }
 
 fn saved_refresh_token() -> Option<String> {
@@ -79,6 +87,47 @@ impl Auth {
         }
     }
 
+    /// Sends the browser to the single sign-on provider; it comes back to `/login/callback`.
+    pub fn start_oidc() -> Result<(), String> {
+        let window = web_sys::window().ok_or("No browser window")?;
+        let mut bytes = [0u8; VERIFIER_BYTES];
+        window
+            .crypto()
+            .and_then(|crypto| crypto.get_random_values_with_u8_array(&mut bytes))
+            .map_err(|_| "The browser cannot generate secure random numbers")?;
+        let pkce = Pkce::from_random(bytes);
+        session_storage()
+            .and_then(|storage| storage.set_item(OIDC_VERIFIER_KEY, pkce.verifier()).ok())
+            .ok_or("The browser cannot store the sign-in state")?;
+        let origin = window
+            .location()
+            .origin()
+            .map_err(|_| "No browser origin")?;
+        let url = client()
+            .oidc_start_url(&format!("{origin}{OIDC_CALLBACK_PATH}"), &pkce)
+            .map_err(|err| err.to_string())?;
+        window
+            .location()
+            .set_href(&url)
+            .map_err(|_| "Could not open the sign-in page".to_owned())
+    }
+
+    /// Completes a single sign-on with the `code` from the redirect.
+    pub async fn finish_oidc(self, code: &str) -> Result<(), String> {
+        let verifier = take_oidc_verifier().ok_or(OIDC_EXPIRED_MESSAGE)?;
+        match client()
+            .oidc_exchange(code, &Pkce::from_verifier(verifier))
+            .await
+        {
+            Ok(me) => {
+                self.user.set(Some(me));
+                Ok(())
+            }
+            Err(ApiError::Unauthorized) => Err(OIDC_EXPIRED_MESSAGE.to_owned()),
+            Err(err) => Err(err.to_string()),
+        }
+    }
+
     /// Ends the session.
     pub fn logout(self) {
         spawn_local(async move {
@@ -94,4 +143,12 @@ impl Auth {
         }
         err.to_string()
     }
+}
+
+/// The verifier saved when the sign-in started; it can be used once.
+pub fn take_oidc_verifier() -> Option<String> {
+    let storage = session_storage()?;
+    let verifier = storage.get_item(OIDC_VERIFIER_KEY).ok().flatten();
+    let _ = storage.remove_item(OIDC_VERIFIER_KEY);
+    verifier
 }

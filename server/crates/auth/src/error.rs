@@ -10,6 +10,15 @@ pub enum AuthError {
     /// The username or password does not meet the requirements.
     #[error("invalid input: {0}")]
     InvalidInput(&'static str),
+    /// Single sign-on is not configured on this server.
+    #[error("single sign-on is not enabled")]
+    OidcDisabled,
+    /// The identity provider authenticated the user but access is restricted to a group.
+    #[error("access denied")]
+    OidcDenied,
+    /// The identity provider could not be reached or sent something invalid.
+    #[error("identity provider error: {0}")]
+    Oidc(String),
     #[error("password hashing failed: {0}")]
     Hashing(String),
     #[error("token encoding failed: {0}")]

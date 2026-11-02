@@ -1,20 +1,76 @@
 use axum::{
     Json, Router,
-    extract::State,
-    http::StatusCode,
+    extract::{Query, State},
+    http::{
+        StatusCode,
+        header::{CACHE_CONTROL, REFERRER_POLICY},
+    },
+    response::{IntoResponse, Redirect},
     routing::{get, post},
 };
-use protocol::{LoginRequest, Me, RefreshRequest, TicketRequest, TicketResponse, TokenPair};
+use protocol::{
+    LoginRequest, Me, OidcCallbackQuery, OidcExchangeRequest, OidcStartQuery, Providers,
+    RefreshRequest, TicketRequest, TicketResponse, TokenPair,
+};
 
 use crate::{ApiError, AppState, extract::AuthUser};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
+        .route("/auth/providers", get(providers))
+        .route("/auth/oidc/start", get(oidc_start))
+        .route("/auth/oidc/callback", get(oidc_callback))
+        .route("/auth/oidc/exchange", post(oidc_exchange))
         .route("/auth/login", post(login))
         .route("/auth/refresh", post(refresh))
         .route("/auth/logout", post(logout))
         .route("/me", get(me))
         .route("/tickets", post(ticket))
+}
+
+async fn providers(State(state): State<AppState>) -> Json<Providers> {
+    Json(state.auth.providers())
+}
+
+/// Sends the browser to the identity provider.
+async fn oidc_start(
+    State(state): State<AppState>,
+    Query(query): Query<OidcStartQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let url = state
+        .auth
+        .oidc_start(&query.redirect_uri, &query.code_challenge)
+        .await?;
+    Ok(([(CACHE_CONTROL, "no-store")], Redirect::to(&url)))
+}
+
+/// Where the identity provider sends the browser back; hands the user on to the client.
+async fn oidc_callback(
+    State(state): State<AppState>,
+    Query(query): Query<OidcCallbackQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let code = query.code.as_deref().filter(|code| !code.is_empty());
+    let url = state.auth.oidc_callback(&query.state, code).await?;
+    // The URL carries the one-time code, so keep it out of caches and `Referer` headers.
+    Ok((
+        [
+            (CACHE_CONTROL, "no-store"),
+            (REFERRER_POLICY, "no-referrer"),
+        ],
+        Redirect::to(&url),
+    ))
+}
+
+async fn oidc_exchange(
+    State(state): State<AppState>,
+    Json(request): Json<OidcExchangeRequest>,
+) -> Result<Json<TokenPair>, ApiError> {
+    Ok(Json(
+        state
+            .auth
+            .oidc_exchange(&request.code, &request.code_verifier)
+            .await?,
+    ))
 }
 
 async fn login(

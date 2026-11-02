@@ -24,9 +24,14 @@ tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+base64.workspace = true
 http-body-util.workspace = true
+jsonwebtoken = { workspace = true, features = ["use_pem"] }
+sha2.workspace = true
 sqlx.workspace = true
 tempfile.workspace = true
 tokio-tungstenite.workspace = true
 tower.workspace = true
 time.workspace = true
+url.workspace = true
+wiremock.workspace = true

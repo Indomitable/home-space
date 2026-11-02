@@ -18,6 +18,7 @@ mod changes;
 mod error;
 mod models;
 mod nodes;
+mod oidc;
 mod refresh_tokens;
 mod search;
 mod trash;
@@ -31,6 +32,7 @@ pub use nodes::{
     BlobOp, DeletedNodes, FOLDER_MIME, MoveBatch, MoveConflict, MoveOutcome, NewContent, NewNode,
     NodeUpdate, StoreOutcome,
 };
+pub use oidc::{OidcCode, OidcPending};
 pub use protocol::{NodeId, NodeKind, OnConflict, UserId};
 pub use search::{ContentState, RankedNode};
 pub use sqlx::PgPool;

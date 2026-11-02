@@ -1,12 +1,14 @@
 // Each integration test binary uses a different subset of these helpers.
 #![allow(dead_code)]
 
+pub mod idp;
+
 use std::time::Duration;
 
 use axum::{
     Router,
     body::Body,
-    http::{Method, Request, StatusCode, header::AUTHORIZATION},
+    http::{HeaderMap, Method, Request, StatusCode, header::AUTHORIZATION},
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
@@ -30,16 +32,34 @@ pub struct TestApp {
 
 pub struct Response {
     pub status: StatusCode,
+    pub headers: HeaderMap,
     pub body: Vec<u8>,
 }
 
 impl Response {
+    /// The `Location` header of a redirect.
+    pub fn location(&self) -> String {
+        self.headers
+            .get("location")
+            .and_then(|value| value.to_str().ok())
+            .expect("location header")
+            .to_owned()
+    }
+
     pub fn json(&self) -> Value {
         serde_json::from_slice(&self.body).unwrap_or(Value::Null)
     }
 }
 
 pub async fn setup(pool: PgPool) -> TestApp {
+    setup_with(pool, |auth| auth).await
+}
+
+/// Like [`setup`], letting `configure` adjust the auth service (e.g. to enable single sign-on).
+pub async fn setup_with(
+    pool: PgPool,
+    configure: impl FnOnce(AuthService) -> AuthService,
+) -> TestApp {
     let db = Db::from_pool(pool);
     let storage = tempfile::tempdir().expect("tempdir");
     let store = BlobStore::open(storage.path()).await.expect("store");
@@ -51,7 +71,7 @@ pub async fn setup(pool: PgPool) -> TestApp {
         refresh_ttl: time::Duration::days(30),
     };
     let state = AppState {
-        auth: AuthService::new(db.clone(), config).expect("auth"),
+        auth: configure(AuthService::new(db.clone(), config).expect("auth")),
         files: FileService::new(db.clone(), store, 1024 * 1024),
         hub: Hub::new(),
         search,
@@ -87,6 +107,7 @@ impl TestApp {
             .await
             .expect("response");
         let status = response.status();
+        let headers = response.headers().clone();
         let body = response
             .into_body()
             .collect()
@@ -94,7 +115,11 @@ impl TestApp {
             .expect("body")
             .to_bytes()
             .to_vec();
-        Response { status, body }
+        Response {
+            status,
+            headers,
+            body,
+        }
     }
 
     pub async fn json(

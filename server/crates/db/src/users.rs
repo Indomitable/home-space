@@ -1,3 +1,5 @@
+use sqlx::{Postgres, Transaction};
+
 use crate::{Db, DbError, FOLDER_MIME, LOST_AND_FOUND, NodeId, User, UserId};
 
 macro_rules! user_columns {
@@ -11,43 +13,51 @@ impl Db {
     /// username is taken.
     pub async fn create_user(&self, username: &str, password_hash: &str) -> Result<User, DbError> {
         let mut tx = self.pool().begin().await?;
-        let user = sqlx::query_as::<_, User>(concat!(
-            "INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3) \
-             RETURNING ",
-            user_columns!(),
-            ""
-        ))
-        .bind(UserId::new())
-        .bind(username)
-        .bind(password_hash)
-        .fetch_one(&mut *tx)
-        .await?;
-        let trash_id = NodeId::new();
-        let lost_and_found_id = NodeId::new();
-        for (id, name) in [
-            (trash_id, format!(".recycle-bin-{trash_id}")),
-            (lost_and_found_id, LOST_AND_FOUND.to_owned()),
-        ] {
-            sqlx::query(
-                "INSERT INTO nodes (id, owner_id, parent_id, kind, name, mime) \
-                 VALUES ($1, $2, NULL, 'folder', $3, $4)",
-            )
-            .bind(id)
-            .bind(user.id)
-            .bind(name)
-            .bind(FOLDER_MIME)
-            .execute(&mut *tx)
-            .await?;
-        }
+        let user = insert_user(&mut tx, username, Some(password_hash)).await?;
+        tx.commit().await?;
+        Ok(user)
+    }
+
+    /// Inserts a password-less user linked to an identity provider account. `Conflict` if the
+    /// username or the identity already exists.
+    pub async fn create_user_with_identity(
+        &self,
+        username: &str,
+        issuer: &str,
+        subject: &str,
+        email: Option<&str>,
+    ) -> Result<User, DbError> {
+        let mut tx = self.pool().begin().await?;
+        let user = insert_user(&mut tx, username, None).await?;
         sqlx::query(
-            "INSERT INTO user_folders (user_id, trash_id, lost_and_found_id) VALUES ($1, $2, $3)",
+            "INSERT INTO user_identities (issuer, subject, user_id, email) VALUES ($1, $2, $3, $4)",
         )
+        .bind(issuer)
+        .bind(subject)
         .bind(user.id)
-        .bind(trash_id)
-        .bind(lost_and_found_id)
+        .bind(email)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
+        Ok(user)
+    }
+
+    /// Finds the user linked to an identity provider account.
+    pub async fn find_user_by_identity(
+        &self,
+        issuer: &str,
+        subject: &str,
+    ) -> Result<Option<User>, DbError> {
+        let user = sqlx::query_as::<_, User>(concat!(
+            "SELECT ",
+            user_columns!(),
+            " FROM users WHERE id = \
+             (SELECT user_id FROM user_identities WHERE issuer = $1 AND subject = $2)"
+        ))
+        .bind(issuer)
+        .bind(subject)
+        .fetch_optional(self.pool())
+        .await?;
         Ok(user)
     }
 
@@ -110,4 +120,47 @@ impl Db {
         tx.commit().await?;
         Ok(())
     }
+}
+
+/// Inserts a user with their recycle bin and Lost & Found folders inside `tx`.
+async fn insert_user(
+    tx: &mut Transaction<'_, Postgres>,
+    username: &str,
+    password_hash: Option<&str>,
+) -> Result<User, DbError> {
+    let user = sqlx::query_as::<_, User>(concat!(
+        "INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3) RETURNING ",
+        user_columns!(),
+    ))
+    .bind(UserId::new())
+    .bind(username)
+    .bind(password_hash)
+    .fetch_one(&mut **tx)
+    .await?;
+    let trash_id = NodeId::new();
+    let lost_and_found_id = NodeId::new();
+    for (id, name) in [
+        (trash_id, format!(".recycle-bin-{trash_id}")),
+        (lost_and_found_id, LOST_AND_FOUND.to_owned()),
+    ] {
+        sqlx::query(
+            "INSERT INTO nodes (id, owner_id, parent_id, kind, name, mime) \
+             VALUES ($1, $2, NULL, 'folder', $3, $4)",
+        )
+        .bind(id)
+        .bind(user.id)
+        .bind(name)
+        .bind(FOLDER_MIME)
+        .execute(&mut **tx)
+        .await?;
+    }
+    sqlx::query(
+        "INSERT INTO user_folders (user_id, trash_id, lost_and_found_id) VALUES ($1, $2, $3)",
+    )
+    .bind(user.id)
+    .bind(trash_id)
+    .bind(lost_and_found_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(user)
 }

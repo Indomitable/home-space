@@ -2,11 +2,13 @@
 //! rotating refresh tokens.
 
 mod error;
+mod oidc;
 mod password;
 mod service;
 mod token;
 
 pub use error::AuthError;
+pub use oidc::{OidcConfig, OidcService};
 pub use protocol::TokenPair;
 pub use service::{AuthConfig, AuthService};
 pub use token::Claims;

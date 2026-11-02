@@ -37,7 +37,11 @@ const HOME: &str = "Home";
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Open(Option<NodeId>),
+    /// Opens a folder from the breadcrumbs, which may be any folder; going back returns to the
+    /// folder it was left from.
+    Jump(Option<NodeId>),
+    /// Goes back to the folder jumped from or, failing that, to the parent folder.
+    Back,
     Refresh,
     Loaded(Option<NodeId>, Result<Listing, ApiError>),
     Click(NodeId),
@@ -90,6 +94,8 @@ pub struct State {
     client: Client,
     me: Me,
     folder: Folder,
+    /// The folder a breadcrumb jump left, which going back returns to.
+    previous: Option<Option<NodeId>>,
     modifiers: Modifiers,
     cursor: Point,
     window: Size,
@@ -108,8 +114,9 @@ impl State {
     pub fn open(client: Client, me: Me) -> (Self, Task<Message>) {
         let state = Self {
             client,
+            folder: Folder::new(me.lost_and_found_id),
             me,
-            folder: Folder::default(),
+            previous: None,
             modifiers: Modifiers::default(),
             cursor: Point::ORIGIN,
             window: DEFAULT_WINDOW,
@@ -156,7 +163,13 @@ impl State {
 
     fn handle(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Open(folder) => self.open_folder(folder),
+            Message::Jump(folder) => {
+                let from = self.folder.id;
+                let task = self.open_folder(folder);
+                self.previous = (from != folder).then_some(from);
+                task
+            }
+            Message::Back => self.back(),
             Message::Refresh => self.folder.reload(&self.client),
             Message::Loaded(folder, result) => {
                 self.folder.loaded(folder, result);
@@ -324,12 +337,38 @@ impl State {
     }
 
     fn open_folder(&mut self, folder: Option<NodeId>) -> Task<Message> {
+        self.previous = None;
         self.folder.open(folder);
         self.trash = None;
         self.search.clear();
         self.details = None;
         self.menu = None;
         self.folder.load(&self.client)
+    }
+
+    /// Whether [`State::back`] has somewhere to go.
+    fn can_go_back(&self) -> bool {
+        self.search.is_active()
+            || self.trash.is_some()
+            || self.previous.is_some()
+            || self.folder.parent().is_some()
+    }
+
+    /// Leaves the search or the recycle bin; in a folder, goes to the one a breadcrumb jump left
+    /// or else to the parent.
+    fn back(&mut self) -> Task<Message> {
+        if self.search.is_active() {
+            self.search.clear();
+            Task::none()
+        } else if self.trash.is_some() {
+            self.open_folder(self.folder.id)
+        } else if let Some(previous) = self.previous {
+            self.open_folder(previous)
+        } else if let Some(parent) = self.folder.parent() {
+            self.open_folder(parent)
+        } else {
+            Task::none()
+        }
     }
 
     fn open_trash(&mut self) -> Task<Message> {
@@ -501,6 +540,7 @@ impl State {
                 Shortcut::Escape => trash.clear_selection(),
                 Shortcut::SelectAll => trash.select_all(),
                 Shortcut::Refresh => return self.reload(),
+                Shortcut::Back => return self.back(),
                 Shortcut::Parent => return self.open_folder(self.folder.id),
                 _ => {}
             }
@@ -521,6 +561,7 @@ impl State {
                     [node] => self.activate(node.id),
                     _ => Task::none(),
                 },
+                Shortcut::Back => self.back(),
                 Shortcut::Parent => match self.folder.parent() {
                     Some(parent) => self.open_folder(parent),
                     None => Task::none(),

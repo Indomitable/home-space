@@ -2,7 +2,7 @@
 Type=Application
 Name=Home Space
 Comment=Browse and transfer your home-space files
-Exec=desktop
+Exec=HomeSpace
 Icon=home-space
 Categories=Network;FileTransfer;
 StartupWMClass=home-space

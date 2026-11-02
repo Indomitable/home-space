@@ -173,6 +173,17 @@ impl Client {
             .await
     }
 
+    /// Lists Home like [`Client::list`], leaving `lost_and_found` out while it is empty.
+    pub async fn list_home(&self, lost_and_found: NodeId) -> Result<Vec<Node>, ApiError> {
+        let mut nodes = self.list(None).await?;
+        if nodes.iter().any(|node| node.id == lost_and_found)
+            && self.list(Some(lost_and_found)).await?.is_empty()
+        {
+            nodes.retain(|node| node.id != lost_and_found);
+        }
+        Ok(nodes)
+    }
+
     /// Searches the signed-in user's files and folders by name.
     pub async fn search(&self, query: &str) -> Result<Vec<SearchHit>, ApiError> {
         let query = SearchQuery {

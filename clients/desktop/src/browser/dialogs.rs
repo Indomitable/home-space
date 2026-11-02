@@ -6,7 +6,7 @@ use iced::{
 use api_client::{
     ApiError, Client,
     format::{conflicts_title, human_size},
-    listing::{Sort, sort_nodes},
+    listing::{Sort, already_in, sort_nodes},
 };
 use protocol::{Conflict, MoveResponse, Node, NodeId, NodeKind, OnConflict};
 
@@ -213,7 +213,7 @@ impl Dialog {
                 }
                 _ => Outcome::Task(Task::none()),
             },
-            Message::Submit if self.saving => Outcome::Task(Task::none()),
+            Message::Submit if self.saving || self.in_place() => Outcome::Task(Task::none()),
             Message::Submit => self.submit(client, folder),
             Message::Enter(target) => self.navigate(client, |trail| trail.push(target)),
             Message::Up => self.navigate(client, |trail| {
@@ -249,6 +249,15 @@ impl Dialog {
             Message::Finished(Ok(())) => Outcome::Done,
             Message::Finished(Err(err)) => self.fail(&err),
         }
+    }
+
+    /// Whether the move dialog points at the folder its nodes are already in.
+    fn in_place(&self) -> bool {
+        matches!(
+            &self.kind,
+            Kind::Move { nodes, trail, .. }
+                if already_in(nodes, trail.last().map(|folder| folder.id))
+        )
     }
 
     fn fail(&mut self, err: &ApiError) -> Outcome {
@@ -378,7 +387,7 @@ impl Dialog {
         };
         let submit = button(text(if self.saving { "Working…" } else { action }))
             .style(confirm_style)
-            .on_press_maybe((!self.saving).then_some(Message::Submit));
+            .on_press_maybe((!self.saving && !self.in_place()).then_some(Message::Submit));
         let cancel = button("Cancel")
             .style(button::secondary)
             .on_press(Message::Cancel);

@@ -9,6 +9,7 @@ use super::Message;
 const KEY_SELECT_ALL: &str = "a";
 const KEY_NEW_FOLDER: &str = "n";
 const KEY_UPLOAD: &str = "u";
+const KEY_BACK: &str = "[";
 
 /// A keyboard command of the browser.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,6 +20,7 @@ pub enum Shortcut {
     Rename,
     Activate,
     Parent,
+    Back,
     NewFolder,
     Upload,
     Refresh,
@@ -33,6 +35,9 @@ pub fn input(event: Event, status: event::Status, _window: window::Id) -> Option
         }
         Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
             Some(Message::Modifiers(modifiers))
+        }
+        Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Back)) => {
+            Some(Message::Shortcut(Shortcut::Back))
         }
         Event::Mouse(mouse::Event::CursorMoved { position }) => {
             Some(Message::CursorMoved(position))
@@ -52,8 +57,10 @@ fn shortcut(key: &Key, modifiers: Modifiers) -> Option<Shortcut> {
         Key::Named(Named::F2) => Some(Shortcut::Rename),
         Key::Named(Named::F5) => Some(Shortcut::Refresh),
         Key::Named(Named::Enter) => Some(Shortcut::Activate),
-        Key::Named(Named::Backspace) => Some(Shortcut::Parent),
+        Key::Named(Named::Backspace) => Some(Shortcut::Back),
         Key::Named(Named::ArrowUp) if modifiers.alt() => Some(Shortcut::Parent),
+        Key::Named(Named::ArrowLeft) if modifiers.alt() => Some(Shortcut::Back),
+        Key::Character(KEY_BACK) if modifiers.command() => Some(Shortcut::Back),
         Key::Character(KEY_SELECT_ALL) if modifiers.command() => Some(Shortcut::SelectAll),
         Key::Character(KEY_NEW_FOLDER) if modifiers.command() => Some(Shortcut::NewFolder),
         Key::Character(KEY_UPLOAD) if modifiers.command() => Some(Shortcut::Upload),
@@ -73,5 +80,19 @@ mod tests {
             shortcut(&key, Modifiers::COMMAND),
             Some(Shortcut::SelectAll)
         );
+    }
+
+    #[test]
+    fn back_has_keyboard_shortcuts() {
+        let backspace = Key::Named(Named::Backspace);
+        assert_eq!(
+            shortcut(&backspace, Modifiers::empty()),
+            Some(Shortcut::Back)
+        );
+        let bracket = Key::Character(KEY_BACK.into());
+        assert_eq!(shortcut(&bracket, Modifiers::COMMAND), Some(Shortcut::Back));
+        assert_eq!(shortcut(&bracket, Modifiers::empty()), None);
+        let left = Key::Named(Named::ArrowLeft);
+        assert_eq!(shortcut(&left, Modifiers::ALT), Some(Shortcut::Back));
     }
 }

@@ -4,7 +4,7 @@ use leptos::{prelude::*, task::spawn_local};
 
 use api_client::{
     format::conflicts_title,
-    listing::{Sort, sort_nodes},
+    listing::{Sort, already_in, sort_nodes},
 };
 use protocol::{Conflict, Node, NodeId, NodeKind, OnConflict};
 
@@ -27,6 +27,7 @@ pub fn MoveDialog(
         _ => format!("Move {} items", nodes.len()),
     };
     let moving_ids = ids.clone();
+    let origin = nodes.clone();
     let trail = RwSignal::new(Vec::<Node>::new());
     let folders = RwSignal::new(Vec::<Node>::new());
     let error = RwSignal::new(None::<String>);
@@ -86,7 +87,13 @@ pub fn MoveDialog(
             send.run(mode);
         }
     });
-    let confirm = move |_| send.run(OnConflict::Abort);
+    // Moving into the folder the nodes are in changes nothing.
+    let in_place = Memo::new(move |_| already_in(&origin, target.get()));
+    let confirm = move |_| {
+        if !in_place.get_untracked() {
+            send.run(OnConflict::Abort);
+        }
+    };
 
     view! {
         <div class="modal" on:click=move |_| moving.set(None)>
@@ -154,7 +161,11 @@ pub fn MoveDialog(
                     <button class="button" on:click=move |_| moving.set(None)>
                         "Cancel"
                     </button>
-                    <button class="button button--primary" on:click=confirm>
+                    <button
+                        class="button button--primary"
+                        disabled=move || in_place.get()
+                        on:click=confirm
+                    >
                         "Move here"
                     </button>
                 </div>

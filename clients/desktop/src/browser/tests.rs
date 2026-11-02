@@ -200,16 +200,41 @@ fn creating_a_folder_with_an_empty_name_closes_the_dialog() {
 #[test]
 fn backspace_goes_to_the_parent_folder() {
     let mut state = state_with_listing();
-    let _ = state.update(Message::Open(Some(id(FOLDER_ID))));
+    let _ = state.update(Message::Jump(Some(id(FOLDER_ID))));
     let listing = Listing {
         path: vec![node(FOLDER_NAME, NodeKind::Folder, FOLDER_ID)],
         nodes: Vec::new(),
     };
     let _ = state.update(Message::Loaded(Some(id(FOLDER_ID)), Ok(listing)));
 
-    let _ = state.update(Message::Shortcut(Shortcut::Parent));
+    let _ = state.update(Message::Shortcut(Shortcut::Back));
 
     assert_eq!(state.folder.id, None);
+}
+
+#[test]
+fn back_after_a_breadcrumb_jump_returns_to_the_folder_it_left() {
+    let mut state = state_with_listing();
+    open_deep_path(&mut state, 3);
+    let deep = state.folder.id;
+
+    let _ = state.update(Message::Jump(None));
+    assert_eq!(state.folder.id, None);
+    let _ = state.update(Message::Back);
+
+    assert_eq!(state.folder.id, deep);
+    // The jump is spent: the next back goes to the parent.
+    let _ = state.update(Message::Loaded(
+        deep,
+        Ok(Listing {
+            path: (1..=3)
+                .map(|raw| node(&format!("level-{raw}"), NodeKind::Folder, 100 + raw))
+                .collect(),
+            nodes: Vec::new(),
+        }),
+    ));
+    let _ = state.update(Message::Back);
+    assert_eq!(state.folder.id, Some(id(102)));
 }
 
 fn open_deep_path(state: &mut State, depth: u128) {
@@ -217,7 +242,7 @@ fn open_deep_path(state: &mut State, depth: u128) {
         .map(|raw| node(&format!("level-{raw}"), NodeKind::Folder, 100 + raw))
         .collect();
     let current = path.last().map(|folder| folder.id);
-    let _ = state.update(Message::Open(current));
+    let _ = state.update(Message::Jump(current));
     let listing = Listing {
         path,
         nodes: Vec::new(),
@@ -427,7 +452,7 @@ fn opening_a_folder_leaves_the_recycle_bin() {
     let mut state = state_with_listing();
     let _ = state.update(Message::OpenTrash);
 
-    let _ = state.update(Message::Open(None));
+    let _ = state.update(Message::Jump(None));
 
     assert!(state.trash.is_none());
 }

@@ -60,6 +60,7 @@ pub enum Icon {
     Web,
     /// Waiting for the sync.
     Update,
+    SignOut,
 }
 
 /// How an icon is tinted.
@@ -106,6 +107,7 @@ impl Icon {
             Self::SyncDisabled => include_bytes!("../assets/icons/sync_disabled.svg"),
             Self::Web => include_bytes!("../assets/icons/open_in_new.svg"),
             Self::Update => include_bytes!("../assets/icons/update.svg"),
+            Self::SignOut => include_bytes!("../assets/icons/logout.svg"),
         }
     }
 

@@ -298,7 +298,7 @@ impl<'a> Tool<'a> {
 }
 
 /// `content` with a tooltip below it naming `label` and its `shortcut`.
-fn tip<'a>(
+pub(super) fn tip<'a>(
     content: Element<'a, Message>,
     label: &'a str,
     shortcut: &'a str,

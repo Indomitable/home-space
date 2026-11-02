@@ -5,13 +5,13 @@ use std::{
 };
 
 use iced::{
-    Alignment, Element, Length,
+    Alignment, Element, Length, Task,
     widget::{button, column, container, row, scrollable, space, text},
 };
 
 use protocol::{Node, NodeId, NodeKind};
 
-use super::{HOME, Message, context_menu::Entry};
+use super::{HOME, Message as BrowserMessage, context_menu::Entry};
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},
     sync::{self, Activity, Badge, Command, Commands, Mapping, Status},
@@ -25,6 +25,29 @@ const TITLE_SIZE: f32 = 18.0;
 const NOTE_SIZE: f32 = 13.0;
 const PROBLEMS_HEIGHT: f32 = 160.0;
 const SHOWN_PROBLEMS: usize = 50;
+
+#[derive(Debug, Clone)]
+pub enum Message {
+    /// A report of the sync engine.
+    Engine(sync::Update),
+    /// Asks for the local folder a remote folder (`None` for Home) syncs with.
+    Pick(Option<NodeId>),
+    Picked(Option<NodeId>, Option<PathBuf>),
+    Measured(Confirm),
+    /// Whether to go ahead with the picked folder.
+    Confirm(bool),
+    Set(Mapping),
+    Unmap(Option<NodeId>),
+    OpenLocal(PathBuf),
+    Settings(bool),
+}
+
+/// What the browser has to do after a sync update.
+pub enum Outcome {
+    Task(Task<Message>),
+    /// Something to tell the user.
+    Error(String),
+}
 
 /// What the browser knows of the sync engine.
 #[derive(Debug, Default)]
@@ -61,21 +84,60 @@ impl Syncing {
         &self.status
     }
 
-    /// Takes in a report of the engine; returns why a mapping was refused, if it was.
-    pub fn update(&mut self, update: sync::Update) -> Option<String> {
-        match update {
-            sync::Update::Ready(commands) => self.commands = Some(commands),
-            sync::Update::Status(status) => self.status = status,
-            sync::Update::Rejected(reason) => {
-                self.notice = Some(reason.clone());
-                return Some(reason);
+    /// Applies `message`; `listed` names a folder (not Home) the listing knows.
+    pub fn update(
+        &mut self,
+        message: Message,
+        listed: impl FnOnce(NodeId) -> Option<String>,
+    ) -> Outcome {
+        match message {
+            Message::Engine(update) => match update {
+                sync::Update::Ready(commands) => self.commands = Some(commands),
+                sync::Update::Status(status) => self.status = status,
+                sync::Update::Rejected(reason) => {
+                    self.notice = Some(reason.clone());
+                    return Outcome::Error(format!("Could not sync there: {reason}"));
+                }
+            },
+            Message::Pick(remote) => {
+                return Outcome::Task(Task::perform(pick_folder(), move |local| {
+                    Message::Picked(remote, local)
+                }));
             }
+            Message::Picked(remote, Some(local)) => {
+                let name = match remote {
+                    None => HOME.to_owned(),
+                    Some(id) => listed(id)
+                        .or_else(|| self.status.names.get(&id).cloned())
+                        .unwrap_or_else(|| "this folder".to_owned()),
+                };
+                return Outcome::Task(Task::perform(measure(local.clone()), move |contents| {
+                    Message::Measured(Confirm {
+                        remote,
+                        name,
+                        local,
+                        contents,
+                    })
+                }));
+            }
+            Message::Picked(_, None) => {}
+            Message::Measured(confirm) => self.confirm = Some(confirm),
+            Message::Confirm(true) => self.confirmed(),
+            Message::Confirm(false) => self.confirm = None,
+            Message::Set(mapping) => self.send(Command::Map(mapping)),
+            Message::Unmap(remote) => self.send(Command::Unmap(remote)),
+            Message::OpenLocal(path) => {
+                if let Err(err) = reveal(&path) {
+                    return Outcome::Error(err);
+                }
+            }
+            Message::Settings(open) => self.settings = open,
         }
-        None
+        Outcome::Task(Task::none())
     }
 
     /// Starts syncing what was confirmed.
-    pub fn confirmed(&mut self) {
+    fn confirmed(&mut self) {
         if let Some(confirm) = self.confirm.take() {
             self.notice = None;
             self.send(Command::Map(Mapping {
@@ -105,39 +167,39 @@ impl Syncing {
                 Entry {
                     icon: Icon::FolderOpen,
                     label: "Open local folder",
-                    message: Message::SyncOpenLocal(local),
+                    message: BrowserMessage::Sync(Message::OpenLocal(local)),
                 },
                 Entry {
                     icon: Icon::Sync,
                     label: "Change local folder…",
-                    message: Message::SyncPick(id),
+                    message: BrowserMessage::Sync(Message::Pick(id)),
                 },
                 Entry {
                     icon: Icon::SyncDisabled,
                     label: "Stop syncing",
-                    message: Message::SyncUnmap(id),
+                    message: BrowserMessage::Sync(Message::Unmap(id)),
                 },
             ],
             Some(None) => vec![Entry {
                 icon: Icon::Sync,
                 label: "Sync again",
-                message: Message::SyncUnmap(id),
+                message: BrowserMessage::Sync(Message::Unmap(id)),
             }],
             None => {
                 let mut entries = vec![Entry {
                     icon: Icon::Sync,
                     label: "Sync to local folder…",
-                    message: Message::SyncPick(id),
+                    message: BrowserMessage::Sync(Message::Pick(id)),
                 }];
                 // Only a folder synced through a parent can be left out of it.
                 if self.status.badge(id).is_some() {
                     entries.push(Entry {
                         icon: Icon::SyncDisabled,
                         label: "Don't sync",
-                        message: Message::SyncSet(Mapping {
+                        message: BrowserMessage::Sync(Message::Set(Mapping {
                             remote: id,
                             local: None,
-                        }),
+                        })),
                     });
                 }
                 entries
@@ -157,7 +219,7 @@ pub fn badge_icon(badge: Badge) -> (Icon, Tint) {
 }
 
 /// The header button summing up the sync, which opens its settings.
-pub fn indicator(status: &Status) -> Element<'_, Message> {
+pub fn indicator(status: &Status) -> Element<'_, BrowserMessage> {
     let busy = match status.activity {
         Activity::Checking => Some("Checking server…"),
         Activity::Scanning => Some("Scanning…"),
@@ -186,19 +248,19 @@ pub fn indicator(status: &Status) -> Element<'_, Message> {
             .align_y(Alignment::Center),
     )
     .style(theme::tool)
-    .on_press(Message::SyncSettings(true))
+    .on_press(BrowserMessage::Sync(Message::Settings(true)))
     .into()
 }
 
 /// Asks before syncing a remote folder with the picked local folder, showing what it holds.
-pub fn confirm(confirm: &Confirm) -> Element<'_, Message> {
+pub fn confirm(confirm: &Confirm) -> Element<'_, BrowserMessage> {
     let name = confirm.name.as_str();
     let buttons = row![
         space::horizontal(),
         button(text("Cancel"))
             .style(button::secondary)
-            .on_press(Message::SyncConfirm(false)),
-        button(text("Sync")).on_press(Message::SyncConfirm(true)),
+            .on_press(BrowserMessage::Sync(Message::Confirm(false))),
+        button(text("Sync")).on_press(BrowserMessage::Sync(Message::Confirm(true))),
     ]
     .spacing(SPACING);
     let panel = column![
@@ -242,10 +304,10 @@ pub async fn measure(path: PathBuf) -> Contents {
 }
 
 /// The sync settings: what syncs where, and what went wrong.
-pub fn settings<'a>(status: &'a Status, notice: Option<&'a str>) -> Element<'a, Message> {
+pub fn settings<'a>(status: &'a Status, notice: Option<&'a str>) -> Element<'a, BrowserMessage> {
     let close = button(Icon::Close.view(ICON_SIZE, Tint::Muted))
         .style(theme::tool)
-        .on_press(Message::SyncSettings(false));
+        .on_press(BrowserMessage::Sync(Message::Settings(false)));
     let mut panel = column![
         row![text("Sync").size(TITLE_SIZE), space::horizontal(), close].align_y(Alignment::Center)
     ]
@@ -297,7 +359,7 @@ fn mapping_row(
     name: String,
     mapping: Option<&Mapping>,
     remote: Option<NodeId>,
-) -> Element<'_, Message> {
+) -> Element<'_, BrowserMessage> {
     let target = match mapping.map(|mapping| mapping.local.as_deref()) {
         None => "Not synced".to_owned(),
         Some(None) => "Set to not sync".to_owned(),
@@ -309,7 +371,7 @@ fn mapping_row(
             actions = actions.push(tool(
                 Icon::Sync,
                 "Choose folder…",
-                Message::SyncPick(remote),
+                BrowserMessage::Sync(Message::Pick(remote)),
             ));
         }
         Some(mapping) => {
@@ -317,10 +379,14 @@ fn mapping_row(
                 actions = actions.push(tool(
                     Icon::FolderOpen,
                     "Open",
-                    Message::SyncOpenLocal(local.clone()),
+                    BrowserMessage::Sync(Message::OpenLocal(local.clone())),
                 ));
             }
-            actions = actions.push(tool(Icon::Close, "Remove", Message::SyncUnmap(remote)));
+            actions = actions.push(tool(
+                Icon::Close,
+                "Remove",
+                BrowserMessage::Sync(Message::Unmap(remote)),
+            ));
         }
     }
     row![
@@ -332,7 +398,7 @@ fn mapping_row(
     .into()
 }
 
-fn tool(icon: Icon, label: &str, message: Message) -> Element<'_, Message> {
+fn tool(icon: Icon, label: &str, message: BrowserMessage) -> Element<'_, BrowserMessage> {
     button(
         row![icon.view(ICON_SIZE, Tint::Text), text(label)]
             .spacing(SPACING / 2.0)

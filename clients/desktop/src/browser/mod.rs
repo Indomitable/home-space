@@ -1,79 +1,39 @@
 mod context_menu;
 mod details;
 mod dialogs;
+mod files;
+mod folder;
 mod grid;
+mod input;
+mod layout;
 mod search;
 mod selection;
 mod syncing;
 mod toolbar;
 mod trash;
 
-use std::{
-    path::PathBuf,
-    time::{Duration, Instant},
-};
+use std::path::PathBuf;
 
-use iced::{
-    Alignment, Element, Event, Length, Point, Size, Subscription, Task, event,
-    keyboard::{self, Key, Modifiers, key::Named},
-    mouse,
-    widget::{
-        Row, button, center, column, container, mouse_area, opaque, pin, row, space, stack, text,
-        text_input,
-    },
-    window,
-};
+use iced::{Point, Size, Subscription, Task, event, keyboard::Modifiers, window};
 
-use api_client::{
-    ApiError, Client,
-    listing::{Sort, SortKey, affects_path, apply_event, collapsed_crumbs, sort_nodes},
-};
-use protocol::{Me, Node, NodeId, NodeKind, SearchHit, paths};
+use api_client::{ApiError, Client, listing::SortKey};
+use protocol::{Me, NodeId, NodeKind, paths};
 
 use self::{
     dialogs::{Dialog, Outcome},
+    folder::{Folder, Listing},
+    input::{Shortcut, input},
     search::Search,
-    selection::Selection,
     syncing::Syncing,
     toolbar::Action,
 };
 use crate::{
-    events,
-    icons::{ICON_SIZE, Icon, Tint},
-    sync, theme,
+    events, sync,
     transfers::{self, Batch, Direction, DownloadFile, Transfers, UploadPlan},
 };
 
-const PAGE_PADDING: f32 = 16.0;
-const SPACING: f32 = 12.0;
-const GRID_SPACING: f32 = 4.0;
-const USERNAME_SIZE: f32 = 18.0;
-const SEARCH_WIDTH: f32 = 280.0;
-const SEARCH_PLACEHOLDER: &str = "Search files and folders";
-const DROP_PADDING: f32 = 32.0;
-const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 const DEFAULT_WINDOW: Size = Size::new(1024.0, 768.0);
 const HOME: &str = "Home";
-const TRASH: &str = "Recycle bin";
-const CRUMB_SEPARATOR: &str = "›";
-const CRUMB_OVERFLOW: &str = "…";
-const KEY_SELECT_ALL: &str = "a";
-const KEY_NEW_FOLDER: &str = "n";
-const KEY_UPLOAD: &str = "u";
-
-/// A keyboard command of the browser.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Shortcut {
-    SelectAll,
-    Escape,
-    Delete,
-    Rename,
-    Activate,
-    Parent,
-    NewFolder,
-    Upload,
-    Refresh,
-}
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -106,37 +66,17 @@ pub enum Message {
     FileDropped(PathBuf),
     FilesHoveredLeft,
     Server(protocol::Event),
-    SearchChanged(String),
-    SearchDebounced(u64),
-    SearchLoaded(u64, Result<Vec<SearchHit>, ApiError>),
-    SearchOpen(usize),
-    SearchClear,
+    Search(search::Message),
     SignOut,
     SignedOut,
-    Sync(sync::Update),
-    /// Asks for the local folder a remote folder (`None` for Home) syncs with.
-    SyncPick(Option<NodeId>),
-    SyncPicked(Option<NodeId>, Option<PathBuf>),
-    SyncMeasured(syncing::Confirm),
-    /// Whether to go ahead with the picked folder.
-    SyncConfirm(bool),
-    SyncSet(sync::Mapping),
-    SyncUnmap(Option<NodeId>),
-    SyncOpenLocal(PathBuf),
+    Sync(syncing::Message),
     /// Opens a folder (`None` for Home) in the web client.
     OpenInWeb(Option<NodeId>),
-    SyncSettings(bool),
 }
 
 pub enum Update {
     Task(Task<Message>),
     SignedOut,
-}
-
-#[derive(Debug, Clone)]
-pub struct Listing {
-    path: Vec<Node>,
-    nodes: Vec<Node>,
 }
 
 /// A popup menu and the point it opened at.
@@ -149,14 +89,8 @@ enum Menu {
 pub struct State {
     client: Client,
     me: Me,
-    folder: Option<NodeId>,
-    listing: Listing,
-    sort: Sort,
-    loading: bool,
-    error: Option<String>,
-    selection: Selection,
+    folder: Folder,
     modifiers: Modifiers,
-    last_click: Option<(NodeId, Instant)>,
     cursor: Point,
     window: Size,
     menu: Option<Menu>,
@@ -175,17 +109,8 @@ impl State {
         let state = Self {
             client,
             me,
-            folder: None,
-            listing: Listing {
-                path: Vec::new(),
-                nodes: Vec::new(),
-            },
-            sort: Sort::default(),
-            loading: true,
-            error: None,
-            selection: Selection::default(),
+            folder: Folder::default(),
             modifiers: Modifiers::default(),
-            last_click: None,
             cursor: Point::ORIGIN,
             window: DEFAULT_WINDOW,
             menu: None,
@@ -201,7 +126,7 @@ impl State {
         let size = window::latest()
             .and_then(window::size)
             .map(Message::Resized);
-        let task = Task::batch([state.load(), size]);
+        let task = Task::batch([state.folder.load(&state.client), size]);
         (state, task)
     }
 
@@ -219,7 +144,7 @@ impl State {
         let Some(open) = self.details.as_ref().map(details::State::node_id) else {
             return Task::none();
         };
-        match self.selected().as_slice() {
+        match self.folder.selected().as_slice() {
             [node] if node.id != open => {
                 let (details, task) = details::State::open(&self.client, node.clone());
                 self.details = Some(details);
@@ -232,44 +157,30 @@ impl State {
     fn handle(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Open(folder) => self.open_folder(folder),
-            Message::Refresh => {
-                self.loading = true;
-                self.load()
-            }
-            Message::Loaded(folder, result) if folder == self.folder => {
-                self.loading = false;
-                match result {
-                    Ok(mut listing) => {
-                        sort_nodes(&mut listing.nodes, self.sort);
-                        self.selection.retain(&listing.nodes);
-                        self.listing = listing;
-                        self.error = None;
-                    }
-                    Err(err) => self.error = Some(err.to_string()),
-                }
+            Message::Refresh => self.folder.reload(&self.client),
+            Message::Loaded(folder, result) => {
+                self.folder.loaded(folder, result);
                 Task::none()
             }
-            Message::Loaded(..) => Task::none(),
             Message::Click(id) => self.click(id),
             Message::Toggle(id) => {
-                self.selection.toggle(id);
+                self.folder.selection.toggle(id);
                 Task::none()
             }
             Message::ToggleAll => {
-                self.selection.toggle_all(&self.listing.nodes);
+                self.folder.selection.toggle_all(&self.folder.listing.nodes);
                 Task::none()
             }
             Message::ClearSelection => {
-                self.selection.clear();
+                self.folder.selection.clear();
                 Task::none()
             }
             Message::SortBy(key) => {
-                self.sort = self.sort.toggled(key);
-                sort_nodes(&mut self.listing.nodes, self.sort);
+                self.folder.sort_by(key);
                 Task::none()
             }
             Message::ContextMenu(id) => {
-                self.selection.ensure(id);
+                self.folder.selection.ensure(id);
                 self.menu = Some(Menu::Actions(self.cursor));
                 Task::none()
             }
@@ -301,7 +212,7 @@ impl State {
                 .enqueue(&self.client, Batch::Download(files))
                 .map(Message::Transfer),
             Message::UploadPlanned(_, Err(err)) | Message::DownloadPlanned(Err(err)) => {
-                self.error = Some(err);
+                self.folder.error = Some(err);
                 Task::none()
             }
             Message::UploadPlanned(..) | Message::DownloadPlanned(_) => Task::none(),
@@ -316,7 +227,7 @@ impl State {
                     .update(&self.client, message)
                     .map(Message::Transfer);
                 if reload {
-                    Task::batch([task, self.load()])
+                    Task::batch([task, self.folder.load(&self.client)])
                 } else {
                     task
                 }
@@ -345,7 +256,7 @@ impl State {
             Message::FileDropped(path) => {
                 self.dropping = false;
                 if self.dialog.is_none() && !self.in_lost_and_found() {
-                    self.plan_upload(vec![path])
+                    files::plan_upload(self.folder.id, vec![path])
                 } else {
                     Task::none()
                 }
@@ -353,13 +264,9 @@ impl State {
             Message::Server(event) => {
                 self.syncing.send(sync::Command::RemoteChanged);
                 let details = self.sync_details(&event);
-                let listing = if matches!(event, protocol::Event::Resync)
-                    || affects_path(&self.listing.path, &event)
-                {
-                    self.load()
+                let listing = if self.folder.apply(&event) {
+                    self.folder.load(&self.client)
                 } else {
-                    apply_event(&mut self.listing.nodes, self.folder, &event, self.sort);
-                    self.selection.retain(&self.listing.nodes);
                     Task::none()
                 };
                 let trash = match (&mut self.trash, &event) {
@@ -370,104 +277,39 @@ impl State {
                 };
                 Task::batch([details, listing, trash])
             }
-            Message::Sync(update) => {
-                if let Some(reason) = self.syncing.update(update) {
-                    self.error = Some(format!("Could not sync there: {reason}"));
+            Message::Sync(message) => {
+                if matches!(
+                    message,
+                    syncing::Message::Pick(_)
+                        | syncing::Message::Set(_)
+                        | syncing::Message::Unmap(_)
+                        | syncing::Message::OpenLocal(_)
+                ) {
+                    self.menu = None;
                 }
-                Task::none()
-            }
-            Message::SyncPick(remote) => {
-                self.menu = None;
-                Task::perform(syncing::pick_folder(), move |local| {
-                    Message::SyncPicked(remote, local)
-                })
-            }
-            Message::SyncPicked(remote, Some(local)) => {
-                let name = self.folder_name(remote);
-                Task::perform(syncing::measure(local.clone()), move |contents| {
-                    Message::SyncMeasured(syncing::Confirm {
-                        remote,
-                        name,
-                        local,
-                        contents,
-                    })
-                })
-            }
-            Message::SyncMeasured(confirm) => {
-                self.syncing.confirm = Some(confirm);
-                Task::none()
-            }
-            Message::SyncConfirm(true) => {
-                self.syncing.confirmed();
-                Task::none()
-            }
-            Message::SyncConfirm(false) => {
-                self.syncing.confirm = None;
-                Task::none()
-            }
-            Message::SyncPicked(_, None) => Task::none(),
-            Message::SyncSet(mapping) => {
-                self.menu = None;
-                self.syncing.send(sync::Command::Map(mapping));
-                Task::none()
-            }
-            Message::SyncUnmap(remote) => {
-                self.menu = None;
-                self.syncing.send(sync::Command::Unmap(remote));
-                Task::none()
-            }
-            Message::SyncOpenLocal(path) => {
-                self.menu = None;
-                if let Err(err) = syncing::reveal(&path) {
-                    self.error = Some(err);
+                match self
+                    .syncing
+                    .update(message, |id| self.folder.listing.name_of(id))
+                {
+                    syncing::Outcome::Task(task) => task.map(Message::Sync),
+                    syncing::Outcome::Error(err) => {
+                        self.folder.error = Some(err);
+                        Task::none()
+                    }
                 }
-                Task::none()
             }
             Message::OpenInWeb(folder) => {
                 self.menu = None;
                 let url = self.client.url(&paths::web_folder(folder));
                 if let Err(err) = syncing::open_url(&url) {
-                    self.error = Some(err);
+                    self.folder.error = Some(err);
                 }
                 Task::none()
             }
-            Message::SyncSettings(open) => {
-                self.syncing.settings = open;
-                Task::none()
-            }
-            Message::SearchChanged(query) => match self.search.change(query) {
-                Some(seq) => Task::perform(
-                    async move {
-                        tokio::time::sleep(search::DEBOUNCE).await;
-                        seq
-                    },
-                    Message::SearchDebounced,
-                ),
-                None => Task::none(),
+            Message::Search(message) => match self.search.update(&self.client, message) {
+                search::Outcome::Task(task) => task.map(Message::Search),
+                search::Outcome::OpenFolder(folder) => self.open_folder(folder),
             },
-            Message::SearchDebounced(seq) if self.search.accepts(seq) => {
-                self.search.start();
-                let client = self.client.clone();
-                let query = self.search.query().trim().to_owned();
-                Task::perform(async move { client.search(&query).await }, move |result| {
-                    Message::SearchLoaded(seq, result)
-                })
-            }
-            Message::SearchDebounced(_) => Task::none(),
-            Message::SearchLoaded(seq, result) => {
-                if self.search.accepts(seq) {
-                    self.search.finish(result);
-                }
-                Task::none()
-            }
-            Message::SearchOpen(index) => match self.search.hit(index).map(search::destination) {
-                Some(folder) => self.open_folder(folder),
-                None => Task::none(),
-            },
-            Message::SearchClear => {
-                self.search.clear();
-                Task::none()
-            }
             Message::SignOut => {
                 let client = self.client.clone();
                 Task::perform(
@@ -482,24 +324,20 @@ impl State {
     }
 
     fn open_folder(&mut self, folder: Option<NodeId>) -> Task<Message> {
-        self.folder = folder;
+        self.folder.open(folder);
         self.trash = None;
         self.search.clear();
-        self.loading = true;
-        self.error = None;
-        self.selection.clear();
         self.details = None;
         self.menu = None;
-        self.last_click = None;
-        self.load()
+        self.folder.load(&self.client)
     }
 
     fn open_trash(&mut self) -> Task<Message> {
         self.search.clear();
-        self.error = None;
+        self.folder.error = None;
         self.details = None;
         self.menu = None;
-        self.selection.clear();
+        self.folder.selection.clear();
         let mut trash = trash::State::open();
         let task = trash.load(&self.client);
         self.trash = Some(trash);
@@ -528,53 +366,28 @@ impl State {
     fn reload(&mut self) -> Task<Message> {
         match &mut self.trash {
             Some(trash) => trash.load(&self.client).map(Message::Trash),
-            None => {
-                self.loading = true;
-                self.load()
-            }
+            None => self.folder.reload(&self.client),
         }
     }
 
     fn click(&mut self, id: NodeId) -> Task<Message> {
-        let now = Instant::now();
-        let double = self
-            .last_click
-            .is_some_and(|(last, at)| last == id && now.duration_since(at) <= DOUBLE_CLICK);
-        if double {
-            self.last_click = None;
-            self.activate(id)
-        } else {
-            self.last_click = Some((id, now));
-            self.selection
-                .click(id, self.modifiers, &self.listing.nodes);
-            Task::none()
-        }
-    }
-
-    fn activate(&mut self, id: NodeId) -> Task<Message> {
-        let node = self
-            .listing
-            .nodes
-            .iter()
-            .find(|node| node.id == id)
-            .cloned();
-        match node {
-            Some(node) if node.kind == NodeKind::Folder => self.open_folder(Some(node.id)),
-            Some(node) => self.download(vec![node]),
+        match self.folder.click(id, self.modifiers) {
+            Some(id) => self.activate(id),
             None => Task::none(),
         }
     }
 
-    fn selected(&self) -> Vec<Node> {
-        self.selection
-            .selected(&self.listing.nodes)
-            .into_iter()
-            .cloned()
-            .collect()
+    fn activate(&mut self, id: NodeId) -> Task<Message> {
+        let node = self.folder.node(id).cloned();
+        match node {
+            Some(node) if node.kind == NodeKind::Folder => self.open_folder(Some(node.id)),
+            Some(node) => files::download(&self.client, vec![node]),
+            None => Task::none(),
+        }
     }
 
     fn act(&mut self, action: Action) -> Task<Message> {
-        let selected = self.selected();
+        let selected = self.folder.selected();
         match (action, selected.as_slice()) {
             (_, []) => Task::none(),
             (Action::Open, [node]) => self.activate(node.id),
@@ -589,7 +402,7 @@ impl State {
                 task.map(Message::Details)
             }
             (Action::Open | Action::Rename | Action::Details, _) => Task::none(),
-            (Action::Download, _) => self.download(selected),
+            (Action::Download, _) => files::download(&self.client, selected),
             (Action::Move, _) => {
                 let (dialog, task) = Dialog::move_nodes(&self.client, selected);
                 self.dialog = Some(dialog);
@@ -644,7 +457,7 @@ impl State {
         let Some(dialog) = &mut self.dialog else {
             return Task::none();
         };
-        match dialog.update(&self.client, self.folder, message) {
+        match dialog.update(&self.client, self.folder.id, message) {
             Outcome::Task(task) => task.map(Message::Dialog),
             Outcome::Closed => {
                 self.dialog = None;
@@ -652,7 +465,7 @@ impl State {
             }
             Outcome::Done => {
                 self.dialog = None;
-                self.selection.clear();
+                self.folder.selection.clear();
                 if let Some(trash) = &mut self.trash {
                     trash.clear_selection();
                 }
@@ -688,27 +501,27 @@ impl State {
                 Shortcut::Escape => trash.clear_selection(),
                 Shortcut::SelectAll => trash.select_all(),
                 Shortcut::Refresh => return self.reload(),
-                Shortcut::Parent => return self.open_folder(self.folder),
+                Shortcut::Parent => return self.open_folder(self.folder.id),
                 _ => {}
             }
             Task::none()
         } else {
             match shortcut {
                 Shortcut::Escape => {
-                    self.selection.clear();
+                    self.folder.selection.clear();
                     Task::none()
                 }
                 Shortcut::SelectAll => {
-                    self.selection.select_all(&self.listing.nodes);
+                    self.folder.selection.select_all(&self.folder.listing.nodes);
                     Task::none()
                 }
                 Shortcut::Delete => self.act(Action::Delete),
                 Shortcut::Rename => self.act(Action::Rename),
-                Shortcut::Activate => match self.selected().as_slice() {
+                Shortcut::Activate => match self.folder.selected().as_slice() {
                     [node] => self.activate(node.id),
                     _ => Task::none(),
                 },
-                Shortcut::Parent => match self.parent() {
+                Shortcut::Parent => match self.folder.parent() {
                     Some(parent) => self.open_folder(parent),
                     None => Task::none(),
                 },
@@ -719,278 +532,16 @@ impl State {
         }
     }
 
-    fn parent(&self) -> Option<Option<NodeId>> {
-        match self.listing.path.as_slice() {
-            [] => None,
-            [.., parent, _] => Some(Some(parent.id)),
-            [_] => Some(None),
-        }
-    }
-
-    /// The name of folder `id` (`None` for Home) as far as it is known.
-    fn folder_name(&self, id: Option<NodeId>) -> String {
-        let Some(id) = id else {
-            return HOME.to_owned();
-        };
-        self.listing
-            .nodes
-            .iter()
-            .chain(&self.listing.path)
-            .find(|node| node.id == id)
-            .map(|node| node.name.clone())
-            .or_else(|| self.syncing.status().names.get(&id).cloned())
-            .unwrap_or_else(|| "this folder".to_owned())
-    }
-
     /// Lost & Found only receives restored files, so nothing is created or uploaded into it.
     fn in_lost_and_found(&self) -> bool {
-        self.folder == Some(self.me.lost_and_found_id)
+        self.folder.id == Some(self.me.lost_and_found_id)
     }
 
     fn pick_upload(&self) -> Task<Message> {
         if self.in_lost_and_found() {
             return Task::none();
         }
-        let parent = self.folder;
-        Task::perform(
-            async move {
-                match rfd::AsyncFileDialog::new().pick_files().await {
-                    Some(handles) => {
-                        let paths = handles
-                            .iter()
-                            .map(|handle| handle.path().to_path_buf())
-                            .collect();
-                        transfers::plan_upload(paths).await
-                    }
-                    None => Ok(UploadPlan::default()),
-                }
-            },
-            move |result| Message::UploadPlanned(parent, result),
-        )
-    }
-
-    fn plan_upload(&self, paths: Vec<PathBuf>) -> Task<Message> {
-        let parent = self.folder;
-        Task::perform(transfers::plan_upload(paths), move |result| {
-            Message::UploadPlanned(parent, result)
-        })
-    }
-
-    fn download(&self, nodes: Vec<Node>) -> Task<Message> {
-        match nodes.as_slice() {
-            [node] if node.kind == NodeKind::File => {
-                let node = node.clone();
-                Task::perform(
-                    async move {
-                        let handle = rfd::AsyncFileDialog::new()
-                            .set_file_name(&node.name)
-                            .save_file()
-                            .await;
-                        Ok(handle
-                            .map(|handle| {
-                                vec![DownloadFile::replacing(&node, handle.path().to_path_buf())]
-                            })
-                            .unwrap_or_default())
-                    },
-                    Message::DownloadPlanned,
-                )
-            }
-            _ => {
-                let client = self.client.clone();
-                Task::perform(
-                    async move {
-                        match rfd::AsyncFileDialog::new().pick_folder().await {
-                            Some(folder) => {
-                                transfers::plan_download(client, nodes, folder.path().to_path_buf())
-                                    .await
-                            }
-                            None => Ok(Vec::new()),
-                        }
-                    },
-                    Message::DownloadPlanned,
-                )
-            }
-        }
-    }
-
-    pub fn view(&self) -> Element<'_, Message> {
-        let selected = self.selection.selected(&self.listing.nodes);
-        let header = row![
-            text(self.me.username.as_str()).size(USERNAME_SIZE),
-            space::horizontal(),
-            syncing::indicator(self.syncing.status()),
-            self.search_box(),
-            button("Sign out")
-                .style(button::secondary)
-                .on_press(Message::SignOut),
-        ]
-        .spacing(SPACING)
-        .align_y(Alignment::Center);
-
-        let page = if self.search.is_active() {
-            column![header, self.search.view()].spacing(SPACING)
-        } else if let Some(trash) = &self.trash {
-            column![
-                header,
-                trail(crumb(TRASH, Message::OpenTrash)),
-                trash.view().map(Message::Trash)
-            ]
-            .spacing(SPACING)
-        } else {
-            let mut page = column![
-                header,
-                self.breadcrumbs(),
-                toolbar::view(
-                    &selected,
-                    self.me.lost_and_found_id,
-                    !self.in_lost_and_found(),
-                    self.folder,
-                    self.window.width - PAGE_PADDING * 2.0,
-                )
-            ]
-            .spacing(SPACING);
-            if let Some(error) = &self.error {
-                page = page.push(container(text(error.as_str())).style(theme::error));
-            }
-            let grid = column![
-                grid::header(self.selection.coverage(&self.listing.nodes), self.sort),
-                grid::rows(&self.listing.nodes, &self.selection, self.syncing.status()),
-            ]
-            .spacing(GRID_SPACING);
-            match &self.details {
-                Some(details) => page.push(
-                    row![
-                        container(grid).width(Length::Fill),
-                        details.view(
-                            self.syncing
-                                .status()
-                                .location(Some(details.node_id()))
-                                .map(syncing::display_path)
-                        )
-                    ]
-                    .spacing(SPACING),
-                ),
-                None => page.push(grid),
-            }
-        };
-        let page = container(page)
-            .padding(PAGE_PADDING)
-            .width(Length::Fill)
-            .height(Length::Fill);
-
-        let mut layers: Vec<Element<'_, Message>> = vec![page.into()];
-        if !self.transfers.is_empty() {
-            layers.push(
-                container(self.transfers.view().map(Message::Transfer))
-                    .padding(PAGE_PADDING)
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .align_right(Length::Fill)
-                    .align_bottom(Length::Fill)
-                    .into(),
-            );
-        }
-        if let Some(menu) = self.menu {
-            let (cursor, items, panel) = match menu {
-                Menu::Actions(cursor) => {
-                    let entries = self.syncing.entries(&selected);
-                    (
-                        cursor,
-                        context_menu::item_count(&selected, self.me.lost_and_found_id)
-                            + entries.len(),
-                        context_menu::view(&selected, self.me.lost_and_found_id, entries),
-                    )
-                }
-                Menu::Crumbs(cursor) => {
-                    let hidden = self.hidden_crumbs();
-                    (cursor, hidden.len(), context_menu::folders(hidden))
-                }
-            };
-            let position = context_menu::position(cursor, self.window, items);
-            layers.push(
-                mouse_area(space().width(Length::Fill).height(Length::Fill))
-                    .on_press(Message::CloseMenu)
-                    .on_right_press(Message::CloseMenu)
-                    .into(),
-            );
-            layers.push(pin(panel).position(position).into());
-        }
-        if self.syncing.settings {
-            layers.push(modal(
-                syncing::settings(self.syncing.status(), self.syncing.notice.as_deref()),
-                Message::SyncSettings(false),
-            ));
-        }
-        if let Some(confirm) = &self.syncing.confirm {
-            layers.push(modal(
-                syncing::confirm(confirm),
-                Message::SyncConfirm(false),
-            ));
-        }
-        if let Some(dialog) = &self.dialog {
-            layers.push(modal(
-                dialog.view().map(Message::Dialog),
-                Message::Dialog(dialogs::Message::Cancel),
-            ));
-        }
-        if self.dropping {
-            let target = self
-                .listing
-                .path
-                .last()
-                .map_or(HOME, |folder| folder.name.as_str());
-            let label = container(text(format!("Drop files to upload to {target}")))
-                .padding(DROP_PADDING)
-                .style(theme::panel);
-            layers.push(center(label).style(theme::backdrop).into());
-        }
-        stack(layers).into()
-    }
-
-    fn search_box(&self) -> Element<'_, Message> {
-        let input = text_input(SEARCH_PLACEHOLDER, self.search.query())
-            .on_input(Message::SearchChanged)
-            // Half the page at most, so the username and Sign out keep their room.
-            .width(SEARCH_WIDTH.min((self.window.width - PAGE_PADDING * 2.0) / 2.0));
-        let mut bar = row![input].spacing(GRID_SPACING).align_y(Alignment::Center);
-        if !self.search.query().is_empty() {
-            bar = bar.push(
-                button(Icon::Close.view(ICON_SIZE, Tint::Muted))
-                    .style(theme::tool)
-                    .on_press(Message::SearchClear),
-            );
-        }
-        bar.into()
-    }
-
-    fn hidden_crumbs(&self) -> &[Node] {
-        collapsed_crumbs(self.listing.path.len())
-            .and_then(|hidden| self.listing.path.get(hidden))
-            .unwrap_or_default()
-    }
-
-    fn breadcrumbs(&self) -> Element<'_, Message> {
-        let hidden = collapsed_crumbs(self.listing.path.len()).unwrap_or_default();
-        let crumbs = self
-            .listing
-            .path
-            .iter()
-            .enumerate()
-            .filter_map(|(index, folder)| {
-                if index == hidden.start && !hidden.is_empty() {
-                    Some(crumb(CRUMB_OVERFLOW, Message::CrumbsMenu))
-                } else if hidden.contains(&index) {
-                    None
-                } else {
-                    Some(crumb(folder.name.as_str(), Message::Open(Some(folder.id))))
-                }
-            })
-            .flatten();
-        let mut trail = trail(crumbs);
-        if self.loading {
-            trail = trail.push(space::horizontal()).push(text("Loading…"));
-        }
-        trail.into()
+        files::pick_upload(self.folder.id)
     }
 
     /// Input events and live server events while the browser is shown.
@@ -998,550 +549,11 @@ impl State {
         Subscription::batch([
             event::listen_with(input),
             events::subscription(&self.client).map(Message::Server),
-            sync::subscription(&self.client, self.me.id).map(Message::Sync),
+            sync::subscription(&self.client, self.me.id)
+                .map(|update| Message::Sync(syncing::Message::Engine(update))),
         ])
     }
-
-    fn load(&self) -> Task<Message> {
-        let folder = self.folder;
-        Task::perform(fetch(self.client.clone(), folder), move |result| {
-            Message::Loaded(folder, result)
-        })
-    }
-}
-
-fn modal<'a>(content: Element<'a, Message>, on_dismiss: Message) -> Element<'a, Message> {
-    opaque(mouse_area(center(opaque(content)).style(theme::backdrop)).on_press(on_dismiss))
-}
-
-/// The breadcrumb trail: Home, then `crumbs`.
-fn trail<'a>(crumbs: impl IntoIterator<Item = Element<'a, Message>>) -> Row<'a, Message> {
-    row![
-        button(text(HOME))
-            .style(theme::tool)
-            .on_press(Message::Open(None))
-    ]
-    .extend(crumbs)
-    .spacing(GRID_SPACING)
-    .align_y(Alignment::Center)
-}
-
-/// A separator followed by a link-styled crumb.
-fn crumb(label: &str, message: Message) -> [Element<'_, Message>; 2] {
-    [
-        text(CRUMB_SEPARATOR).into(),
-        button(text(label))
-            .style(theme::tool)
-            .on_press(message)
-            .into(),
-    ]
-}
-
-fn input(event: Event, status: event::Status, _window: window::Id) -> Option<Message> {
-    match event {
-        Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. })
-            if status == event::Status::Ignored =>
-        {
-            shortcut(&key, modifiers).map(Message::Shortcut)
-        }
-        Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
-            Some(Message::Modifiers(modifiers))
-        }
-        Event::Mouse(mouse::Event::CursorMoved { position }) => {
-            Some(Message::CursorMoved(position))
-        }
-        Event::Window(window::Event::Resized(size)) => Some(Message::Resized(size)),
-        Event::Window(window::Event::FileHovered(_)) => Some(Message::FileHovered),
-        Event::Window(window::Event::FileDropped(path)) => Some(Message::FileDropped(path)),
-        Event::Window(window::Event::FilesHoveredLeft) => Some(Message::FilesHoveredLeft),
-        _ => None,
-    }
-}
-
-fn shortcut(key: &Key, modifiers: Modifiers) -> Option<Shortcut> {
-    match key.as_ref() {
-        Key::Named(Named::Escape) => Some(Shortcut::Escape),
-        Key::Named(Named::Delete) => Some(Shortcut::Delete),
-        Key::Named(Named::F2) => Some(Shortcut::Rename),
-        Key::Named(Named::F5) => Some(Shortcut::Refresh),
-        Key::Named(Named::Enter) => Some(Shortcut::Activate),
-        Key::Named(Named::Backspace) => Some(Shortcut::Parent),
-        Key::Named(Named::ArrowUp) if modifiers.alt() => Some(Shortcut::Parent),
-        Key::Character(KEY_SELECT_ALL) if modifiers.command() => Some(Shortcut::SelectAll),
-        Key::Character(KEY_NEW_FOLDER) if modifiers.command() => Some(Shortcut::NewFolder),
-        Key::Character(KEY_UPLOAD) if modifiers.command() => Some(Shortcut::Upload),
-        _ => None,
-    }
-}
-
-async fn fetch(client: Client, folder: Option<NodeId>) -> Result<Listing, ApiError> {
-    let (nodes, path) = match folder {
-        None => (client.list(None).await?, Vec::new()),
-        Some(id) => {
-            let (nodes, current, mut path) =
-                tokio::try_join!(client.list(Some(id)), client.get(id), client.ancestors(id))?;
-            path.push(current);
-            (nodes, path)
-        }
-    };
-    Ok(Listing { path, nodes })
 }
 
 #[cfg(test)]
-mod tests {
-    use time::OffsetDateTime;
-    use uuid::Uuid;
-
-    use iced_test::simulator;
-
-    use super::*;
-
-    const FOLDER_NAME: &str = "Folder B";
-    const FILE_NAME: &str = "report.pdf";
-    const OTHER_FILE_NAME: &str = "notes.txt";
-    const FOLDER_ID: u128 = 1;
-    const FILE_ID: u128 = 2;
-    const OTHER_FILE_ID: u128 = 3;
-
-    fn id(raw: u128) -> NodeId {
-        NodeId(Uuid::from_u128(raw))
-    }
-
-    fn node(name: &str, kind: NodeKind, raw: u128) -> Node {
-        Node {
-            id: id(raw),
-            parent_id: None,
-            kind,
-            name: name.to_owned(),
-            size: 2048,
-            sha256: None,
-            mime: String::new(),
-            version: 1,
-            created_at: OffsetDateTime::UNIX_EPOCH,
-            updated_at: OffsetDateTime::UNIX_EPOCH,
-        }
-    }
-
-    fn state_with_listing() -> State {
-        let me = Me {
-            id: protocol::UserId(Uuid::nil()),
-            username: "alice".to_owned(),
-            lost_and_found_id: NodeId(Uuid::nil()),
-        };
-        let (mut state, _task) = State::open(Client::new("http://localhost"), me);
-        let listing = Listing {
-            path: Vec::new(),
-            nodes: vec![
-                node(FOLDER_NAME, NodeKind::Folder, FOLDER_ID),
-                node(FILE_NAME, NodeKind::File, FILE_ID),
-                node(OTHER_FILE_NAME, NodeKind::File, OTHER_FILE_ID),
-            ],
-        };
-        let _ = state.update(Message::Loaded(None, Ok(listing)));
-        state
-    }
-
-    #[test]
-    fn clicking_a_row_selects_it() {
-        let state = state_with_listing();
-        let mut ui = simulator(state.view());
-
-        ui.click(FILE_NAME).expect("file row is shown");
-
-        let messages: Vec<_> = ui.into_messages().collect();
-        assert!(
-            matches!(messages.as_slice(), [Message::Click(clicked)] if *clicked == id(FILE_ID))
-        );
-    }
-
-    #[test]
-    fn a_click_selects_only_that_row() {
-        let mut state = state_with_listing();
-
-        let _ = state.update(Message::Click(id(FILE_ID)));
-
-        assert_eq!(state.selected().len(), 1);
-        assert!(state.selection.contains(id(FILE_ID)));
-    }
-
-    #[test]
-    fn the_open_details_panel_follows_the_selected_row() {
-        let mut state = state_with_listing();
-        let _ = state.update(Message::Click(id(FILE_ID)));
-        let _ = state.update(Message::Act(Action::Details));
-        assert_eq!(
-            state.details.as_ref().map(details::State::node_id),
-            Some(id(FILE_ID))
-        );
-
-        let _ = state.update(Message::Click(id(OTHER_FILE_ID)));
-
-        assert_eq!(
-            state.details.as_ref().map(details::State::node_id),
-            Some(id(OTHER_FILE_ID))
-        );
-    }
-
-    #[test]
-    fn selecting_a_row_does_not_open_a_closed_details_panel() {
-        let mut state = state_with_listing();
-
-        let _ = state.update(Message::Click(id(FILE_ID)));
-
-        assert!(state.details.is_none());
-    }
-
-    #[test]
-    fn double_clicking_a_folder_opens_it() {
-        let mut state = state_with_listing();
-
-        let _ = state.update(Message::Click(id(FOLDER_ID)));
-        let _ = state.update(Message::Click(id(FOLDER_ID)));
-
-        assert_eq!(state.folder, Some(id(FOLDER_ID)));
-        assert!(state.loading);
-    }
-
-    #[test]
-    fn rename_is_disabled_for_two_selected_items() {
-        let mut state = state_with_listing();
-        let _ = state.update(Message::Toggle(id(FILE_ID)));
-        let _ = state.update(Message::Toggle(id(OTHER_FILE_ID)));
-        let mut ui = simulator(state.view());
-
-        ui.click("Rename").expect("rename is shown");
-
-        assert_eq!(ui.into_messages().count(), 0);
-    }
-
-    fn inside_lost_and_found() -> State {
-        let mut state = state_with_listing();
-        state.me.lost_and_found_id = id(FOLDER_ID);
-        state.folder = Some(id(FOLDER_ID));
-        state
-    }
-
-    #[test]
-    fn nothing_can_be_created_inside_lost_and_found() {
-        let mut state = inside_lost_and_found();
-
-        let _ = state.update(Message::NewFolder);
-        let _ = state.update(Message::Shortcut(Shortcut::NewFolder));
-        let _ = state.update(Message::Upload);
-        let _ = state.update(Message::FileHovered);
-
-        assert!(state.dialog.is_none());
-        assert!(!state.dropping);
-    }
-
-    #[test]
-    fn folders_and_uploads_still_work_elsewhere() {
-        let mut creating = state_with_listing();
-        let _ = creating.update(Message::NewFolder);
-        assert!(creating.dialog.is_some());
-
-        let mut hovered = state_with_listing();
-        let _ = hovered.update(Message::FileHovered);
-        assert!(hovered.dropping);
-    }
-
-    #[test]
-    fn delete_does_nothing_for_lost_and_found() {
-        let mut state = state_with_listing();
-        state.me.lost_and_found_id = id(FOLDER_ID);
-        let _ = state.update(Message::Toggle(id(FOLDER_ID)));
-        let _ = state.update(Message::Toggle(id(FILE_ID)));
-
-        let _ = state.update(Message::Shortcut(Shortcut::Delete));
-        let _ = state.update(Message::Act(Action::Delete));
-
-        assert!(state.dialog.is_none());
-    }
-
-    #[test]
-    fn context_menu_delete_opens_the_delete_dialog() {
-        let mut state = state_with_listing();
-
-        let _ = state.update(Message::ContextMenu(id(FILE_ID)));
-        let _ = state.update(Message::Act(Action::Delete));
-
-        assert!(state.menu.is_none());
-        assert!(state.dialog.is_some());
-    }
-
-    #[test]
-    fn escape_closes_the_dialog() {
-        let mut state = state_with_listing();
-        let _ = state.update(Message::NewFolder);
-
-        let _ = state.update(Message::Shortcut(Shortcut::Escape));
-
-        assert!(state.dialog.is_none());
-    }
-
-    #[test]
-    fn creating_a_folder_with_an_empty_name_closes_the_dialog() {
-        let mut state = state_with_listing();
-        let _ = state.update(Message::NewFolder);
-
-        let _ = state.update(Message::Dialog(dialogs::Message::Submit));
-
-        assert!(state.dialog.is_none());
-    }
-
-    #[test]
-    fn backspace_goes_to_the_parent_folder() {
-        let mut state = state_with_listing();
-        let _ = state.update(Message::Open(Some(id(FOLDER_ID))));
-        let listing = Listing {
-            path: vec![node(FOLDER_NAME, NodeKind::Folder, FOLDER_ID)],
-            nodes: Vec::new(),
-        };
-        let _ = state.update(Message::Loaded(Some(id(FOLDER_ID)), Ok(listing)));
-
-        let _ = state.update(Message::Shortcut(Shortcut::Parent));
-
-        assert_eq!(state.folder, None);
-    }
-
-    #[test]
-    fn shortcuts_need_the_command_modifier_for_letters() {
-        let key = Key::Character(KEY_SELECT_ALL.into());
-        assert_eq!(shortcut(&key, Modifiers::empty()), None);
-        assert_eq!(
-            shortcut(&key, Modifiers::COMMAND),
-            Some(Shortcut::SelectAll)
-        );
-    }
-
-    fn open_deep_path(state: &mut State, depth: u128) {
-        let path: Vec<Node> = (1..=depth)
-            .map(|raw| node(&format!("level-{raw}"), NodeKind::Folder, 100 + raw))
-            .collect();
-        let current = path.last().map(|folder| folder.id);
-        let _ = state.update(Message::Open(current));
-        let listing = Listing {
-            path,
-            nodes: Vec::new(),
-        };
-        let _ = state.update(Message::Loaded(current, Ok(listing)));
-    }
-
-    #[test]
-    fn deep_breadcrumbs_hide_the_middle_folders() {
-        let mut state = state_with_listing();
-        open_deep_path(&mut state, 5);
-        let mut ui = simulator(state.view());
-
-        assert!(ui.find("level-1").is_ok());
-        assert!(ui.find("level-5").is_ok());
-        assert!(ui.find("level-3").is_err());
-        assert_eq!(state.hidden_crumbs().len(), 3);
-    }
-
-    #[test]
-    fn the_overflow_crumb_opens_the_hidden_folders_menu() {
-        let mut state = state_with_listing();
-        open_deep_path(&mut state, 4);
-
-        let _ = state.update(Message::CrumbsMenu);
-        let mut ui = simulator(state.view());
-
-        assert!(matches!(state.menu, Some(Menu::Crumbs(_))));
-        assert!(ui.find("level-2").is_ok());
-    }
-
-    #[test]
-    fn a_created_node_in_the_open_folder_appears() {
-        let mut state = state_with_listing();
-        let created = node("added.txt", NodeKind::File, 9);
-
-        let update = state.update(Message::Server(protocol::Event::NodeCreated {
-            node: created,
-        }));
-
-        assert!(matches!(update, Update::Task(task) if task.units() == 0));
-        assert!(state.listing.nodes.iter().any(|node| node.id == id(9)));
-    }
-
-    #[test]
-    fn a_deleted_selected_node_leaves_the_selection() {
-        let mut state = state_with_listing();
-        let _ = state.update(Message::Click(id(FILE_ID)));
-
-        let _ = state.update(Message::Server(protocol::Event::NodeDeleted {
-            id: id(FILE_ID),
-            parent_id: None,
-        }));
-
-        assert!(state.selected().is_empty());
-    }
-
-    fn hit_for(node: Node) -> SearchHit {
-        SearchHit {
-            node,
-            location: Vec::new(),
-        }
-    }
-
-    fn searching(state: &mut State, query: &str) -> u64 {
-        let _ = state.update(Message::SearchChanged(query.to_owned()));
-        state.search.seq
-    }
-
-    #[test]
-    fn typing_a_query_schedules_a_debounced_search() {
-        let mut state = state_with_listing();
-
-        let update = state.update(Message::SearchChanged("rep".to_owned()));
-
-        assert!(matches!(update, Update::Task(task) if task.units() > 0));
-        assert!(state.search.is_active());
-    }
-
-    #[test]
-    fn a_blank_query_schedules_nothing() {
-        let mut state = state_with_listing();
-
-        let update = state.update(Message::SearchChanged("  ".to_owned()));
-
-        assert!(matches!(update, Update::Task(task) if task.units() == 0));
-    }
-
-    #[test]
-    fn results_of_an_outdated_query_are_ignored() {
-        let mut state = state_with_listing();
-        let stale = searching(&mut state, "a");
-        searching(&mut state, "ab");
-
-        let _ = state.update(Message::SearchLoaded(
-            stale,
-            Ok(vec![hit_for(node(FILE_NAME, NodeKind::File, FILE_ID))]),
-        ));
-
-        assert!(state.search.hit(0).is_none());
-    }
-
-    #[test]
-    fn results_of_the_current_query_are_shown() {
-        let mut state = state_with_listing();
-        let seq = searching(&mut state, "rep");
-
-        let _ = state.update(Message::SearchLoaded(
-            seq,
-            Ok(vec![hit_for(node(FILE_NAME, NodeKind::File, FILE_ID))]),
-        ));
-        let mut ui = simulator(state.view());
-
-        assert!(ui.find(FILE_NAME).is_ok());
-    }
-
-    #[test]
-    fn opening_a_folder_hit_leaves_the_search() {
-        let mut state = state_with_listing();
-        let seq = searching(&mut state, "folder");
-        let _ = state.update(Message::SearchLoaded(
-            seq,
-            Ok(vec![hit_for(node(
-                FOLDER_NAME,
-                NodeKind::Folder,
-                FOLDER_ID,
-            ))]),
-        ));
-
-        let _ = state.update(Message::SearchOpen(0));
-
-        assert_eq!(state.folder, Some(id(FOLDER_ID)));
-        assert!(!state.search.is_active());
-    }
-
-    #[test]
-    fn escape_clears_an_active_search() {
-        let mut state = state_with_listing();
-        searching(&mut state, "rep");
-
-        let _ = state.update(Message::Shortcut(Shortcut::Escape));
-
-        assert!(!state.search.is_active());
-    }
-
-    #[test]
-    fn folder_shortcuts_do_nothing_while_searching() {
-        let mut state = state_with_listing();
-        let _ = state.update(Message::Click(id(FILE_ID)));
-        searching(&mut state, "rep");
-
-        let _ = state.update(Message::Shortcut(Shortcut::Delete));
-
-        assert!(state.dialog.is_none());
-    }
-
-    #[test]
-    fn a_resync_reloads_the_listing() {
-        let mut state = state_with_listing();
-
-        let update = state.update(Message::Server(protocol::Event::Resync));
-
-        assert!(matches!(update, Update::Task(task) if task.units() > 0));
-    }
-
-    #[test]
-    fn the_toolbar_opens_the_recycle_bin() {
-        let state = state_with_listing();
-        let mut ui = simulator(state.view());
-
-        ui.click("Recycle bin").expect("the entry is shown");
-
-        let messages: Vec<_> = ui.into_messages().collect();
-        assert!(matches!(messages.as_slice(), [Message::OpenTrash]));
-    }
-
-    #[test]
-    fn opening_the_recycle_bin_loads_it() {
-        let mut state = state_with_listing();
-
-        let update = state.update(Message::OpenTrash);
-
-        assert!(matches!(update, Update::Task(task) if task.units() > 0));
-        assert!(state.trash.is_some());
-    }
-
-    #[test]
-    fn a_trash_change_reloads_the_open_bin_only() {
-        let mut state = state_with_listing();
-        let update = state.update(Message::Server(protocol::Event::TrashChanged));
-        assert!(matches!(update, Update::Task(task) if task.units() == 0));
-
-        let _ = state.update(Message::OpenTrash);
-        let update = state.update(Message::Server(protocol::Event::TrashChanged));
-        assert!(matches!(update, Update::Task(task) if task.units() > 0));
-    }
-
-    #[test]
-    fn opening_a_folder_leaves_the_recycle_bin() {
-        let mut state = state_with_listing();
-        let _ = state.update(Message::OpenTrash);
-
-        let _ = state.update(Message::Open(None));
-
-        assert!(state.trash.is_none());
-    }
-
-    #[test]
-    fn restore_clashes_open_the_conflicts_dialog() {
-        let mut state = state_with_listing();
-        let _ = state.update(Message::OpenTrash);
-        let response = protocol::MoveResponse {
-            conflicts: vec![protocol::Conflict {
-                source: node(FILE_NAME, NodeKind::File, FILE_ID),
-                path: format!("/{FILE_NAME}"),
-                existing: None,
-            }],
-            ..protocol::MoveResponse::default()
-        };
-
-        let _ = state.update(Message::Trash(trash::Message::Restored(Ok(response))));
-
-        assert!(state.dialog.is_some());
-    }
-}
+mod tests;

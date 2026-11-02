@@ -1,15 +1,15 @@
 use std::time::Duration;
 
 use iced::{
-    Alignment, Element, Length, Padding,
+    Alignment, Element, Length, Padding, Task,
     widget::{button, column, container, row, scrollable, text},
 };
 
-use api_client::{ApiError, format::human_size};
+use api_client::{ApiError, Client, format::human_size};
 use protocol::{NodeId, NodeKind, SearchHit};
 
 use super::{
-    Message,
+    Message as BrowserMessage,
     grid::{
         CELL_SPACING, DATE_WIDTH, ROW_GAP, ROW_PADDING, ROW_SIZE, SCROLLBAR_GUTTER, SIZE_WIDTH,
     },
@@ -30,6 +30,22 @@ const HEADER_SIZE: f32 = 13.0;
 const EMPTY_PADDING: f32 = 32.0;
 const NAME_PORTION: u16 = 3;
 const LOCATION_PORTION: u16 = 2;
+
+#[derive(Debug, Clone)]
+pub enum Message {
+    Changed(String),
+    Debounced(u64),
+    Loaded(u64, Result<Vec<SearchHit>, ApiError>),
+    Open(usize),
+    Clear,
+}
+
+/// What the browser has to do after a search update.
+pub enum Outcome {
+    Task(Task<Message>),
+    /// Show the folder with this id (`None` for Home).
+    OpenFolder(Option<NodeId>),
+}
 
 /// The search box and the results of the last query that finished.
 #[derive(Debug, Default)]
@@ -88,8 +104,47 @@ impl Search {
         self.hits.get(index)
     }
 
+    pub fn update(&mut self, client: &Client, message: Message) -> Outcome {
+        match message {
+            Message::Changed(query) => match self.change(query) {
+                Some(seq) => Outcome::Task(Task::perform(
+                    async move {
+                        tokio::time::sleep(DEBOUNCE).await;
+                        seq
+                    },
+                    Message::Debounced,
+                )),
+                None => Outcome::Task(Task::none()),
+            },
+            Message::Debounced(seq) if self.accepts(seq) => {
+                self.start();
+                let client = client.clone();
+                let query = self.query.trim().to_owned();
+                Outcome::Task(Task::perform(
+                    async move { client.search(&query).await },
+                    move |result| Message::Loaded(seq, result),
+                ))
+            }
+            Message::Debounced(_) => Outcome::Task(Task::none()),
+            Message::Loaded(seq, result) => {
+                if self.accepts(seq) {
+                    self.finish(result);
+                }
+                Outcome::Task(Task::none())
+            }
+            Message::Open(index) => match self.hit(index).map(destination) {
+                Some(folder) => Outcome::OpenFolder(folder),
+                None => Outcome::Task(Task::none()),
+            },
+            Message::Clear => {
+                self.clear();
+                Outcome::Task(Task::none())
+            }
+        }
+    }
+
     /// Column titles and the scrolling result rows, or a hint when there is nothing to list.
-    pub fn view(&self) -> Element<'_, Message> {
+    pub fn view(&self) -> Element<'_, BrowserMessage> {
         if let Some(error) = &self.error {
             container(text(error.as_str())).style(theme::error).into()
         } else if self.hits.is_empty() {
@@ -138,7 +193,7 @@ fn location_label(location: &[String]) -> String {
         .join(LOCATION_SEPARATOR)
 }
 
-fn header<'a>() -> Element<'a, Message> {
+fn header<'a>() -> Element<'a, BrowserMessage> {
     let title = |label: &'static str| text(label).size(HEADER_SIZE);
     let cells = row![
         title("Name").width(Length::FillPortion(NAME_PORTION)),
@@ -153,7 +208,7 @@ fn header<'a>() -> Element<'a, Message> {
         .into()
 }
 
-fn hit_row(index: usize, hit: &SearchHit) -> Element<'_, Message> {
+fn hit_row(index: usize, hit: &SearchHit) -> Element<'_, BrowserMessage> {
     let node = &hit.node;
     let icon = node_icon(node);
     let tint = match icon {
@@ -183,7 +238,7 @@ fn hit_row(index: usize, hit: &SearchHit) -> Element<'_, Message> {
         .width(Length::Fill)
         .padding(ROW_PADDING)
         .style(theme::row(false))
-        .on_press(Message::SearchOpen(index))
+        .on_press(BrowserMessage::Search(Message::Open(index)))
         .into()
 }
 

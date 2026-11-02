@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use leptos_router::components::A;
 
-use api_client::listing::collapsed_crumbs;
+use client_core::{labels::HOME, listing::collapsed_crumbs};
 use protocol::Node;
 
 use super::menu::{Menu, MenuLink};
@@ -15,7 +15,7 @@ pub fn Breadcrumbs(crumbs: RwSignal<Vec<Node>>) -> impl IntoView {
     view! {
         <nav class="breadcrumbs" aria-label="Folder path">
             <A href="/" exact=true attr:class="breadcrumbs__link">
-                "Home"
+                {HOME}
             </A>
             {move || {
                 let all = crumbs.get();

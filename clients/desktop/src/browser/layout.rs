@@ -7,12 +7,12 @@ use iced::{
     },
 };
 
-use api_client::listing::collapsed_crumbs;
+use client_core::{labels::HOME, listing::collapsed_crumbs};
 use protocol::Node;
 
 use super::{
-    HOME, Menu, Message, State, anchor::Anchor, context_menu, context_menu::Placement, dialogs,
-    grid, search, syncing, toolbar,
+    Menu, Message, State, anchor::Anchor, context_menu, context_menu::Placement, dialogs, grid,
+    search, syncing, toolbar,
 };
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},

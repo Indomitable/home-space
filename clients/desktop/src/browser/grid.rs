@@ -1,4 +1,4 @@
-use api_client::{
+use client_core::{
     format::human_size,
     listing::{Sort, SortKey},
 };

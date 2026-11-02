@@ -3,7 +3,10 @@ use std::collections::HashSet;
 use leptos::{prelude::*, task::spawn_local};
 use leptos_router::components::A;
 
-use api_client::format::{conflicts_title, human_size};
+use client_core::{
+    format::{conflicts_title, human_size},
+    labels::{HOME, LOST_AND_FOUND, files},
+};
 use protocol::{Conflict, Event, NodeId, OnConflict, TrashItem};
 
 use super::conflict_dialog::ConflictDialog;
@@ -17,20 +20,11 @@ use crate::{
     session::{self, Auth},
 };
 
-const LOST_AND_FOUND: &str = "Lost & Found";
-
 /// What a finished restore reports: how many files came back and where to.
 #[derive(Clone)]
 struct Restored {
     count: usize,
     folder: Option<NodeId>,
-}
-
-fn files(count: usize) -> String {
-    match count {
-        1 => "1 file".to_owned(),
-        _ => format!("{count} files"),
-    }
 }
 
 #[component]
@@ -126,7 +120,7 @@ pub fn TrashPage(auth: Auth) -> impl IntoView {
             <div class="explorer__header">
                 <nav class="breadcrumbs" aria-label="Folder path">
                     <A href="/" exact=true attr:class="breadcrumbs__link">
-                        "Home"
+                        {HOME}
                     </A>
                     <span class="breadcrumbs__separator" aria-hidden="true">
                         "/"
@@ -279,16 +273,5 @@ fn TrashRow(item: TrashItem, selected: RwSignal<HashSet<NodeId>>) -> impl IntoVi
             </td>
             <td class="node-table__cell node-table__cell--size">{human_size(item.node.size)}</td>
         </tr>
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn file_counts_agree_with_the_number() {
-        assert_eq!(files(1), "1 file");
-        assert_eq!(files(3), "3 files");
     }
 }

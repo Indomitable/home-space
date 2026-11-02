@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use leptos_router::{components::A, hooks::use_query_map};
 
-use api_client::format::human_size;
+use client_core::{format::human_size, labels::location_label, search::destination};
 use protocol::{NodeKind, SearchHit};
 
 use crate::{
@@ -13,8 +13,6 @@ use crate::{
     session::{self, Auth},
 };
 
-const HOME_LABEL: &str = "Home";
-const LOCATION_SEPARATOR: &str = " / ";
 const HOME_PATH: &str = "/";
 
 #[derive(Clone, PartialEq)]
@@ -26,18 +24,7 @@ enum Status {
 }
 
 fn target(hit: &SearchHit) -> String {
-    match (hit.node.kind, hit.node.parent_id) {
-        (NodeKind::Folder, _) => route::folder(hit.node.id),
-        (NodeKind::File, Some(parent)) => route::folder(parent),
-        (NodeKind::File, None) => HOME_PATH.to_owned(),
-    }
-}
-
-fn location_label(location: &[String]) -> String {
-    std::iter::once(HOME_LABEL)
-        .chain(location.iter().map(String::as_str))
-        .collect::<Vec<_>>()
-        .join(LOCATION_SEPARATOR)
+    destination(hit).map_or_else(|| HOME_PATH.to_owned(), route::folder)
 }
 
 #[component]

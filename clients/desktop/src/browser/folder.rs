@@ -2,12 +2,9 @@ use std::time::{Duration, Instant};
 
 use iced::{Task, keyboard::Modifiers};
 
-use api_client::{
-    ApiError, Client,
-    listing::{
-        Sort, SortKey, affects_path, apply_event, collapsed_crumbs, reveals_lost_and_found,
-        sort_nodes,
-    },
+use api_client::{ApiError, Client};
+use client_core::listing::{
+    Sort, SortKey, affects_path, apply_event, collapsed_crumbs, reveals_lost_and_found, sort_nodes,
 };
 use protocol::{Node, NodeId};
 

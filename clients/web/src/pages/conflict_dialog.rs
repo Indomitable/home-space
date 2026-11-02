@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use api_client::format::human_size;
+use client_core::labels::describe;
 use protocol::{Conflict, Node, OnConflict};
 
 use crate::locale::short_date;
@@ -17,14 +17,14 @@ pub fn ConflictDialog(
     let rows = conflicts
         .into_iter()
         .map(|conflict| {
-            let existing = conflict.existing.as_ref().map(describe);
+            let existing = conflict.existing.as_ref().map(describe_node);
             view! {
                 <li class="conflict-list__item">
                     <p class="conflict-list__name">{conflict.source.name.clone()}</p>
                     <p class="conflict-list__path">{conflict.path.clone()}</p>
                     <dl class="conflict-list__versions">
                         <dt>"Incoming"</dt>
-                        <dd>{describe(&conflict.source)}</dd>
+                        <dd>{describe_node(&conflict.source)}</dd>
                         <dt>"Existing"</dt>
                         <dd>{existing.unwrap_or_else(|| "Also selected".to_owned())}</dd>
                     </dl>
@@ -70,10 +70,6 @@ pub fn ConflictDialog(
     }
 }
 
-fn describe(node: &Node) -> String {
-    format!(
-        "{} · {}",
-        short_date(node.updated_at),
-        human_size(node.size)
-    )
+fn describe_node(node: &Node) -> String {
+    describe(node, short_date)
 }

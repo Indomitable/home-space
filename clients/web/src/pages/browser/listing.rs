@@ -1,10 +1,8 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
-use api_client::{
-    ApiError,
-    listing::{Sort, affects_path, apply_event, reveals_lost_and_found, sort_nodes},
-};
+use api_client::ApiError;
+use client_core::listing::{Sort, affects_path, apply_event, reveals_lost_and_found, sort_nodes};
 use protocol::{Event, Node, NodeId};
 
 use crate::{

@@ -3,21 +3,20 @@ use iced::{
     widget::{button, column, container, operation, row, scrollable, space, text, text_input},
 };
 
-use api_client::{
-    ApiError, Client,
-    format::{conflicts_title, human_size},
+use api_client::{ApiError, Client};
+use client_core::{
+    format::conflicts_title,
+    labels::{HOME, LOST_AND_FOUND, describe, files},
     listing::{Sort, already_in, sort_nodes},
 };
 use protocol::{Conflict, MoveResponse, Node, NodeId, NodeKind, OnConflict};
 
-use super::{HOME, trash::files};
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},
     locale::short_date,
     theme,
 };
 
-const LOST_AND_FOUND: &str = "Lost & Found";
 const NAME_INPUT: &str = "dialog-name";
 const DIALOG_WIDTH: f32 = 420.0;
 const CONFLICTS_WIDTH: f32 = 560.0;
@@ -409,14 +408,18 @@ impl Dialog {
         conflicts: &'a [Conflict],
     ) -> Element<'a, Message> {
         let rows = conflicts.iter().map(|conflict| {
-            let existing = conflict
-                .existing
-                .as_ref()
-                .map_or_else(|| "Also selected".to_owned(), describe);
+            let existing = conflict.existing.as_ref().map_or_else(
+                || "Also selected".to_owned(),
+                |node| describe(node, short_date),
+            );
             column![
                 text(conflict.source.name.as_str()),
                 text(conflict.path.as_str()).size(META_SIZE),
-                text(format!("Incoming: {}", describe(&conflict.source))).size(META_SIZE),
+                text(format!(
+                    "Incoming: {}",
+                    describe(&conflict.source, short_date)
+                ))
+                .size(META_SIZE),
                 text(format!("Existing: {existing}")).size(META_SIZE),
             ]
             .into()
@@ -511,14 +514,6 @@ fn picker_entry<'a>(icon: Icon, label: &'a str, message: Message) -> Element<'a,
     .style(theme::tool)
     .on_press(message)
     .into()
-}
-
-fn describe(node: &Node) -> String {
-    format!(
-        "{} · {}",
-        short_date(node.updated_at),
-        human_size(node.size)
-    )
 }
 
 fn titled(verb: &str, nodes: &[Node]) -> String {

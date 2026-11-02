@@ -14,10 +14,8 @@ use iced::{
 use tokio::{fs, io::AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 
-use api_client::{
-    ApiError, Client,
-    listing::{Sort, sort_nodes},
-};
+use api_client::{ApiError, Client};
+use client_core::listing::{Sort, sort_nodes};
 use protocol::{ErrorCode, Node, NodeId, NodeKind};
 
 use crate::{

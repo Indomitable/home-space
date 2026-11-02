@@ -17,7 +17,8 @@ use std::path::PathBuf;
 
 use iced::{Size, Subscription, Task, event, keyboard::Modifiers, window};
 
-use api_client::{ApiError, Client, listing::SortKey};
+use api_client::{ApiError, Client};
+use client_core::listing::SortKey;
 use protocol::{Me, NodeId, NodeKind, paths};
 
 use self::{
@@ -35,7 +36,6 @@ use crate::{
 };
 
 const DEFAULT_WINDOW: Size = Size::new(1024.0, 768.0);
-const HOME: &str = "Home";
 
 #[derive(Debug, Clone)]
 pub enum Message {

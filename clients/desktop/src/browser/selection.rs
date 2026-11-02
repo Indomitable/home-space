@@ -2,15 +2,9 @@ use std::collections::HashSet;
 
 use iced::keyboard::Modifiers;
 
+pub use client_core::selection::Coverage;
+use client_core::selection::coverage;
 use protocol::{Node, NodeId};
-
-/// How many of the listed nodes are selected.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Coverage {
-    None,
-    Some,
-    All,
-}
 
 /// The selected rows of a listing, with the anchor that Shift+click extends from.
 #[derive(Debug, Default)]
@@ -101,17 +95,9 @@ impl Selection {
 
     /// How much of `nodes` is selected.
     pub fn coverage(&self, nodes: &[Node]) -> Coverage {
-        let count = nodes
-            .iter()
-            .filter(|node| self.ids.contains(&node.id))
-            .count();
-        if count == 0 {
-            Coverage::None
-        } else if count == nodes.len() {
-            Coverage::All
-        } else {
-            Coverage::Some
-        }
+        coverage(nodes.iter().map(|node| node.id), |id| {
+            self.ids.contains(&id)
+        })
     }
 }
 

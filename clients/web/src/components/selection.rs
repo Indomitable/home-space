@@ -6,6 +6,7 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{Element, MouseEvent};
 
+use client_core::selection::{Coverage, coverage};
 use protocol::NodeId;
 
 use crate::icon::Icon;
@@ -16,24 +17,6 @@ const ICON_MIXED: &str = "indeterminate_check_box";
 
 /// Clicks inside these elements belong to them, not to the row.
 const INTERACTIVE_SELECTOR: &str = "a, button, input, .node-table__cell--actions";
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Selection {
-    None,
-    Some,
-    All,
-}
-
-fn selection_of(ids: &[NodeId], selected: &HashSet<NodeId>) -> Selection {
-    let count = ids.iter().filter(|id| selected.contains(id)).count();
-    if count == 0 {
-        Selection::None
-    } else if count == ids.len() {
-        Selection::All
-    } else {
-        Selection::Some
-    }
-}
 
 fn toggle(selected: RwSignal<HashSet<NodeId>>, id: NodeId) {
     selected.update(|ids| {
@@ -90,22 +73,26 @@ pub fn SelectAll(
     #[prop(into)] ids: Signal<Vec<NodeId>>,
     selected: RwSignal<HashSet<NodeId>>,
 ) -> impl IntoView {
-    let state = Memo::new(move |_| selection_of(&ids.read(), &selected.read()));
+    let state = Memo::new(move |_| {
+        coverage(ids.read().iter().copied(), |id| {
+            selected.read().contains(&id)
+        })
+    });
     let icon = move || match state.get() {
-        Selection::None => ICON_UNCHECKED,
-        Selection::Some => ICON_MIXED,
-        Selection::All => ICON_CHECKED,
+        Coverage::None => ICON_UNCHECKED,
+        Coverage::Some => ICON_MIXED,
+        Coverage::All => ICON_CHECKED,
     };
     let checked = move || {
         match state.get() {
-            Selection::None => "false",
-            Selection::Some => "mixed",
-            Selection::All => "true",
+            Coverage::None => "false",
+            Coverage::Some => "mixed",
+            Coverage::All => "true",
         }
         .to_owned()
     };
     let on_toggle = Callback::new(move |()| {
-        if state.get_untracked() == Selection::All {
+        if state.get_untracked() == Coverage::All {
             selected.update(HashSet::clear);
         } else {
             selected.set(ids.get_untracked().into_iter().collect());
@@ -133,49 +120,5 @@ pub fn RowCheckbox(id: NodeId, name: String, selected: RwSignal<HashSet<NodeId>>
             label=format!("Select {name}")
             on_toggle=Callback::new(move |()| toggle(selected, id))
         />
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use uuid::Uuid;
-
-    use super::*;
-
-    fn ids(count: u128) -> Vec<NodeId> {
-        (1..=count)
-            .map(|n| NodeId::from(Uuid::from_u128(n)))
-            .collect()
-    }
-
-    #[test]
-    fn nothing_selected_is_none() {
-        assert_eq!(selection_of(&ids(3), &HashSet::new()), Selection::None);
-    }
-
-    #[test]
-    fn an_empty_table_is_none() {
-        assert_eq!(selection_of(&[], &HashSet::new()), Selection::None);
-    }
-
-    #[test]
-    fn part_selected_is_some() {
-        let ids = ids(3);
-        let selected = HashSet::from([ids[0]]);
-        assert_eq!(selection_of(&ids, &selected), Selection::Some);
-    }
-
-    #[test]
-    fn every_row_selected_is_all() {
-        let ids = ids(3);
-        let selected = ids.iter().copied().collect();
-        assert_eq!(selection_of(&ids, &selected), Selection::All);
-    }
-
-    #[test]
-    fn selection_outside_the_table_is_ignored() {
-        let ids = ids(3);
-        let selected = HashSet::from([NodeId::from(Uuid::from_u128(99))]);
-        assert_eq!(selection_of(&ids, &selected), Selection::None);
     }
 }

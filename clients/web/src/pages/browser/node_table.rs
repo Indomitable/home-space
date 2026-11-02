@@ -4,7 +4,7 @@ use leptos::{html::Input, prelude::*};
 use leptos_router::components::A;
 use web_sys::KeyboardEvent;
 
-use api_client::{
+use client_core::{
     format::human_size,
     listing::{Sort, SortKey},
 };

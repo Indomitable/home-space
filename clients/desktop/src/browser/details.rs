@@ -4,7 +4,8 @@ use iced::{
     widget::{button, column, container, row, scrollable, space, text},
 };
 
-use api_client::{ApiError, Client, format::human_size};
+use api_client::{ApiError, Client};
+use client_core::format::human_size;
 use protocol::{FileVersion, Node, NodeId, NodeKind};
 
 use super::Message as BrowserMessage;

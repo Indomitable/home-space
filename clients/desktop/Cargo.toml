@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 api-client.workspace = true
+client-core.workspace = true
 hex = "0.4.3"
 iced = { version = "0.14.0", features = ["advanced", "svg", "tokio"] }
 keyring = { version = "4.2.0", optional = true }

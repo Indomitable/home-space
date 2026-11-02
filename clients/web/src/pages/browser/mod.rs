@@ -11,6 +11,7 @@ use std::collections::HashSet;
 use leptos::{html::Input, prelude::*, task::spawn_local};
 use web_sys::File;
 
+use client_core::labels::HOME;
 use protocol::{Node, NodeId, TicketRequest};
 
 use self::{
@@ -260,7 +261,7 @@ fn Explorer(auth: Auth) -> impl IntoView {
                         let target = crumbs
                             .read()
                             .last()
-                            .map_or_else(|| "Home".to_owned(), |node| node.name.clone());
+                            .map_or_else(|| HOME.to_owned(), |node| node.name.clone());
                         format!("Drop files to upload to {target}")
                     }}
                 </p>

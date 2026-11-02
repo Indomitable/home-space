@@ -2,8 +2,9 @@ use std::collections::HashSet;
 
 use leptos::{prelude::*, task::spawn_local};
 
-use api_client::{
+use client_core::{
     format::conflicts_title,
+    labels::HOME,
     listing::{Sort, already_in, sort_nodes},
 };
 use protocol::{Conflict, Node, NodeId, NodeKind, OnConflict};
@@ -65,7 +66,7 @@ pub fn MoveDialog(
                 Ok(response) if !response.conflicts.is_empty() => {
                     let name = response
                         .target
-                        .map_or_else(|| "Home".to_owned(), |folder| folder.name);
+                        .map_or_else(|| HOME.to_owned(), |folder| folder.name);
                     let title = conflicts_title(response.conflicts.len(), &format!("“{name}”"));
                     conflicts.set(Some((title, response.conflicts)));
                 }

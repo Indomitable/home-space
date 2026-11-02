@@ -9,9 +9,10 @@ use iced::{
     widget::{button, column, container, row, scrollable, space, text},
 };
 
+use client_core::labels::HOME;
 use protocol::{Node, NodeId, NodeKind};
 
-use super::{HOME, Message as BrowserMessage, context_menu::Entry};
+use super::{Message as BrowserMessage, context_menu::Entry};
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},
     sync::{self, Activity, Badge, Command, Commands, Mapping, Status},

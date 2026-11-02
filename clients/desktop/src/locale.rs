@@ -3,7 +3,7 @@ use time::OffsetDateTime;
 /// Formats `time` per the system's regional settings, falling back to the fixed
 /// `YYYY-MM-DD HH:MM` form when the locale or timestamp can't be handled.
 pub fn short_date(time: OffsetDateTime) -> String {
-    platform::short_date(time).unwrap_or_else(|| api_client::format::short_date(time))
+    platform::short_date(time).unwrap_or_else(|| client_core::format::short_date(time))
 }
 
 /// macOS keeps the region (and any custom date format) apart from the language, e.g.

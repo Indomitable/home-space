@@ -4,7 +4,11 @@ use iced::{
     widget::{button, column, container, mouse_area, row, scrollable, text},
 };
 
-use api_client::{ApiError, Client, format::human_size};
+use api_client::{ApiError, Client};
+use client_core::{
+    format::human_size,
+    labels::{LOST_AND_FOUND, files},
+};
 use protocol::{MoveResponse, Node, NodeId, OnConflict, TrashItem};
 
 use super::{
@@ -25,15 +29,6 @@ const SPACING: f32 = 4.0;
 const LABEL_SPACING: f32 = 6.0;
 const NAME_PORTION: u16 = 2;
 const PATH_PORTION: u16 = 3;
-const LOST_AND_FOUND: &str = "Lost & Found";
-
-/// `1 file`, `2 files`.
-pub fn files(count: usize) -> String {
-    match count {
-        1 => "1 file".to_owned(),
-        _ => format!("{count} files"),
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -502,11 +497,5 @@ mod tests {
         let _ = press(&mut state, Message::Loaded(Ok(vec![item("a.jpg", 1)])));
 
         assert_eq!(state.selected_ids(), [id(1)]);
-    }
-
-    #[test]
-    fn file_counts_agree_with_the_number() {
-        assert_eq!(files(1), "1 file");
-        assert_eq!(files(2), "2 files");
     }
 }

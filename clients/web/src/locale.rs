@@ -15,5 +15,5 @@ pub fn short_date(time: OffsetDateTime) -> String {
         .call1(&JsValue::NULL, &date)
         .ok()
         .and_then(|text| text.as_string())
-        .unwrap_or_else(|| api_client::format::short_date(time))
+        .unwrap_or_else(|| client_core::format::short_date(time))
 }

@@ -1,6 +1,7 @@
 use leptos::{prelude::*, task::spawn_local};
 
-use api_client::{ApiError, format::human_size};
+use api_client::ApiError;
+use client_core::format::human_size;
 use protocol::{Event, FileVersion, Node, NodeId, NodeKind, TicketRequest};
 
 use crate::{components::ErrorAlert, events, icon::Icon, load, locale::short_date, session};

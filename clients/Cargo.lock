@@ -675,6 +675,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "client-core"
+version = "0.1.0"
+dependencies = [
+ "protocol",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "clipboard-win"
 version = "5.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1121,6 +1130,7 @@ version = "0.1.0"
 dependencies = [
  "api-client",
  "block2 0.6.2",
+ "client-core",
  "hex",
  "iced",
  "iced_test",
@@ -6329,6 +6339,7 @@ version = "0.1.0"
 dependencies = [
  "api-client",
  "base64 0.23.1",
+ "client-core",
  "console_error_panic_hook",
  "gloo-timers",
  "js-sys",

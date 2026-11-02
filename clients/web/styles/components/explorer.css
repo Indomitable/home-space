@@ -22,6 +22,7 @@
   border-radius: var(--radius-md);
   background: var(--color-surface);
   box-shadow: var(--shadow-sm);
+  overflow-y: auto;
 }
 
 .explorer__header {

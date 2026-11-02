@@ -1,4 +1,5 @@
 use std::{
+    ffi::OsStr,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -10,7 +11,7 @@ use iced::{
 
 use protocol::{Node, NodeId, NodeKind};
 
-use super::{HOME, Message};
+use super::{HOME, Message, context_menu::Entry};
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},
     sync::{self, Activity, Badge, Command, Commands, Mapping, Status},
@@ -53,13 +54,6 @@ pub struct Confirm {
 pub struct Contents {
     pub files: u64,
     pub bytes: u64,
-}
-
-/// A context menu entry about syncing a folder.
-pub struct Entry {
-    pub icon: Icon,
-    pub label: &'static str,
-    pub message: Message,
 }
 
 impl Syncing {
@@ -380,6 +374,16 @@ pub fn display_path(path: &Path) -> String {
 
 /// Opens `path` in the system's file manager.
 pub fn reveal(path: &Path) -> Result<(), String> {
+    open_external(path.as_os_str(), &path.display().to_string())
+}
+
+/// Opens `url` in the default web browser.
+pub fn open_url(url: &str) -> Result<(), String> {
+    open_external(OsStr::new(url), url)
+}
+
+/// Hands `target` to the system to open; `name` is what an error calls it.
+fn open_external(target: &OsStr, name: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     const OPENER: &str = "open";
     #[cfg(target_os = "windows")]
@@ -387,10 +391,10 @@ pub fn reveal(path: &Path) -> Result<(), String> {
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     const OPENER: &str = "xdg-open";
     std::process::Command::new(OPENER)
-        .arg(path)
+        .arg(target)
         .spawn()
         .map(drop)
-        .map_err(|err| format!("could not open {}: {err}", path.display()))
+        .map_err(|err| format!("could not open {name}: {err}"))
 }
 
 /// Asks for the local folder to sync with.

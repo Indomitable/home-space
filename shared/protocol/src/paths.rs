@@ -1,5 +1,7 @@
 //! Route paths relative to the server origin.
 
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+
 use crate::NodeId;
 
 pub const API_PREFIX: &str = "/api/v1";
@@ -63,4 +65,14 @@ mod tests {
         );
         assert!(ancestors(id).ends_with("/ancestors"));
     }
+}
+
+/// An id as it appears in web client URLs: 22-char base64url instead of hyphenated hex.
+pub fn short_id(id: NodeId) -> String {
+    URL_SAFE_NO_PAD.encode(id.0.as_bytes())
+}
+
+/// The web client page of a folder, or of Home for `None`.
+pub fn web_folder(id: Option<NodeId>) -> String {
+    id.map_or_else(|| "/".to_owned(), |id| format!("/folder/{}", short_id(id)))
 }

@@ -16,3 +16,5 @@ ws = true
 
 [[proxy]]
 backend = "http://127.0.0.1:8080/api/"
+# Pass redirects (e.g. to the identity provider) to the browser instead of following them.
+no_redirect = true

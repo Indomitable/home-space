@@ -38,3 +38,9 @@
   display: grid;
   gap: var(--space-4);
 }
+
+@media (width < 640px) {
+  .login__card {
+    padding: var(--space-5);
+  }
+}

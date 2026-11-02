@@ -16,7 +16,8 @@
   transition: background var(--transition), color var(--transition);
 }
 
-.breadcrumbs__link:hover {
+.breadcrumbs__link:hover,
+.breadcrumbs__link:active {
   background: var(--color-surface-hover);
   color: var(--color-text);
   text-decoration: none;
@@ -28,4 +29,20 @@
 
 .breadcrumbs__separator {
   color: var(--color-border-strong);
+}
+
+@media (width < 640px) {
+  .breadcrumbs {
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    font-size: var(--text-md);
+  }
+
+  .breadcrumbs__link {
+    max-width: 40vw;
+    overflow: hidden;
+    overflow-wrap: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }

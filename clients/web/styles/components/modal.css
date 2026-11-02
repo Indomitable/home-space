@@ -58,6 +58,27 @@
   }
 }
 
+@media (width < 640px) {
+  .modal {
+    place-items: end stretch;
+    padding: 0;
+  }
+
+  .modal__panel,
+  .modal__panel--wide {
+    width: 100%;
+    max-height: 90dvh;
+    padding-bottom: calc(var(--space-5) + var(--safe-bottom));
+    border-bottom: 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    overflow: auto;
+  }
+
+  .modal__actions .button {
+    flex: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .modal,
   .modal__panel {

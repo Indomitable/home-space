@@ -239,9 +239,15 @@ fn Explorer(auth: Auth) -> impl IntoView {
                             <p class="explorer__empty">
                                 {move || {
                                     if can_add.get() {
-                                        "Nothing here yet. Drop files anywhere to upload."
+                                        view! {
+                                            "Nothing here yet. "
+                                            <span class="hint-drop">"Drop files anywhere to upload."</span>
+                                            <span class="hint-touch">"Tap Upload to add files."</span>
+                                        }
+                                            .into_any()
                                     } else {
                                         "Nothing here. Restored files from the recycle bin land in this folder."
+                                            .into_any()
                                     }
                                 }}
                             </p>

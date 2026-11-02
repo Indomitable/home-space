@@ -18,9 +18,15 @@
   transition: background var(--transition), border-color var(--transition), color var(--transition);
 }
 
-.button:hover {
+@media (hover: hover) {
+  .button:hover {
+    background: var(--color-surface-hover);
+    text-decoration: none;
+  }
+}
+
+.button:active {
   background: var(--color-surface-hover);
-  text-decoration: none;
 }
 
 .button:focus-visible {
@@ -40,7 +46,8 @@
   color: var(--color-on-accent);
 }
 
-.button--primary:hover {
+.button--primary:hover,
+.button--primary:active {
   border-color: var(--color-accent-hover);
   background: var(--color-accent-hover);
 }
@@ -51,7 +58,8 @@
   box-shadow: none;
 }
 
-.button--ghost:hover {
+.button--ghost:hover,
+.button--ghost:active {
   background: var(--color-surface-hover);
 }
 
@@ -59,7 +67,8 @@
   color: var(--color-danger);
 }
 
-.button--danger:hover {
+.button--danger:hover,
+.button--danger:active {
   background: var(--color-danger-soft);
 }
 
@@ -70,4 +79,15 @@
 .button--block {
   width: 100%;
   padding-block: var(--space-3);
+}
+
+@media (pointer: coarse) {
+  .button {
+    min-height: var(--touch-target);
+  }
+
+  .button--small,
+  .menu__trigger {
+    min-width: var(--touch-target);
+  }
 }

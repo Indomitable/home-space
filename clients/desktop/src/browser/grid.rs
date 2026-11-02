@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use client_core::{
     format::human_size,
     listing::{Sort, SortKey},
@@ -22,7 +24,7 @@ use crate::{
     ellipsis::ellipsized,
     icons::{ICON_SIZE, Icon, Tint, node_icon},
     locale::short_date,
-    sync::{Badge, Status},
+    sync::{Badge, Item, Status},
     theme,
 };
 
@@ -117,23 +119,40 @@ fn sort_button(
         .into()
 }
 
-/// The scrolling list of rows, or a hint when the folder is empty.
-pub fn rows<'a>(nodes: &'a [Node], selection: &Selection, sync: &Status) -> Element<'a, Message> {
-    if nodes.is_empty() {
+/// The scrolling list of rows, or a hint when the folder is empty. After the listed `nodes`
+/// come the new files of the `folder` that the sync has yet to upload, which are not on the
+/// server to be listed.
+pub fn rows<'a>(
+    nodes: &'a [Node],
+    folder: Option<NodeId>,
+    selection: &Selection,
+    sync: &'a Status,
+) -> Element<'a, Message> {
+    let listed: HashSet<&str> = nodes.iter().map(|node| node.name.as_str()).collect();
+    // A file that just landed is listed before the sync reports it done.
+    let mut waiting: Vec<&Item> = sync
+        .new_uploads_in(folder)
+        .filter(|item| !listed.contains(item.name.as_str()))
+        .collect();
+    waiting.sort_by_cached_key(|item| item.name.to_lowercase());
+    if nodes.is_empty() && waiting.is_empty() {
         container(text("Nothing here yet. Drop files anywhere to upload."))
             .padding(EMPTY_PADDING)
             .center_x(Length::Fill)
             .into()
     } else {
-        let rows = nodes.iter().map(|node| {
-            let location = sync.location(Some(node.id)).map(display_path);
-            node_row(
-                node,
-                selection.contains(node.id),
-                sync.badge(Some(node.id)),
-                location,
-            )
-        });
+        let rows = nodes
+            .iter()
+            .map(|node| {
+                let location = sync.location(Some(node.id)).map(display_path);
+                node_row(
+                    node,
+                    selection.contains(node.id),
+                    sync.badge(Some(node.id)),
+                    location,
+                )
+            })
+            .chain(waiting.into_iter().map(pending_row));
         scrollable(
             column(rows)
                 .spacing(ROW_GAP)
@@ -187,6 +206,46 @@ fn node_row(
     let id = node.id;
     Anchor::new(row_button)
         .on_right_press(move |cursor| Message::ContextMenu(id, Placement::cursor(cursor)))
+        .into()
+}
+
+/// A new file or folder waiting to be uploaded: grayed out and inert, with no menu to act on
+/// what is not on the server yet.
+fn pending_row(item: &Item) -> Element<'_, Message> {
+    let icon = if item.is_folder() {
+        Icon::Folder
+    } else {
+        Icon::Other
+    };
+    let size = if item.is_folder() {
+        String::new()
+    } else {
+        human_size(i64::try_from(item.size).unwrap_or(i64::MAX))
+    };
+    let waiting = row![
+        Icon::Update.view(ICON_SIZE, Tint::Muted),
+        text("pending sync").size(ROW_SIZE)
+    ]
+    .spacing(CELL_SPACING / 2.0)
+    .align_y(Alignment::Center);
+    let cells = row![
+        space().width(CHECK_WIDTH),
+        row![
+            container(icon.view(ICON_SIZE, Tint::Disabled)).width(ICON_BOX),
+            ellipsized(item.name.as_str(), ROW_SIZE, Alignment::Start).width(Length::Fill)
+        ]
+        .spacing(CELL_SPACING / 1.5)
+        .align_y(Alignment::Center)
+        .width(Length::Fill),
+        ellipsized(size, ROW_SIZE, Alignment::End).width(SIZE_WIDTH),
+        container(waiting).width(DATE_WIDTH + CELL_SPACING + CHECK_WIDTH),
+    ]
+    .spacing(CELL_SPACING)
+    .align_y(Alignment::Center);
+    container(cells)
+        .width(Length::Fill)
+        .padding(ROW_PADDING)
+        .style(theme::disabled)
         .into()
 }
 

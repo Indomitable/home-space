@@ -437,7 +437,7 @@ fn opening_the_recycle_bin_loads_it() {
     let update = state.update(Message::OpenTrash);
 
     assert!(matches!(update, Update::Task(task) if task.units() > 0));
-    assert!(state.trash.is_some());
+    assert!(matches!(state.page, Page::Trash(_)));
 }
 
 #[test]
@@ -458,7 +458,7 @@ fn opening_a_folder_leaves_the_recycle_bin() {
 
     let _ = state.update(Message::Jump(None));
 
-    assert!(state.trash.is_none());
+    assert!(matches!(state.page, Page::Folder));
 }
 
 #[test]
@@ -477,4 +477,102 @@ fn restore_clashes_open_the_conflicts_dialog() {
     let _ = state.update(Message::Trash(trash::Message::Restored(Ok(response))));
 
     assert!(state.dialog.is_some());
+}
+
+fn with_queue(state: &mut State, queue: Vec<crate::sync::Item>) {
+    let status = crate::sync::Status {
+        queue,
+        ..crate::sync::Status::default()
+    };
+    let update = crate::sync::Update::Status(std::sync::Arc::new(status));
+    let _ = state.update(Message::Sync(syncing::Message::Engine(update)));
+}
+
+fn waiting_upload(name: &str) -> crate::sync::Item {
+    use crate::sync::{Item, ItemState, Operation};
+    Item::test(
+        PathBuf::from("/sync").join(name),
+        Operation::Upload,
+        10,
+        0,
+        ItemState::Queued,
+    )
+}
+
+#[test]
+fn the_toolbar_offers_the_sync_queue_next_to_the_recycle_bin() {
+    let state = state_with_listing();
+    let mut ui = simulator(state.view());
+
+    ui.click("Sync queue").expect("the entry is shown");
+
+    let messages: Vec<_> = ui.into_messages().collect();
+    assert!(matches!(messages.as_slice(), [Message::OpenSyncQueue]));
+}
+
+#[test]
+fn the_sync_queue_page_lists_the_work_ahead_and_back_leaves_it() {
+    let mut state = state_with_listing();
+    with_queue(&mut state, vec![waiting_upload("new.txt")]);
+
+    let _ = state.update(Message::OpenSyncQueue);
+    assert!(matches!(state.page, Page::SyncQueue));
+    {
+        let mut ui = simulator(state.view());
+        assert!(ui.find("Waiting (1)").is_ok());
+        assert!(ui.find("new.txt").is_ok());
+    }
+
+    let _ = state.update(Message::Back);
+    assert!(matches!(state.page, Page::Folder));
+}
+
+#[test]
+fn a_new_local_file_waiting_to_upload_is_listed_but_inert() {
+    let mut state = state_with_listing();
+    with_queue(&mut state, vec![waiting_upload("new.txt")]);
+
+    let mut ui = simulator(state.view());
+    assert!(ui.find("new.txt").is_ok());
+    assert!(ui.find("pending sync").is_ok());
+    ui.click("new.txt").expect("the row is shown");
+    assert_eq!(ui.into_messages().count(), 0);
+}
+
+#[test]
+fn a_waiting_file_is_not_listed_twice_once_the_server_lists_it() {
+    let mut state = state_with_listing();
+    with_queue(&mut state, vec![waiting_upload(FILE_NAME)]);
+
+    let mut ui = simulator(state.view());
+    assert!(ui.find("pending sync").is_err());
+}
+
+#[test]
+fn an_edited_file_stays_a_normal_row() {
+    let mut state = state_with_listing();
+    let edited = crate::sync::Item {
+        node: Some(id(FILE_ID)),
+        ..waiting_upload(FILE_NAME)
+    };
+    with_queue(&mut state, vec![edited]);
+
+    let mut ui = simulator(state.view());
+    assert!(ui.find("pending sync").is_err());
+    ui.click(FILE_NAME).expect("the row is shown");
+    let messages: Vec<_> = ui.into_messages().collect();
+    assert!(matches!(messages.as_slice(), [Message::Click(_)]));
+}
+
+#[test]
+fn a_waiting_file_in_another_folder_is_not_listed_here() {
+    let mut state = state_with_listing();
+    let elsewhere = crate::sync::Item {
+        parent: Some(Some(id(FOLDER_ID))),
+        ..waiting_upload("new.txt")
+    };
+    with_queue(&mut state, vec![elsewhere]);
+
+    let mut ui = simulator(state.view());
+    assert!(ui.find("new.txt").is_err());
 }

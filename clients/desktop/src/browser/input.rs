@@ -1,0 +1,77 @@
+use iced::{
+    Event, event,
+    keyboard::{self, Key, Modifiers, key::Named},
+    mouse, window,
+};
+
+use super::Message;
+
+const KEY_SELECT_ALL: &str = "a";
+const KEY_NEW_FOLDER: &str = "n";
+const KEY_UPLOAD: &str = "u";
+
+/// A keyboard command of the browser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shortcut {
+    SelectAll,
+    Escape,
+    Delete,
+    Rename,
+    Activate,
+    Parent,
+    NewFolder,
+    Upload,
+    Refresh,
+}
+
+pub fn input(event: Event, status: event::Status, _window: window::Id) -> Option<Message> {
+    match event {
+        Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. })
+            if status == event::Status::Ignored =>
+        {
+            shortcut(&key, modifiers).map(Message::Shortcut)
+        }
+        Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
+            Some(Message::Modifiers(modifiers))
+        }
+        Event::Mouse(mouse::Event::CursorMoved { position }) => {
+            Some(Message::CursorMoved(position))
+        }
+        Event::Window(window::Event::Resized(size)) => Some(Message::Resized(size)),
+        Event::Window(window::Event::FileHovered(_)) => Some(Message::FileHovered),
+        Event::Window(window::Event::FileDropped(path)) => Some(Message::FileDropped(path)),
+        Event::Window(window::Event::FilesHoveredLeft) => Some(Message::FilesHoveredLeft),
+        _ => None,
+    }
+}
+
+fn shortcut(key: &Key, modifiers: Modifiers) -> Option<Shortcut> {
+    match key.as_ref() {
+        Key::Named(Named::Escape) => Some(Shortcut::Escape),
+        Key::Named(Named::Delete) => Some(Shortcut::Delete),
+        Key::Named(Named::F2) => Some(Shortcut::Rename),
+        Key::Named(Named::F5) => Some(Shortcut::Refresh),
+        Key::Named(Named::Enter) => Some(Shortcut::Activate),
+        Key::Named(Named::Backspace) => Some(Shortcut::Parent),
+        Key::Named(Named::ArrowUp) if modifiers.alt() => Some(Shortcut::Parent),
+        Key::Character(KEY_SELECT_ALL) if modifiers.command() => Some(Shortcut::SelectAll),
+        Key::Character(KEY_NEW_FOLDER) if modifiers.command() => Some(Shortcut::NewFolder),
+        Key::Character(KEY_UPLOAD) if modifiers.command() => Some(Shortcut::Upload),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shortcuts_need_the_command_modifier_for_letters() {
+        let key = Key::Character(KEY_SELECT_ALL.into());
+        assert_eq!(shortcut(&key, Modifiers::empty()), None);
+        assert_eq!(
+            shortcut(&key, Modifiers::COMMAND),
+            Some(Shortcut::SelectAll)
+        );
+    }
+}

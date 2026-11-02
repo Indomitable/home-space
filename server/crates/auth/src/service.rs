@@ -7,7 +7,7 @@ use protocol::{NodeId, TicketRequest, TicketResponse, TokenPair};
 use crate::{
     AuthError, Claims, password,
     token::{
-        decode_access, decode_ticket, encode_access, encode_ticket, hash_refresh_token,
+        Keys, decode_access, decode_ticket, encode_access, encode_ticket, hash_refresh_token,
         new_refresh_token,
     },
 };
@@ -23,6 +23,8 @@ const DUMMY_PASSWORD: &str = "dummy-password-for-timing";
 #[derive(Clone, Debug)]
 pub struct AuthConfig {
     pub jwt_secret: Vec<u8>,
+    /// Earlier secrets that still verify tokens, for rotating `jwt_secret`.
+    pub previous_jwt_secrets: Vec<Vec<u8>>,
     pub access_ttl: Duration,
     pub refresh_ttl: Duration,
 }
@@ -32,6 +34,7 @@ pub struct AuthConfig {
 pub struct AuthService {
     db: Db,
     config: AuthConfig,
+    keys: Keys,
     dummy_hash: String,
 }
 
@@ -39,9 +42,14 @@ impl AuthService {
     /// Creates the service; fails only if the password hasher cannot run.
     pub fn new(db: Db, config: AuthConfig) -> Result<Self, AuthError> {
         let dummy_hash = password::hash(DUMMY_PASSWORD)?;
+        let keys = Keys::new(
+            config.jwt_secret.clone(),
+            config.previous_jwt_secrets.clone(),
+        );
         Ok(Self {
             db,
             config,
+            keys,
             dummy_hash,
         })
     }
@@ -130,7 +138,7 @@ impl AuthService {
 
     /// Validates an access token.
     pub fn verify_access(&self, token: &str) -> Result<Claims, AuthError> {
-        decode_access(&self.config.jwt_secret, token)
+        decode_access(&self.keys, token)
     }
 
     /// Lifetime of access tokens.
@@ -146,7 +154,7 @@ impl AuthService {
     ) -> Result<TicketResponse, AuthError> {
         let ttl = Duration::seconds(TICKET_TTL_SECS);
         Ok(TicketResponse {
-            ticket: encode_ticket(&self.config.jwt_secret, user_id, &scope_of(request), ttl)?,
+            ticket: encode_ticket(&self.keys, user_id, &scope_of(request), ttl)?,
             expires_in: TICKET_TTL_SECS,
         })
     }
@@ -157,7 +165,7 @@ impl AuthService {
         ticket: &str,
         request: &TicketRequest,
     ) -> Result<UserId, AuthError> {
-        decode_ticket(&self.config.jwt_secret, ticket, &scope_of(request))
+        decode_ticket(&self.keys, ticket, &scope_of(request))
     }
 
     async fn issue(&self, user_id: UserId, family_id: Uuid) -> Result<TokenPair, AuthError> {
@@ -171,7 +179,7 @@ impl AuthService {
             )
             .await?;
         Ok(TokenPair {
-            access_token: encode_access(&self.config.jwt_secret, user_id, self.config.access_ttl)?,
+            access_token: encode_access(&self.keys, user_id, self.config.access_ttl)?,
             refresh_token,
             expires_in: self.config.access_ttl.whole_seconds(),
         })
@@ -206,6 +214,7 @@ mod tests {
     fn service(pool: PgPool) -> AuthService {
         let config = AuthConfig {
             jwt_secret: b"test-secret".to_vec(),
+            previous_jwt_secrets: Vec::new(),
             access_ttl: Duration::minutes(15),
             refresh_ttl: Duration::days(30),
         };

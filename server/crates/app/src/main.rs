@@ -82,8 +82,10 @@ async fn main() -> Result<()> {
 }
 
 fn auth_service(db: &Db, config: &Config) -> Result<AuthService> {
+    let (jwt_secret, previous_jwt_secrets) = config.jwt_secrets()?;
     let auth_config = AuthConfig {
-        jwt_secret: config.jwt_secret.clone().into_bytes(),
+        jwt_secret,
+        previous_jwt_secrets,
         access_ttl: time::Duration::seconds(config.access_ttl_secs),
         refresh_ttl: time::Duration::seconds(config.refresh_ttl_secs),
     };

@@ -299,11 +299,11 @@ pub fn settings<'a>(status: &'a Status, notice: Option<&'a str>) -> Element<'a, 
 }
 
 /// A mapped folder (or Home, unmapped) with what can be done with it.
-fn mapping_row<'a>(
+fn mapping_row(
     name: String,
-    mapping: Option<&'a Mapping>,
+    mapping: Option<&Mapping>,
     remote: Option<NodeId>,
-) -> Element<'a, Message> {
+) -> Element<'_, Message> {
     let target = match mapping.map(|mapping| mapping.local.as_deref()) {
         None => "Not synced".to_owned(),
         Some(None) => "Set to not sync".to_owned(),

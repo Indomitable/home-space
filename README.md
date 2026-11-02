@@ -223,6 +223,8 @@ HOMESPACE_DB_DIR=/srv/homespace/db
 HOMESPACE_DATA_DIR=/srv/homespace/files
 HOMESPACE_UID=$(id -u homespace)
 HOMESPACE_GID=$(id -g homespace)
+HOMESPACE_DB_USER=homespace
+HOMESPACE_DB_PASSWORD=$(head -c 24 /dev/urandom | base64 | tr -d '/+=')
 HOMESPACE_JWT_SECRET=$(head -c 32 /dev/urandom | base64)
 EOF
 chmod 600 .env
@@ -234,7 +236,10 @@ docker compose -f compose.yaml -f compose.prod.yaml run --rm app user add me
 The directories must exist and be owned by that user before the first start (mode `700` keeps
 everyone else out). With rootless Podman the uid is remapped, so own the directories through
 `podman unshare chown` instead, or drop the `user:` lines and rely on the rootless user itself.
-Change the default `homespace` database password in `compose.yaml` before exposing anything.
+The database user and password come from `HOMESPACE_DB_USER` and `HOMESPACE_DB_PASSWORD` (both
+default to `homespace`); set your own before exposing anything. They go into `DATABASE_URL`, so keep
+the password free of URL-special characters (`@ / : ?`). Postgres only applies them when it first
+creates the data directory; for an existing database change the role with `ALTER USER` instead.
 
 Postgres is published on `127.0.0.1:5433` (`HOMESPACE_DB_PORT`) and the app on `127.0.0.1:8080`
 (`HOMESPACE_PORT`), so it does not clash with the `scripts/db.sh` database on 5432.

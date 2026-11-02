@@ -3,11 +3,10 @@ use iced::{
     widget::{button, column, container, row, text},
 };
 
-use protocol::{Node, NodeId};
+use protocol::{Node, NodeId, NodeKind};
 
 use super::{
     Message,
-    syncing::Entry,
     toolbar::{actions, menu_item, menu_row},
 };
 use crate::{
@@ -21,17 +20,40 @@ const MENU_PADDING: f32 = 4.0;
 const EDGE_MARGIN: f32 = 8.0;
 const LABEL_SPACING: f32 = 12.0;
 
-/// The context menu for `selected`, followed by the sync `entries`.
+/// An extra entry of the context menu, below the actions.
+pub struct Entry {
+    pub icon: Icon,
+    pub label: &'static str,
+    pub message: Message,
+}
+
+/// The entry opening the selected folder in the web client: only a single folder has one.
+pub fn web_entry(selected: &[&Node]) -> Option<Entry> {
+    match selected {
+        [node] if node.kind == NodeKind::Folder => Some(Entry {
+            icon: Icon::Web,
+            label: "Open in web",
+            message: Message::OpenInWeb(Some(node.id)),
+        }),
+        _ => None,
+    }
+}
+
+/// The context menu for `selected`, with the web entry after Open, followed by the sync `entries`.
 pub fn view<'a>(
     selected: &[&Node],
     lost_and_found: NodeId,
     entries: Vec<Entry>,
 ) -> Element<'a, Message> {
-    let items = actions(selected, lost_and_found)
+    let mut items: Vec<_> = actions(selected, lost_and_found)
         .into_iter()
         .map(|(action, enabled)| menu_item(action, enabled))
-        .chain(entries.into_iter().map(entry));
-    panel(items)
+        .collect();
+    // Only a single folder has a web entry, and Open is then the first item.
+    if let Some(web) = web_entry(selected) {
+        items.insert(1, entry(web));
+    }
+    panel(items.into_iter().chain(entries.into_iter().map(entry)))
 }
 
 fn entry<'a>(entry: Entry) -> Element<'a, Message> {
@@ -82,12 +104,39 @@ pub fn position(cursor: Point, window: Size, items: usize) -> Point {
 
 /// How many entries the menu shows for `selected`.
 pub fn item_count(selected: &[&Node], lost_and_found: NodeId) -> usize {
-    actions(selected, lost_and_found).len()
+    actions(selected, lost_and_found).len() + usize::from(web_entry(selected).is_some())
 }
 
 #[cfg(test)]
 mod tests {
+    use time::OffsetDateTime;
+    use uuid::Uuid;
+
     use super::*;
+
+    fn node(kind: NodeKind) -> Node {
+        Node {
+            id: NodeId(Uuid::from_u128(1)),
+            parent_id: None,
+            kind,
+            name: "node".to_owned(),
+            size: 0,
+            sha256: None,
+            mime: String::new(),
+            version: 1,
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    #[test]
+    fn only_a_single_folder_opens_in_web() {
+        let (folder, file) = (node(NodeKind::Folder), node(NodeKind::File));
+        assert!(web_entry(&[&folder]).is_some());
+        assert!(web_entry(&[&file]).is_none());
+        assert!(web_entry(&[&folder, &folder]).is_none());
+        assert!(web_entry(&[]).is_none());
+    }
 
     #[test]
     fn menu_opens_at_the_cursor_when_it_fits() {

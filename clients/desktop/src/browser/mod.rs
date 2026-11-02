@@ -28,7 +28,7 @@ use api_client::{
     ApiError, Client,
     listing::{Sort, SortKey, affects_path, apply_event, collapsed_crumbs, sort_nodes},
 };
-use protocol::{Me, Node, NodeId, NodeKind, SearchHit};
+use protocol::{Me, Node, NodeId, NodeKind, SearchHit, paths};
 
 use self::{
     dialogs::{Dialog, Outcome},
@@ -123,6 +123,8 @@ pub enum Message {
     SyncSet(sync::Mapping),
     SyncUnmap(Option<NodeId>),
     SyncOpenLocal(PathBuf),
+    /// Opens a folder (`None` for Home) in the web client.
+    OpenInWeb(Option<NodeId>),
     SyncSettings(bool),
 }
 
@@ -417,6 +419,14 @@ impl State {
             Message::SyncOpenLocal(path) => {
                 self.menu = None;
                 if let Err(err) = syncing::reveal(&path) {
+                    self.error = Some(err);
+                }
+                Task::none()
+            }
+            Message::OpenInWeb(folder) => {
+                self.menu = None;
+                let url = self.client.url(&paths::web_folder(folder));
+                if let Err(err) = syncing::open_url(&url) {
                     self.error = Some(err);
                 }
                 Task::none()
@@ -834,6 +844,7 @@ impl State {
                     &selected,
                     self.me.lost_and_found_id,
                     !self.in_lost_and_found(),
+                    self.folder,
                     self.window.width - PAGE_PADDING * 2.0,
                 )
             ]

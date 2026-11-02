@@ -55,6 +55,8 @@ pub enum Icon {
     SyncProblem,
     /// Sync badge: set to not sync.
     SyncDisabled,
+    /// Opens something in the web browser.
+    Web,
 }
 
 /// How an icon is tinted.
@@ -98,6 +100,7 @@ impl Icon {
             Self::Synced => include_bytes!("../assets/icons/check_circle.svg"),
             Self::SyncProblem => include_bytes!("../assets/icons/sync_problem.svg"),
             Self::SyncDisabled => include_bytes!("../assets/icons/sync_disabled.svg"),
+            Self::Web => include_bytes!("../assets/icons/open_in_new.svg"),
         }
     }
 

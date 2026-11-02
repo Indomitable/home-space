@@ -142,6 +142,7 @@ pub fn view<'a>(
     selected: &[&Node],
     lost_and_found: NodeId,
     can_add: bool,
+    folder: Option<NodeId>,
     width: f32,
 ) -> Element<'a, Message> {
     let (lead, leading, trailing) = if selected.is_empty() {
@@ -161,6 +162,7 @@ pub fn view<'a>(
                     can_add.then_some(Message::Upload),
                 ),
                 Tool::new(Icon::Refresh, "Refresh", "F5", Some(Message::Refresh)),
+                Tool::new(Icon::Web, "Web", "", Some(Message::OpenInWeb(folder))),
             ],
             vec![Tool::new(
                 Icon::Recycling,

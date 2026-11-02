@@ -35,6 +35,10 @@
   overflow-wrap: anywhere;
 }
 
+.details__close-button {
+  align-self: start;
+}
+
 .details__list {
   display: grid;
   grid-template-columns: auto 1fr;

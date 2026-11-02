@@ -210,12 +210,12 @@ fn NodeRow(node: Node, actions: TableActions) -> impl IntoView {
     let modified = short_date(node.updated_at);
     let href = route::folder(node.id);
     let node_id = node.id;
-    let editing = move || {
+    let editing = Memo::new(move |_| {
         renaming
             .read()
             .as_ref()
             .is_some_and(|(id, _)| *id == node_id)
-    };
+    });
     let rename_input = NodeRef::<Input>::new();
     Effect::new(move |_| {
         if let Some(input) = rename_input.get() {
@@ -233,7 +233,7 @@ fn NodeRow(node: Node, actions: TableActions) -> impl IntoView {
                 <RowCheckbox id=node_id name=node.name.clone() selected />
             </td>
             <td class="node-table__cell">
-                {move || if editing() {
+                {move || if editing.get() {
                     view! {
                         <span class="node-table__name node-table__name--editing">
                             <Icon name=icon />
@@ -286,7 +286,7 @@ fn NodeRow(node: Node, actions: TableActions) -> impl IntoView {
             <td class="node-table__cell node-table__cell--size">{size}</td>
             <td class="node-table__cell node-table__cell--modified">{modified}</td>
             <td class="node-table__cell node-table__cell--actions">
-                {move || if editing() {
+                {move || if editing.get() {
                     view! {
                         <div class="node-table__actions">
                             <button

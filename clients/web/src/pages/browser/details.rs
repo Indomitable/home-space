@@ -84,7 +84,7 @@ pub fn DetailsPanel(
                     {move || state.read().as_ref().map(|(node, _)| node.name.clone())}
                 </h2>
                 <button
-                    class="button button--ghost button--small"
+                    class="button button--ghost button--small details__close-button"
                     aria-label="Close details"
                     on:click=move |_| details.set(None)
                 >

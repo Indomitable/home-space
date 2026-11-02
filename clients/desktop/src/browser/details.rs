@@ -1,11 +1,11 @@
+use api_client::{ApiError, Client};
+use client_core::format::human_size;
+use iced::widget::stack;
 use iced::widget::text::Wrapping;
 use iced::{
     Alignment, Element, Length,
     widget::{button, column, container, row, scrollable, space, text},
 };
-use iced::widget::stack;
-use api_client::{ApiError, Client};
-use client_core::format::human_size;
 use protocol::{FileVersion, Node, NodeId, NodeKind};
 
 use super::Message as BrowserMessage;
@@ -124,8 +124,8 @@ impl State {
                 .align_y(Alignment::Center),
             stack![
                 button(Icon::Close.view(ICON_SIZE, Tint::Text))
-                .style(theme::tool)
-                .on_press(Message::Close)
+                    .style(theme::tool)
+                    .on_press(Message::Close)
             ],
         ]
         .spacing(ROW_SPACING);

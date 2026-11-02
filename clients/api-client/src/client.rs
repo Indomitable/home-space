@@ -6,16 +6,16 @@ use tokio::sync::Mutex as AsyncMutex;
 
 use protocol::{
     ChangesQuery, ChangesResponse, CreateFolderRequest, ErrorBody, FileVersion, ListQuery,
-    LoginRequest, Me, MoveRequest, MoveResponse, Node, NodeId, OnConflict, RefreshRequest,
-    RestoreRequest, SearchHit, SearchQuery, TicketRequest, TicketResponse, TokenPair, TrashItem,
-    UpdateRequest, paths,
+    LoginRequest, Me, MoveRequest, MoveResponse, Node, NodeId, OidcExchangeRequest, OnConflict,
+    Providers, RefreshRequest, RestoreRequest, SearchHit, SearchQuery, TicketRequest,
+    TicketResponse, TokenPair, TrashItem, UpdateRequest, paths,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use protocol::{ContentQuery, UploadQuery};
 #[cfg(not(target_arch = "wasm32"))]
 use time::OffsetDateTime;
 
-use crate::ApiError;
+use crate::{ApiError, Pkce};
 
 /// Called with the new refresh token after every rotation, or `None` once the session ends.
 pub type TokenListener = Arc<dyn Fn(Option<&str>) + Send + Sync>;
@@ -125,6 +125,44 @@ impl Client {
         let response = self
             .http
             .post(self.url(paths::LOGIN))
+            .json(&request)
+            .send()
+            .await?;
+        let pair: TokenPair = decode(response).await?;
+        self.store(pair);
+        self.me().await
+    }
+
+    /// How this server lets users sign in; needs no session.
+    pub async fn providers(&self) -> Result<Providers, ApiError> {
+        let response = self.http.get(self.url(paths::PROVIDERS)).send().await?;
+        decode(response).await
+    }
+
+    /// The URL that starts a single sign-on: open it in a browser. Afterwards the server sends
+    /// the browser to `redirect_uri` with a one-time `code` (or an `error`) in the query, which
+    /// [`oidc_exchange`](Self::oidc_exchange) turns into a session.
+    pub fn oidc_start_url(&self, redirect_uri: &str, pkce: &Pkce) -> Result<String, ApiError> {
+        reqwest::Url::parse_with_params(
+            &self.url(paths::OIDC_START),
+            [
+                ("redirect_uri", redirect_uri),
+                ("code_challenge", pkce.challenge()),
+            ],
+        )
+        .map(String::from)
+        .map_err(|err| ApiError::Transport(format!("invalid server address: {err}")))
+    }
+
+    /// Completes a single sign-on with the `code` the server put in the redirect.
+    pub async fn oidc_exchange(&self, code: &str, pkce: &Pkce) -> Result<Me, ApiError> {
+        let request = OidcExchangeRequest {
+            code: code.to_owned(),
+            code_verifier: pkce.verifier().to_owned(),
+        };
+        let response = self
+            .http
+            .post(self.url(paths::OIDC_EXCHANGE))
             .json(&request)
             .send()
             .await?;

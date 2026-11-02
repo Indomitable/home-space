@@ -3,7 +3,7 @@ use iced::{
     Alignment, Element, Length,
     widget::{button, column, container, row, scrollable, space, text},
 };
-
+use iced::widget::stack;
 use api_client::{ApiError, Client};
 use client_core::format::human_size;
 use protocol::{FileVersion, Node, NodeId, NodeKind};
@@ -120,13 +120,15 @@ impl State {
             text(node.name.as_str())
                 .size(TITLE_SIZE)
                 .wrapping(Wrapping::WordOrGlyph)
-                .width(Length::Fill),
-            button(Icon::Close.view(ICON_SIZE, Tint::Text))
+                .width(Length::Fill)
+                .align_y(Alignment::Center),
+            stack![
+                button(Icon::Close.view(ICON_SIZE, Tint::Text))
                 .style(theme::tool)
-                .on_press(Message::Close),
+                .on_press(Message::Close)
+            ],
         ]
-        .spacing(ROW_SPACING)
-        .align_y(Alignment::Center);
+        .spacing(ROW_SPACING);
 
         let kind = if is_file {
             node.mime.as_str()
@@ -212,7 +214,7 @@ impl State {
 
 type Task = iced::Task<Message>;
 
-fn fact<'a>(label: &'a str, value: String) -> Element<'a, Message> {
+fn fact(label: &str, value: String) -> Element<'_, Message> {
     row![text(label).width(LABEL_WIDTH).size(META_SIZE), text(value)]
         .spacing(ROW_SPACING)
         .into()

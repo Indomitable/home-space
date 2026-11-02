@@ -203,5 +203,11 @@ secret). To rotate it, set the new value and move the old one to `HOMESPACE_JWT_
 sessions keep working, and the old value can be removed once access tokens (15 minutes by default)
 signed with it have expired.
 
+Access tokens are only accepted while the session they were issued for exists in the database. A
+session starts after a verified password or provider login and ends on logout, on refresh token
+reuse, on a password change or when it expires. So the signing secret alone cannot forge access:
+a token it signs for a session that does not exist is rejected, and logging out takes effect at
+once rather than when the access token expires.
+
 Postgres is published on `127.0.0.1:5433` (`HOMESPACE_DB_PORT`) and the app on `127.0.0.1:8080`
 (`HOMESPACE_PORT`), so it does not clash with the `scripts/db.sh` database on 5432.

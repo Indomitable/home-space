@@ -21,6 +21,7 @@ mod nodes;
 mod oidc;
 mod refresh_tokens;
 mod search;
+mod sessions;
 mod trash;
 mod users;
 mod versions;

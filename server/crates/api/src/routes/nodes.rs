@@ -191,10 +191,13 @@ async fn download(
     Path(id): Path<NodeId>,
 ) -> Result<Response, ApiError> {
     let owner = match query.ticket {
-        Some(ticket) => state
-            .auth
-            .verify_ticket(&ticket, &TicketRequest::Download { node_id: id })?,
-        None => AuthUser::from_headers(&headers, &state)?.id,
+        Some(ticket) => {
+            state
+                .auth
+                .verify_ticket(&ticket, &TicketRequest::Download { node_id: id })
+                .await?
+        }
+        None => AuthUser::from_headers(&headers, &state).await?.id,
     };
     let (node, file) = state.files.download(owner, id).await?;
     Ok(attachment(&node.name, &node.mime, node.size, file))
@@ -207,14 +210,19 @@ async fn download_version(
     Path((id, version)): Path<(NodeId, i32)>,
 ) -> Result<Response, ApiError> {
     let owner = match query.ticket {
-        Some(ticket) => state.auth.verify_ticket(
-            &ticket,
-            &TicketRequest::DownloadVersion {
-                node_id: id,
-                version,
-            },
-        )?,
-        None => AuthUser::from_headers(&headers, &state)?.id,
+        Some(ticket) => {
+            state
+                .auth
+                .verify_ticket(
+                    &ticket,
+                    &TicketRequest::DownloadVersion {
+                        node_id: id,
+                        version,
+                    },
+                )
+                .await?
+        }
+        None => AuthUser::from_headers(&headers, &state).await?.id,
     };
     let (node, meta, file) = state.files.download_version(owner, id, version).await?;
     Ok(attachment(&node.name, &meta.mime, meta.size, file))

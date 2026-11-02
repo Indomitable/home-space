@@ -99,7 +99,7 @@ impl Db {
         Ok(users)
     }
 
-    /// Replaces a user's password hash and revokes all their refresh tokens.
+    /// Replaces a user's password hash and ends all their sessions.
     pub async fn set_password_hash(&self, id: UserId, password_hash: &str) -> Result<(), DbError> {
         let mut tx = self.pool().begin().await?;
         let updated = sqlx::query("UPDATE users SET password_hash = $2 WHERE id = $1")
@@ -110,13 +110,10 @@ impl Db {
         if updated.rows_affected() == 0 {
             return Err(DbError::NotFound);
         }
-        sqlx::query(
-            "UPDATE refresh_tokens SET revoked_at = now() \
-             WHERE user_id = $1 AND revoked_at IS NULL",
-        )
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("DELETE FROM sessions WHERE user_id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(())
     }

@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, header::AUTHORIZATION, request::Parts},
 };
 use serde::Deserialize;
+use uuid::Uuid;
 
 use db::UserId;
 
@@ -14,6 +15,8 @@ const BEARER_PREFIX: &str = "Bearer ";
 #[derive(Clone, Copy, Debug)]
 pub struct AuthUser {
     pub id: UserId,
+    /// The session the token belongs to.
+    pub session_id: Uuid,
     /// Unix timestamp at which the access token expires.
     pub token_exp: i64,
 }
@@ -26,7 +29,7 @@ pub struct TicketQuery {
 
 impl AuthUser {
     /// Authenticates from the `Authorization: Bearer` header.
-    pub fn from_headers(headers: &HeaderMap, state: &AppState) -> Result<Self, ApiError> {
+    pub async fn from_headers(headers: &HeaderMap, state: &AppState) -> Result<Self, ApiError> {
         let token = headers
             .get(AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
@@ -35,9 +38,11 @@ impl AuthUser {
         let claims = state
             .auth
             .verify_access(token)
+            .await
             .map_err(|_| ApiError::Unauthorized)?;
         Ok(Self {
             id: claims.sub,
+            session_id: claims.sid,
             token_exp: claims.exp,
         })
     }
@@ -50,6 +55,6 @@ impl FromRequestParts<AppState> for AuthUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        Self::from_headers(&parts.headers, state)
+        Self::from_headers(&parts.headers, state).await
     }
 }

@@ -155,6 +155,9 @@ async fn prune_changes(db: Db, retention: time::Duration) {
         if let Err(err) = db.prune_oidc().await {
             tracing::error!(error = %err, "pruning single sign-on state failed");
         }
+        if let Err(err) = db.prune_sessions().await {
+            tracing::error!(error = %err, "pruning expired sessions failed");
+        }
     }
 }
 

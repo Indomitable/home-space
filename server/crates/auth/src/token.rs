@@ -3,6 +3,7 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, decode_
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use time::{Duration, OffsetDateTime};
+use uuid::Uuid;
 
 use db::UserId;
 
@@ -68,15 +69,23 @@ impl Keys {
 #[serde(deny_unknown_fields)]
 pub struct Claims {
     pub sub: UserId,
+    /// The session this token belongs to; it is only valid while that session exists.
+    pub sid: Uuid,
     pub iat: i64,
     pub exp: i64,
 }
 
 /// Signs an access token for `user_id` valid for `ttl`.
-pub fn encode_access(keys: &Keys, user_id: UserId, ttl: Duration) -> Result<String, AuthError> {
+pub fn encode_access(
+    keys: &Keys,
+    user_id: UserId,
+    session_id: Uuid,
+    ttl: Duration,
+) -> Result<String, AuthError> {
     let now = OffsetDateTime::now_utc();
     let claims = Claims {
         sub: user_id,
+        sid: session_id,
         iat: now.unix_timestamp(),
         exp: (now + ttl).unix_timestamp(),
     };
@@ -102,21 +111,24 @@ pub fn decode_access(keys: &Keys, token: &str) -> Result<Claims, AuthError> {
 #[derive(Serialize, Deserialize)]
 struct TicketClaims {
     sub: UserId,
+    sid: Uuid,
     iat: i64,
     exp: i64,
     tkt: String,
 }
 
-/// Signs a short-lived ticket for `user_id` limited to `scope`.
+/// Signs a short-lived ticket for `user_id`'s session limited to `scope`.
 pub fn encode_ticket(
     keys: &Keys,
     user_id: UserId,
+    session_id: Uuid,
     scope: &str,
     ttl: Duration,
 ) -> Result<String, AuthError> {
     let now = OffsetDateTime::now_utc();
     let claims = TicketClaims {
         sub: user_id,
+        sid: session_id,
         iat: now.unix_timestamp(),
         exp: (now + ttl).unix_timestamp(),
         tkt: scope.to_owned(),
@@ -128,8 +140,15 @@ pub fn encode_ticket(
     )?)
 }
 
-/// Validates a ticket's signature, expiry and scope, returning its user.
-pub fn decode_ticket(keys: &Keys, token: &str, scope: &str) -> Result<UserId, AuthError> {
+/// Who a ticket was issued to.
+#[derive(Clone, Copy, Debug)]
+pub struct TicketGrant {
+    pub user_id: UserId,
+    pub session_id: Uuid,
+}
+
+/// Validates a ticket's signature, expiry and scope, returning whom it was issued to.
+pub fn decode_ticket(keys: &Keys, token: &str, scope: &str) -> Result<TicketGrant, AuthError> {
     let validation = Validation {
         leeway: 0,
         ..Validation::default()
@@ -139,7 +158,10 @@ pub fn decode_ticket(keys: &Keys, token: &str, scope: &str) -> Result<UserId, Au
         .map(|data| data.claims)
         .map_err(|_| AuthError::InvalidCredentials)?;
     if claims.tkt == scope {
-        Ok(claims.sub)
+        Ok(TicketGrant {
+            user_id: claims.sub,
+            session_id: claims.sid,
+        })
     } else {
         Err(AuthError::InvalidCredentials)
     }
@@ -170,34 +192,72 @@ mod tests {
     #[test]
     fn access_token_round_trips() {
         let user = UserId::new();
-        let token = encode_access(&keys(SECRET), user, Duration::minutes(5)).expect("encode");
+        let session = Uuid::now_v7();
+        let token =
+            encode_access(&keys(SECRET), user, session, Duration::minutes(5)).expect("encode");
         let claims = decode_access(&keys(SECRET), &token).expect("decode");
         assert_eq!(claims.sub, user);
+        assert_eq!(claims.sid, session);
     }
 
     #[test]
     fn expired_access_token_is_rejected() {
-        let token =
-            encode_access(&keys(SECRET), UserId::new(), Duration::seconds(-10)).expect("encode");
+        let token = encode_access(
+            &keys(SECRET),
+            UserId::new(),
+            Uuid::now_v7(),
+            Duration::seconds(-10),
+        )
+        .expect("encode");
         assert!(decode_access(&keys(SECRET), &token).is_err());
     }
 
     #[test]
     fn access_token_with_other_secret_is_rejected() {
-        let token =
-            encode_access(&keys(SECRET), UserId::new(), Duration::minutes(5)).expect("encode");
+        let token = encode_access(
+            &keys(SECRET),
+            UserId::new(),
+            Uuid::now_v7(),
+            Duration::minutes(5),
+        )
+        .expect("encode");
         assert!(decode_access(&keys(b"other"), &token).is_err());
     }
 
     #[test]
     fn ticket_round_trips_for_its_scope() {
         let user = UserId::new();
-        let ticket =
-            encode_ticket(&keys(SECRET), user, "events", Duration::seconds(60)).expect("encode");
-        assert_eq!(
-            decode_ticket(&keys(SECRET), &ticket, "events").expect("decode"),
-            user
-        );
+        let session = Uuid::now_v7();
+        let ticket = encode_ticket(
+            &keys(SECRET),
+            user,
+            session,
+            "events",
+            Duration::seconds(60),
+        )
+        .expect("encode");
+        let grant = decode_ticket(&keys(SECRET), &ticket, "events").expect("decode");
+        assert_eq!((grant.user_id, grant.session_id), (user, session));
+    }
+
+    #[test]
+    fn access_token_without_a_session_is_rejected() {
+        #[derive(Serialize)]
+        struct Legacy {
+            sub: UserId,
+            iat: i64,
+            exp: i64,
+        }
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        let claims = Legacy {
+            sub: UserId::new(),
+            iat: now,
+            exp: now + 300,
+        };
+        let k = keys(SECRET);
+        let token =
+            encode(&k.header(), &claims, &EncodingKey::from_secret(&k.current)).expect("encode");
+        assert!(decode_access(&k, &token).is_err());
     }
 
     #[test]
@@ -205,6 +265,7 @@ mod tests {
         let ticket = encode_ticket(
             &keys(SECRET),
             UserId::new(),
+            Uuid::now_v7(),
             "events",
             Duration::seconds(60),
         )
@@ -217,6 +278,7 @@ mod tests {
         let ticket = encode_ticket(
             &keys(SECRET),
             UserId::new(),
+            Uuid::now_v7(),
             "events",
             Duration::seconds(-10),
         )
@@ -229,6 +291,7 @@ mod tests {
         let ticket = encode_ticket(
             &keys(SECRET),
             UserId::new(),
+            Uuid::now_v7(),
             "events",
             Duration::seconds(60),
         )
@@ -238,31 +301,52 @@ mod tests {
 
     #[test]
     fn access_token_is_not_a_ticket() {
-        let token =
-            encode_access(&keys(SECRET), UserId::new(), Duration::minutes(5)).expect("encode");
+        let token = encode_access(
+            &keys(SECRET),
+            UserId::new(),
+            Uuid::now_v7(),
+            Duration::minutes(5),
+        )
+        .expect("encode");
         assert!(decode_ticket(&keys(SECRET), &token, "events").is_err());
     }
 
     #[test]
     fn token_signed_with_a_previous_secret_is_accepted() {
         let user = UserId::new();
-        let token =
-            encode_access(&keys(b"old-secret"), user, Duration::minutes(5)).expect("encode");
+        let token = encode_access(
+            &keys(b"old-secret"),
+            user,
+            Uuid::now_v7(),
+            Duration::minutes(5),
+        )
+        .expect("encode");
         let rotated = Keys::new(b"new-secret".to_vec(), vec![b"old-secret".to_vec()]);
         assert_eq!(decode_access(&rotated, &token).expect("decode").sub, user);
     }
 
     #[test]
     fn token_signed_with_a_dropped_secret_is_rejected() {
-        let token = encode_access(&keys(b"old-secret"), UserId::new(), Duration::minutes(5))
-            .expect("encode");
+        let token = encode_access(
+            &keys(b"old-secret"),
+            UserId::new(),
+            Uuid::now_v7(),
+            Duration::minutes(5),
+        )
+        .expect("encode");
         assert!(decode_access(&keys(b"new-secret"), &token).is_err());
     }
 
     #[test]
     fn new_tokens_use_the_current_secret() {
         let rotated = Keys::new(b"new-secret".to_vec(), vec![b"old-secret".to_vec()]);
-        let token = encode_access(&rotated, UserId::new(), Duration::minutes(5)).expect("encode");
+        let token = encode_access(
+            &rotated,
+            UserId::new(),
+            Uuid::now_v7(),
+            Duration::minutes(5),
+        )
+        .expect("encode");
         assert!(decode_access(&keys(b"new-secret"), &token).is_ok());
         assert!(decode_access(&keys(b"old-secret"), &token).is_err());
     }

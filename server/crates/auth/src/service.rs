@@ -116,7 +116,7 @@ impl AuthService {
         }
     }
 
-    /// Verifies credentials and issues a new token family.
+    /// Verifies credentials and starts a session.
     pub async fn login(&self, username: &str, password: &str) -> Result<TokenPair, AuthError> {
         let user = self.db.find_user_by_username(username).await?;
         // Always verify against some hash so the timing does not reveal whether the user exists,
@@ -131,14 +131,14 @@ impl AuthService {
         let verified =
             tokio::task::spawn_blocking(move || password::verify(&candidate, &hash)).await?;
         match user {
-            Some(user) if verified && allowed => self.issue(user.id, Uuid::now_v7()).await,
+            Some(user) if verified && allowed => self.start_session(user.id).await,
             _ => Err(AuthError::InvalidCredentials),
         }
     }
 
     /// Exchanges a refresh token for a new pair, revoking the old token.
     ///
-    /// Presenting an already-used token revokes the entire family.
+    /// Presenting an already-used token ends the whole session.
     pub async fn refresh(&self, refresh_token: &str) -> Result<TokenPair, AuthError> {
         let stored = self
             .db
@@ -146,33 +146,36 @@ impl AuthService {
             .await?
             .ok_or(AuthError::InvalidCredentials)?;
         if stored.revoked_at.is_some() {
-            self.db.revoke_refresh_family(stored.family_id).await?;
+            self.db.end_session(stored.family_id).await?;
             Err(AuthError::InvalidCredentials)
         } else if stored.expires_at <= OffsetDateTime::now_utc() {
             Err(AuthError::InvalidCredentials)
         } else if self.db.revoke_refresh_token(stored.id).await? {
-            self.issue(stored.user_id, stored.family_id).await
+            self.continue_session(stored.user_id, stored.family_id)
+                .await
         } else {
-            self.db.revoke_refresh_family(stored.family_id).await?;
+            self.db.end_session(stored.family_id).await?;
             Err(AuthError::InvalidCredentials)
         }
     }
 
-    /// Revokes the token family of `refresh_token`; unknown tokens are ignored.
+    /// Ends the session of `refresh_token`; unknown tokens are ignored.
     pub async fn logout(&self, refresh_token: &str) -> Result<(), AuthError> {
         if let Some(stored) = self
             .db
             .find_refresh_token(&hash_refresh_token(refresh_token))
             .await?
         {
-            self.db.revoke_refresh_family(stored.family_id).await?;
+            self.db.end_session(stored.family_id).await?;
         }
         Ok(())
     }
 
-    /// Validates an access token.
-    pub fn verify_access(&self, token: &str) -> Result<Claims, AuthError> {
-        decode_access(&self.keys, token)
+    /// Validates an access token: a good signature is not enough, its session must still exist.
+    pub async fn verify_access(&self, token: &str) -> Result<Claims, AuthError> {
+        let claims = decode_access(&self.keys, token)?;
+        self.require_session(claims.sid, claims.sub).await?;
+        Ok(claims)
     }
 
     /// Lifetime of access tokens.
@@ -184,22 +187,34 @@ impl AuthService {
     pub fn issue_ticket(
         &self,
         user_id: UserId,
+        session_id: Uuid,
         request: &TicketRequest,
     ) -> Result<TicketResponse, AuthError> {
         let ttl = Duration::seconds(TICKET_TTL_SECS);
         Ok(TicketResponse {
-            ticket: encode_ticket(&self.keys, user_id, &scope_of(request), ttl)?,
+            ticket: encode_ticket(&self.keys, user_id, session_id, &scope_of(request), ttl)?,
             expires_in: TICKET_TTL_SECS,
         })
     }
 
     /// Validates a ticket for `request`'s scope and returns its user.
-    pub fn verify_ticket(
+    pub async fn verify_ticket(
         &self,
         ticket: &str,
         request: &TicketRequest,
     ) -> Result<UserId, AuthError> {
-        decode_ticket(&self.keys, ticket, &scope_of(request))
+        let grant = decode_ticket(&self.keys, ticket, &scope_of(request))?;
+        self.require_session(grant.session_id, grant.user_id)
+            .await?;
+        Ok(grant.user_id)
+    }
+
+    async fn require_session(&self, session_id: Uuid, user_id: UserId) -> Result<(), AuthError> {
+        if self.db.session_is_live(session_id, user_id).await? {
+            Ok(())
+        } else {
+            Err(AuthError::InvalidCredentials)
+        }
     }
 
     /// Starts a single sign-on: returns the provider URL to send the user to.
@@ -282,7 +297,7 @@ impl AuthService {
             .await?
             .ok_or(AuthError::InvalidCredentials)?;
         if verifier_matches(code_verifier, &stored.client_challenge) {
-            self.issue(stored.user_id, Uuid::now_v7()).await
+            self.start_session(stored.user_id).await
         } else {
             Err(AuthError::InvalidCredentials)
         }
@@ -350,18 +365,57 @@ impl AuthService {
         Err(AuthError::InvalidInput("no free username for this account"))
     }
 
-    async fn issue(&self, user_id: UserId, family_id: Uuid) -> Result<TokenPair, AuthError> {
+    /// Starts a session, which exists only from here: after a verified password or provider
+    /// login. Tokens cannot create one.
+    async fn start_session(&self, user_id: UserId) -> Result<TokenPair, AuthError> {
+        let session_id = Uuid::now_v7();
         let refresh_token = new_refresh_token();
         self.db
-            .insert_refresh_token(
+            .start_session(
+                session_id,
                 user_id,
-                family_id,
                 &hash_refresh_token(&refresh_token),
-                OffsetDateTime::now_utc() + self.config.refresh_ttl,
+                self.refresh_expiry(),
             )
             .await?;
+        self.pair(user_id, session_id, refresh_token)
+    }
+
+    /// Hands the next refresh token to a session; fails if the session has ended.
+    async fn continue_session(
+        &self,
+        user_id: UserId,
+        session_id: Uuid,
+    ) -> Result<TokenPair, AuthError> {
+        let refresh_token = new_refresh_token();
+        let continued = self
+            .db
+            .continue_session(
+                session_id,
+                user_id,
+                &hash_refresh_token(&refresh_token),
+                self.refresh_expiry(),
+            )
+            .await?;
+        if continued {
+            self.pair(user_id, session_id, refresh_token)
+        } else {
+            Err(AuthError::InvalidCredentials)
+        }
+    }
+
+    fn refresh_expiry(&self) -> OffsetDateTime {
+        OffsetDateTime::now_utc() + self.config.refresh_ttl
+    }
+
+    fn pair(
+        &self,
+        user_id: UserId,
+        session_id: Uuid,
+        refresh_token: String,
+    ) -> Result<TokenPair, AuthError> {
         Ok(TokenPair {
-            access_token: encode_access(&self.keys, user_id, self.config.access_ttl)?,
+            access_token: encode_access(&self.keys, user_id, session_id, self.config.access_ttl)?,
             refresh_token,
             expires_in: self.config.access_ttl.whole_seconds(),
         })
@@ -495,7 +549,7 @@ mod tests {
         let auth = service(pool);
         auth.create_user("alice", "password-1").await.expect("user");
         let pair = auth.login("alice", "password-1").await.expect("login");
-        assert!(auth.verify_access(&pair.access_token).is_ok());
+        assert!(auth.verify_access(&pair.access_token).await.is_ok());
     }
 
     #[sqlx::test(migrations = "../../migrations")]

@@ -83,7 +83,8 @@ async fn start(app: &TestApp, redirect: &str) -> Started {
         query["redirect_uri"],
         format!("{PUBLIC_URL}/api/v1/auth/oidc/callback")
     );
-    assert!(query["scope"].contains("openid"));
+    let scopes: Vec<&str> = query["scope"].split(' ').collect();
+    assert_eq!(scopes, ["openid", "profile", "email"]);
     Started {
         state: query["state"].clone(),
         nonce: query["nonce"].clone(),

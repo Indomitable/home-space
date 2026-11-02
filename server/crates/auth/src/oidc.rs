@@ -132,7 +132,8 @@ impl OidcService {
                 Nonce::new_random,
             )
             .set_pkce_challenge(challenge);
-        for scope in &self.config.scopes {
+        // The library always requests `openid`; asking twice is sloppy and some providers object.
+        for scope in self.config.scopes.iter().filter(|scope| *scope != "openid") {
             request = request.add_scope(Scope::new(scope.clone()));
         }
         let (url, _state, nonce) = request.url();

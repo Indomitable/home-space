@@ -1,13 +1,14 @@
 use std::time::Duration;
 
+use api_client::{ApiError, Client};
+use iced::widget::container::bordered_box;
+use iced::widget::{row, space};
 use iced::{
-    Element, Length, Subscription, Task,
+    Alignment, Element, Length, Subscription, Task,
     keyboard::{self, Key, key::Named},
     task,
     widget::{button, column, container, operation, text, text_input},
 };
-
-use api_client::{ApiError, Client};
 use protocol::{Me, Providers};
 
 use crate::{
@@ -219,10 +220,11 @@ impl State {
             } else {
                 format!("Sign in with {}", provider.name)
             };
-            form = form.push(
-                button(text(label))
-                    .on_press_maybe((!self.busy).then_some(Message::SignInWithProvider)),
-            );
+            form = form.push(row![
+                button(text(label).align_x(text::Alignment::Center))
+                    .on_press_maybe((!self.busy).then_some(Message::SignInWithProvider))
+                    .width(Length::Fill)
+            ]);
             if self.sso.is_some() {
                 form = form.push(button("Cancel").on_press(Message::Cancel));
             }
@@ -234,7 +236,22 @@ impl State {
                 .is_none_or(|providers| providers.password);
         if password_login {
             if provider.is_some() {
-                form = form.push(text("or"));
+                form = form.push(
+                    row![
+                        container(space())
+                            .width(Length::FillPortion(2))
+                            .style(bordered_box)
+                            .height(Length::Fixed(1.0)),
+                        text("or")
+                            .width(Length::FillPortion(1))
+                            .align_x(text::Alignment::Center),
+                        container(space())
+                            .width(Length::FillPortion(2))
+                            .style(bordered_box)
+                            .height(Length::Fixed(1.0))
+                    ]
+                    .align_y(Alignment::Center),
+                );
             }
             form = form
                 .push(
@@ -248,14 +265,18 @@ impl State {
                         .on_input(Message::PasswordChanged)
                         .on_submit(Message::Submit),
                 )
-                .push(
-                    button(if self.busy {
-                        "Signing in…"
-                    } else {
-                        "Sign in"
-                    })
-                    .on_press_maybe((!self.busy).then_some(Message::Submit)),
-                );
+                .push(row![
+                    button(
+                        text(if self.busy {
+                            "Signing in…"
+                        } else {
+                            "Sign in"
+                        })
+                        .align_x(text::Alignment::Center)
+                    )
+                    .on_press_maybe((!self.busy).then_some(Message::Submit))
+                    .width(Length::Fill)
+                ]);
         }
         if let Some(error) = &self.error {
             form = form.push(text(error.as_str()));

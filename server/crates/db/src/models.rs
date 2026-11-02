@@ -11,7 +11,8 @@ use crate::{NodeId, NodeKind, UserId};
 pub struct User {
     pub id: UserId,
     pub username: String,
-    pub password_hash: String,
+    /// `None` for users who only sign in through an identity provider.
+    pub password_hash: Option<String>,
     pub created_at: OffsetDateTime,
 }
 

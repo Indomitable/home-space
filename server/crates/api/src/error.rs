@@ -38,9 +38,9 @@ impl ApiError {
             Self::Auth(AuthError::InvalidInput(_)) => {
                 (StatusCode::BAD_REQUEST, ErrorCode::BadRequest)
             }
-            Self::NotFound | Self::Files(FilesError::NotFound) => {
-                (StatusCode::NOT_FOUND, ErrorCode::NotFound)
-            }
+            Self::NotFound
+            | Self::Auth(AuthError::OidcDisabled)
+            | Self::Files(FilesError::NotFound) => (StatusCode::NOT_FOUND, ErrorCode::NotFound),
             Self::Files(FilesError::Conflict | FilesError::LostAndFound) => {
                 (StatusCode::CONFLICT, ErrorCode::Conflict)
             }

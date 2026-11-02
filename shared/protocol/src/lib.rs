@@ -11,7 +11,10 @@ mod search;
 mod ticket;
 mod trash;
 
-pub use auth::{LoginRequest, Me, RefreshRequest, TokenPair};
+pub use auth::{
+    LoginRequest, Me, OidcCallbackQuery, OidcExchangeRequest, OidcProvider, OidcStartQuery,
+    Providers, RefreshRequest, TokenPair,
+};
 pub use change::{Change, ChangesQuery, ChangesResponse};
 pub use error::{ErrorBody, ErrorCode};
 pub use event::Event;

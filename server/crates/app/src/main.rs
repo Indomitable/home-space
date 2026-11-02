@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 use api::AppState;
-use auth::{AuthConfig, AuthService};
+use auth::{AuthConfig, AuthService, OidcService};
 use db::Db;
 use files::{BlobStore, FileService};
 use notifications::Hub;
@@ -97,8 +97,16 @@ async fn serve(db: Db, config: &Config) -> Result<()> {
         .await
         .context("opening storage root")?;
     let (search, _worker) = SearchIndex::start(db.clone(), store.clone(), Vec::new());
+    let mut auth = auth_service(&db, config)?;
+    if let Some(oidc_config) = config.oidc()? {
+        let oidc = OidcService::discover(oidc_config)
+            .await
+            .context("discovering the OpenID Connect provider")?;
+        tracing::info!(issuer = oidc.issuer(), "single sign-on enabled");
+        auth = auth.with_oidc(oidc, config.password_login);
+    }
     let state = AppState {
-        auth: auth_service(&db, config)?,
+        auth,
         files: FileService::new(db.clone(), store, config.max_upload_bytes),
         hub: Hub::new(),
         search: search.clone(),
@@ -143,6 +151,9 @@ async fn prune_changes(db: Db, retention: time::Duration) {
         {
             Ok(pruned) => tracing::info!(pruned, "change journal pruned"),
             Err(err) => tracing::error!(error = %err, "pruning the change journal failed"),
+        }
+        if let Err(err) = db.prune_oidc().await {
+            tracing::error!(error = %err, "pruning single sign-on state failed");
         }
     }
 }

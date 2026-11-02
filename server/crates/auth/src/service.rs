@@ -1,11 +1,14 @@
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use db::{Db, DbError, User, UserId};
-use protocol::{NodeId, TicketRequest, TicketResponse, TokenPair};
+use db::{Db, DbError, OidcPending, User, UserId};
+use protocol::{NodeId, OidcProvider, Providers, TicketRequest, TicketResponse, TokenPair};
 
 use crate::{
-    AuthError, Claims, password,
+    AuthError, Claims, OidcService,
+    oidc::{Identity, is_valid_challenge, verifier_matches},
+    password,
     token::{
         Keys, decode_access, decode_ticket, encode_access, encode_ticket, hash_refresh_token,
         new_refresh_token,
@@ -18,6 +21,11 @@ const TICKET_TTL_SECS: i64 = 60;
 const SCOPE_EVENTS: &str = "events";
 const SCOPE_DOWNLOAD_PREFIX: &str = "download:";
 const DUMMY_PASSWORD: &str = "dummy-password-for-timing";
+const OIDC_PENDING_TTL: Duration = Duration::minutes(10);
+const OIDC_CODE_TTL: Duration = Duration::seconds(60);
+const OIDC_TOKEN_BYTES: usize = 32;
+const USERNAME_ATTEMPTS: u32 = 20;
+const FALLBACK_USERNAME: &str = "user";
 
 /// Token settings.
 #[derive(Clone, Debug)]
@@ -36,6 +44,8 @@ pub struct AuthService {
     config: AuthConfig,
     keys: Keys,
     dummy_hash: String,
+    oidc: Option<OidcService>,
+    password_login: bool,
 }
 
 impl AuthService {
@@ -51,7 +61,27 @@ impl AuthService {
             config,
             keys,
             dummy_hash,
+            oidc: None,
+            password_login: true,
         })
+    }
+
+    /// Enables sign-in through an identity provider. With `password_login` off, only that
+    /// provider can be used to sign in.
+    pub fn with_oidc(mut self, oidc: OidcService, password_login: bool) -> Self {
+        self.oidc = Some(oidc);
+        self.password_login = password_login;
+        self
+    }
+
+    /// The ways users can sign in on this server.
+    pub fn providers(&self) -> Providers {
+        Providers {
+            password: self.password_login,
+            oidc: self.oidc.as_ref().map(|oidc| OidcProvider {
+                name: oidc.display_name().to_owned(),
+            }),
+        }
     }
 
     /// Creates a user after validating username and password.
@@ -89,15 +119,19 @@ impl AuthService {
     /// Verifies credentials and issues a new token family.
     pub async fn login(&self, username: &str, password: &str) -> Result<TokenPair, AuthError> {
         let user = self.db.find_user_by_username(username).await?;
-        let hash = user.as_ref().map_or_else(
-            || self.dummy_hash.clone(),
-            |user| user.password_hash.clone(),
-        );
+        // Always verify against some hash so the timing does not reveal whether the user exists,
+        // has a password, or may use password login at all.
+        let hash = user
+            .as_ref()
+            .and_then(|user| user.password_hash.clone())
+            .filter(|_| self.password_login);
+        let allowed = hash.is_some();
+        let hash = hash.unwrap_or_else(|| self.dummy_hash.clone());
         let candidate = password.to_owned();
         let verified =
             tokio::task::spawn_blocking(move || password::verify(&candidate, &hash)).await?;
         match user {
-            Some(user) if verified => self.issue(user.id, Uuid::now_v7()).await,
+            Some(user) if verified && allowed => self.issue(user.id, Uuid::now_v7()).await,
             _ => Err(AuthError::InvalidCredentials),
         }
     }
@@ -168,6 +202,154 @@ impl AuthService {
         decode_ticket(&self.keys, ticket, &scope_of(request))
     }
 
+    /// Starts a single sign-on: returns the provider URL to send the user to.
+    ///
+    /// `redirect_uri` is where the client wants to land afterwards and `code_challenge` is the
+    /// S256 PKCE challenge its later [`oidc_exchange`](Self::oidc_exchange) must answer.
+    pub async fn oidc_start(
+        &self,
+        redirect_uri: &str,
+        code_challenge: &str,
+    ) -> Result<String, AuthError> {
+        let oidc = self.oidc()?;
+        if !oidc.allows_redirect(redirect_uri) {
+            return Err(AuthError::InvalidInput("redirect_uri is not allowed"));
+        }
+        if !is_valid_challenge(code_challenge) {
+            return Err(AuthError::InvalidInput(
+                "code_challenge must be an S256 challenge",
+            ));
+        }
+        let state = random_token();
+        let authorization = oidc.authorize(&state);
+        let pending = OidcPending {
+            nonce: authorization.nonce,
+            idp_pkce_verifier: authorization.pkce_verifier,
+            client_redirect: redirect_uri.to_owned(),
+            client_challenge: code_challenge.to_owned(),
+        };
+        self.db
+            .insert_oidc_pending(
+                &hash_refresh_token(&state),
+                &pending,
+                OffsetDateTime::now_utc() + OIDC_PENDING_TTL,
+            )
+            .await?;
+        Ok(authorization.url)
+    }
+
+    /// Finishes a single sign-on after the provider sent the user back, returning the client URL
+    /// to redirect to: it carries a one-time `code` or, if the sign-in failed, an `error`.
+    ///
+    /// Fails without a redirect only when `state` is unknown, expired or already used, because
+    /// then there is no client to send the user to.
+    pub async fn oidc_callback(
+        &self,
+        state: &str,
+        code: Option<&str>,
+    ) -> Result<String, AuthError> {
+        let oidc = self.oidc()?;
+        let pending = self
+            .db
+            .take_oidc_pending(&hash_refresh_token(state))
+            .await?
+            .ok_or(AuthError::InvalidCredentials)?;
+        let outcome = match code {
+            Some(code) => self.finish_oidc_login(oidc, code, &pending).await,
+            None => Err(AuthError::OidcDenied),
+        };
+        let params = match outcome {
+            Ok(code) => ("code", code),
+            Err(AuthError::OidcDenied) => ("error", "access_denied".to_owned()),
+            Err(err) => {
+                tracing::warn!(error = %err, "single sign-on failed");
+                ("error", "login_failed".to_owned())
+            }
+        };
+        Ok(append_query(&pending.client_redirect, params))
+    }
+
+    /// Exchanges the one-time code from the redirect for a session.
+    pub async fn oidc_exchange(
+        &self,
+        code: &str,
+        code_verifier: &str,
+    ) -> Result<TokenPair, AuthError> {
+        self.oidc()?;
+        let stored = self
+            .db
+            .take_oidc_code(&hash_refresh_token(code))
+            .await?
+            .ok_or(AuthError::InvalidCredentials)?;
+        if verifier_matches(code_verifier, &stored.client_challenge) {
+            self.issue(stored.user_id, Uuid::now_v7()).await
+        } else {
+            Err(AuthError::InvalidCredentials)
+        }
+    }
+
+    fn oidc(&self) -> Result<&OidcService, AuthError> {
+        self.oidc.as_ref().ok_or(AuthError::OidcDisabled)
+    }
+
+    /// Verifies the provider's answer, provisions the user and stores a login code for them.
+    async fn finish_oidc_login(
+        &self,
+        oidc: &OidcService,
+        code: &str,
+        pending: &OidcPending,
+    ) -> Result<String, AuthError> {
+        let identity = oidc
+            .complete(code, &pending.nonce, &pending.idp_pkce_verifier)
+            .await?;
+        let user_id = self.user_for_identity(&identity).await?;
+        let login_code = random_token();
+        self.db
+            .insert_oidc_code(
+                &hash_refresh_token(&login_code),
+                user_id,
+                &pending.client_challenge,
+                OffsetDateTime::now_utc() + OIDC_CODE_TTL,
+            )
+            .await?;
+        Ok(login_code)
+    }
+
+    /// The local user for a provider account, created on first sign-in.
+    async fn user_for_identity(&self, identity: &Identity) -> Result<UserId, AuthError> {
+        let find = || {
+            self.db
+                .find_user_by_identity(&identity.issuer, &identity.subject)
+        };
+        if let Some(user) = find().await? {
+            return Ok(user.id);
+        }
+        let base = username_base(identity);
+        for attempt in 0..USERNAME_ATTEMPTS {
+            let username = username_candidate(&base, attempt);
+            match self
+                .db
+                .create_user_with_identity(
+                    &username,
+                    &identity.issuer,
+                    &identity.subject,
+                    identity.email.as_deref(),
+                )
+                .await
+            {
+                Ok(user) => return Ok(user.id),
+                // Either the name is taken or a concurrent sign-in created this very identity.
+                Err(DbError::Conflict) => {
+                    if let Some(user) = find().await? {
+                        return Ok(user.id);
+                    }
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+        Err(AuthError::InvalidInput("no free username for this account"))
+    }
+
     async fn issue(&self, user_id: UserId, family_id: Uuid) -> Result<TokenPair, AuthError> {
         let refresh_token = new_refresh_token();
         self.db
@@ -189,6 +371,56 @@ impl AuthService {
         let password = password.to_owned();
         tokio::task::spawn_blocking(move || password::hash(&password)).await?
     }
+}
+
+fn random_token() -> String {
+    let mut bytes = [0u8; OIDC_TOKEN_BYTES];
+    rand::fill(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn append_query(url: &str, (key, value): (&str, impl AsRef<str>)) -> String {
+    // Redirects are validated to carry no query or fragment, so a plain `?` is enough.
+    let value: String =
+        openidconnect::url::form_urlencoded::byte_serialize(value.as_ref().as_bytes()).collect();
+    format!("{url}?{key}={value}")
+}
+
+/// The preferred name for a new user: the provider's username, else the e-mail's local part,
+/// else the subject.
+fn username_base(identity: &Identity) -> String {
+    let from_email = identity
+        .email
+        .as_deref()
+        .and_then(|email| email.split('@').next());
+    let name = identity
+        .username_hint
+        .as_deref()
+        .or(from_email)
+        .unwrap_or(&identity.subject);
+    let cleaned: String = name.trim().chars().filter(|c| !c.is_control()).collect();
+    if cleaned.is_empty() {
+        FALLBACK_USERNAME.to_owned()
+    } else {
+        cleaned
+    }
+}
+
+/// `base`, or `base-2`, `base-3`, ... for later attempts, cut to fit [`MAX_USERNAME_LEN`] bytes.
+fn username_candidate(base: &str, attempt: u32) -> String {
+    let suffix = if attempt == 0 {
+        String::new()
+    } else {
+        format!("-{}", attempt + 1)
+    };
+    let mut name = String::new();
+    for c in base.chars() {
+        if name.len() + c.len_utf8() + suffix.len() > MAX_USERNAME_LEN {
+            break;
+        }
+        name.push(c);
+    }
+    name + &suffix
 }
 
 fn scope_of(request: &TicketRequest) -> String {
@@ -219,6 +451,43 @@ mod tests {
             refresh_ttl: Duration::days(30),
         };
         AuthService::new(Db::from_pool(pool), config).expect("service")
+    }
+
+    #[test]
+    fn username_candidates_get_a_suffix_and_fit_the_limit() {
+        assert_eq!(username_candidate("alice", 0), "alice");
+        assert_eq!(username_candidate("alice", 1), "alice-2");
+        let long = "x".repeat(100);
+        assert_eq!(username_candidate(&long, 0).len(), MAX_USERNAME_LEN);
+        assert_eq!(username_candidate(&long, 9).len(), MAX_USERNAME_LEN);
+        assert!(username_candidate(&long, 9).ends_with("-10"));
+        let wide = "é".repeat(100);
+        assert!(username_candidate(&wide, 1).len() <= MAX_USERNAME_LEN);
+    }
+
+    #[test]
+    fn username_base_prefers_the_username_then_the_email() {
+        let mut identity = Identity {
+            issuer: "https://idp".to_owned(),
+            subject: "sub-1".to_owned(),
+            username_hint: Some("alice".to_owned()),
+            email: Some("a.b@example.com".to_owned()),
+        };
+        assert_eq!(username_base(&identity), "alice");
+        identity.username_hint = None;
+        assert_eq!(username_base(&identity), "a.b");
+        identity.email = None;
+        assert_eq!(username_base(&identity), "sub-1");
+        identity.subject = "  ".to_owned();
+        assert_eq!(username_base(&identity), FALLBACK_USERNAME);
+    }
+
+    #[test]
+    fn append_query_escapes_the_value() {
+        assert_eq!(
+            append_query("http://127.0.0.1:1/callback", ("code", "a b&c")),
+            "http://127.0.0.1:1/callback?code=a+b%26c"
+        );
     }
 
     #[sqlx::test(migrations = "../../migrations")]

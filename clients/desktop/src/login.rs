@@ -3,12 +3,7 @@ use std::time::Duration;
 use api_client::{ApiError, Client};
 use iced::widget::container::bordered_box;
 use iced::widget::{row, space};
-use iced::{
-    Alignment, Element, Length, Subscription, Task,
-    keyboard::{self, Key, key::Named},
-    task,
-    widget::{button, column, container, operation, text, text_input},
-};
+use iced::{keyboard::{self, Key, key::Named}, task, widget::{button, column, container, operation, text, text_input}, Alignment, Element, Length, Subscription, Task, Padding};
 use protocol::{Me, Providers};
 
 use crate::{
@@ -20,6 +15,8 @@ const DEFAULT_SERVER: &str = "http://127.0.0.1:8080";
 const FORM_WIDTH: f32 = 360.0;
 const FORM_SPACING: f32 = 12.0;
 const FORM_PADDING: f32 = 24.0;
+const INPUT_PADDING: Padding = Padding { top: 8.0, left: 8.0, bottom: 8.0, right: 8.0 };
+const BUTTON_HEIGHT: Length = Length::Fixed(40.0);
 const RESUME_FAILED: &str = "Could not resume the session";
 /// How long the server field must rest before the server is asked how users sign in.
 const PROBE_DELAY: Duration = Duration::from_millis(600);
@@ -205,8 +202,16 @@ impl State {
 
     pub fn view(&self) -> Element<'_, Message> {
         let mut form = column![
-            text("Home Space").size(28),
-            text_input("Server", &self.server).on_input(Message::ServerChanged),
+            container("Home Space")
+                .align_x(Alignment::Center)
+                .width(Length::Fill),
+            container("Sign in to your files")
+                .style(crate::theme::muted)
+                .align_x(Alignment::Center)
+                .width(Length::Fill),
+            text_input("Server", &self.server)
+                .padding(INPUT_PADDING)
+                .on_input(Message::ServerChanged),
         ]
         .spacing(FORM_SPACING)
         .width(FORM_WIDTH);
@@ -221,9 +226,14 @@ impl State {
                 format!("Sign in with {}", provider.name)
             };
             form = form.push(row![
-                button(text(label).align_x(text::Alignment::Center))
-                    .on_press_maybe((!self.busy).then_some(Message::SignInWithProvider))
-                    .width(Length::Fill)
+                button(
+                    text(label)
+                        .align_x(Alignment::Center)
+                        .align_y(Alignment::Center)
+                )
+                .on_press_maybe((!self.busy).then_some(Message::SignInWithProvider))
+                .width(Length::Fill)
+                .height(BUTTON_HEIGHT)
             ]);
             if self.sso.is_some() {
                 form = form.push(button("Cancel").on_press(Message::Cancel));
@@ -257,13 +267,15 @@ impl State {
                 .push(
                     text_input("Username", &self.username)
                         .on_input(Message::UsernameChanged)
-                        .on_submit(Message::Submit),
+                        .on_submit(Message::Submit)
+                        .padding(INPUT_PADDING),
                 )
                 .push(
                     text_input("Password", &self.password)
                         .secure(true)
                         .on_input(Message::PasswordChanged)
-                        .on_submit(Message::Submit),
+                        .on_submit(Message::Submit)
+                        .padding(INPUT_PADDING),
                 )
                 .push(row![
                     button(
@@ -272,9 +284,11 @@ impl State {
                         } else {
                             "Sign in"
                         })
-                        .align_x(text::Alignment::Center)
+                        .align_x(Alignment::Center)
+                        .align_y(Alignment::Center)
                     )
                     .on_press_maybe((!self.busy).then_some(Message::Submit))
+                    .height(BUTTON_HEIGHT)
                     .width(Length::Fill)
                 ]);
         }

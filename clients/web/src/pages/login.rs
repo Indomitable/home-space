@@ -63,7 +63,7 @@ pub fn Login(auth: Auth) -> impl IntoView {
         <main class="login">
             <section class="login__card">
                 <header class="login__header">
-                    <h1 class="login__title">"home-space"</h1>
+                    <h1 class="login__title">"Home Space"</h1>
                     <p class="login__subtitle">"Sign in to your files"</p>
                 </header>
                 <ErrorAlert message=error />
@@ -112,7 +112,7 @@ pub fn Login(auth: Auth) -> impl IntoView {
                         class="button button--primary button--block"
                         disabled=move || busy.get()
                     >
-                        "Log in"
+                        "Sign in"
                     </button>
                 </form>
             </section>

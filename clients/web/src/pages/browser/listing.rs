@@ -3,7 +3,7 @@ use leptos_router::hooks::use_params_map;
 
 use api_client::{
     ApiError,
-    listing::{Sort, affects_path, apply_event, sort_nodes},
+    listing::{Sort, affects_path, apply_event, reveals_lost_and_found, sort_nodes},
 };
 use protocol::{Event, Node, NodeId};
 
@@ -14,9 +14,12 @@ use crate::{
 
 type Loaded = Result<(Vec<Node>, Vec<Node>), ApiError>;
 
-async fn fetch(folder: Option<NodeId>) -> Loaded {
+async fn fetch(folder: Option<NodeId>, lost_and_found: Option<NodeId>) -> Loaded {
     let client = session::client();
-    let listing = client.list(folder).await?;
+    let listing = match (folder, lost_and_found) {
+        (None, Some(found)) => client.list_home(found).await?,
+        _ => client.list(folder).await?,
+    };
     let path = match folder {
         Some(id) => {
             let mut path = client.ancestors(id).await?;
@@ -52,8 +55,10 @@ impl Listing {
         let sort = RwSignal::new(Sort::default());
         let error = RwSignal::new(None::<String>);
 
+        let lost_and_found = move || auth.user.get_untracked().map(|user| user.lost_and_found_id);
+
         let resource = load::load(
-            move || fetch(folder.get()),
+            move || fetch(folder.get(), lost_and_found()),
             move |loaded: Loaded| match loaded {
                 Ok((listing, path)) => {
                     nodes.set(listing);
@@ -71,7 +76,12 @@ impl Listing {
         });
 
         events::use_events(move |event| {
-            if matches!(event, Event::Resync) || affects_path(&crumbs.get_untracked(), &event) {
+            let reveals = lost_and_found()
+                .is_some_and(|found| reveals_lost_and_found(folder.get_untracked(), found, &event));
+            if matches!(event, Event::Resync)
+                || reveals
+                || affects_path(&crumbs.get_untracked(), &event)
+            {
                 resource.refetch();
             } else {
                 nodes.update(|listing| {

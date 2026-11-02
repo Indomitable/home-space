@@ -70,6 +70,27 @@ pub fn affects_path(path: &[Node], event: &Event) -> bool {
     }
 }
 
+/// Whether `event` may make Lost & Found show up in Home, which leaves it out while it is
+/// empty, so Home has to be fetched again.
+pub fn reveals_lost_and_found(
+    folder: Option<NodeId>,
+    lost_and_found: NodeId,
+    event: &Event,
+) -> bool {
+    folder.is_none()
+        && match event {
+            Event::NodeCreated { node } | Event::NodeUpdated { node } => {
+                node.id == lost_and_found || node.parent_id == Some(lost_and_found)
+            }
+            Event::NodeDeleted { .. } | Event::TrashChanged | Event::Resync => false,
+        }
+}
+
+/// Whether moving `nodes` into `destination` (`None` for Home) would leave them where they are.
+pub fn already_in(nodes: &[Node], destination: Option<NodeId>) -> bool {
+    nodes.iter().all(|node| node.parent_id == destination)
+}
+
 /// The indices of breadcrumb folders hidden behind an overflow menu once a path of
 /// `len` folders is deeper than [`MAX_VISIBLE_CRUMBS`]; the first and last stay visible.
 pub fn collapsed_crumbs(len: usize) -> Option<Range<usize>> {
@@ -152,6 +173,35 @@ mod tests {
         assert!(!sort.descending);
         assert!(sort.toggled(SortKey::Name).descending);
         assert!(!sort.toggled(SortKey::Size).descending);
+    }
+
+    #[test]
+    fn restoring_into_lost_and_found_reveals_it_at_home_only() {
+        let found = NodeId::from(uuid_from("found"));
+        let restored = Event::NodeCreated {
+            node: node("a.txt", NodeKind::File, Some(found)),
+        };
+        assert!(reveals_lost_and_found(None, found, &restored));
+        assert!(!reveals_lost_and_found(Some(found), found, &restored));
+        let elsewhere = Event::NodeCreated {
+            node: node("a.txt", NodeKind::File, None),
+        };
+        assert!(!reveals_lost_and_found(None, found, &elsewhere));
+    }
+
+    #[test]
+    fn moving_into_the_current_parent_is_pointless() {
+        let parent = Some(NodeId::from(uuid_from("parent")));
+        let nodes = [
+            node("a.txt", NodeKind::File, parent),
+            node("b.txt", NodeKind::File, parent),
+        ];
+        assert!(already_in(&nodes, parent));
+        assert!(!already_in(&nodes, None));
+        assert!(!already_in(
+            &[node("c", NodeKind::File, None), nodes[0].clone()],
+            parent
+        ));
     }
 
     #[test]

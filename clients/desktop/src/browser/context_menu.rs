@@ -80,7 +80,7 @@ pub fn folders(folders: &[Node]) -> Element<'_, Message> {
         )
         .width(Length::Fill)
         .style(theme::tool)
-        .on_press(Message::Open(Some(folder.id)))
+        .on_press(Message::Jump(Some(folder.id)))
         .into()
     });
     panel(items)

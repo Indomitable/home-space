@@ -1,5 +1,5 @@
 use iced::{
-    Alignment, Element, Length,
+    Alignment, Element, Length, Padding,
     widget::{
         Row, button, center, column, container, mouse_area, opaque, pin, row, space, stack, text,
         text_input,
@@ -19,6 +19,8 @@ const PAGE_PADDING: f32 = 16.0;
 const SPACING: f32 = 12.0;
 const GRID_SPACING: f32 = 4.0;
 const USERNAME_SIZE: f32 = 18.0;
+/// Lines the username up with the text of the buttons below it.
+const USERNAME_INDENT: f32 = 10.0;
 const SEARCH_WIDTH: f32 = 280.0;
 const SEARCH_PLACEHOLDER: &str = "Search files and folders";
 const DROP_PADDING: f32 = 32.0;
@@ -93,9 +95,21 @@ impl State {
     }
 
     fn header(&self) -> Element<'_, Message> {
+        let can_go_back = self.can_go_back();
         row![
-            text(self.me.username.as_str()).size(USERNAME_SIZE),
+            container(text(self.me.username.as_str()).size(USERNAME_SIZE))
+                .padding(Padding::ZERO.left(USERNAME_INDENT)),
             space::horizontal(),
+            button(Icon::Back.view(
+                ICON_SIZE,
+                if can_go_back {
+                    Tint::Text
+                } else {
+                    Tint::Disabled
+                }
+            ))
+            .style(theme::tool)
+            .on_press_maybe(can_go_back.then_some(Message::Back)),
             syncing::indicator(self.syncing.status()),
             self.search_box(),
             button("Sign out")
@@ -226,7 +240,7 @@ impl State {
                 } else if hidden.contains(&index) {
                     None
                 } else {
-                    Some(crumb(folder.name.as_str(), Message::Open(Some(folder.id))))
+                    Some(crumb(folder.name.as_str(), Message::Jump(Some(folder.id))))
                 }
             })
             .flatten();
@@ -247,7 +261,7 @@ fn trail<'a>(crumbs: impl IntoIterator<Item = Element<'a, Message>>) -> Row<'a, 
     row![
         button(text(HOME))
             .style(theme::tool)
-            .on_press(Message::Open(None))
+            .on_press(Message::Jump(None))
     ]
     .extend(crumbs)
     .spacing(GRID_SPACING)

@@ -5,7 +5,7 @@ use iced::{
 
 use protocol::{Node, NodeId, NodeKind};
 
-use super::Message;
+use super::{Message, context_menu};
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},
     theme,
@@ -265,6 +265,7 @@ pub fn menu_row<'a>(
         .align_y(Alignment::Center),
     )
     .width(Length::Fill)
+    .height(context_menu::ITEM_HEIGHT)
     .style(style)
     .on_press_maybe(message)
     .into()

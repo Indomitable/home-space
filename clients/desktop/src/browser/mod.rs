@@ -1,3 +1,4 @@
+mod anchor;
 mod context_menu;
 mod details;
 mod dialogs;
@@ -14,12 +15,13 @@ mod trash;
 
 use std::path::PathBuf;
 
-use iced::{Point, Size, Subscription, Task, event, keyboard::Modifiers, window};
+use iced::{Size, Subscription, Task, event, keyboard::Modifiers, window};
 
 use api_client::{ApiError, Client, listing::SortKey};
 use protocol::{Me, NodeId, NodeKind, paths};
 
 use self::{
+    context_menu::Placement,
     dialogs::{Dialog, Outcome},
     folder::{Folder, Listing},
     input::{Shortcut, input},
@@ -49,8 +51,8 @@ pub enum Message {
     ToggleAll,
     ClearSelection,
     SortBy(SortKey),
-    ContextMenu(NodeId),
-    CrumbsMenu,
+    ContextMenu(NodeId, Placement),
+    CrumbsMenu(Placement),
     CloseMenu,
     Act(Action),
     NewFolder,
@@ -64,7 +66,6 @@ pub enum Message {
     Transfer(transfers::Message),
     Shortcut(Shortcut),
     Modifiers(Modifiers),
-    CursorMoved(Point),
     Resized(Size),
     FileHovered,
     FileDropped(PathBuf),
@@ -74,7 +75,6 @@ pub enum Message {
     SignOut,
     SignedOut,
     Sync(syncing::Message),
-    /// Opens a folder (`None` for Home) in the web client.
     OpenInWeb(Option<NodeId>),
 }
 
@@ -83,11 +83,11 @@ pub enum Update {
     SignedOut,
 }
 
-/// A popup menu and the point it opened at.
+/// A popup menu and what it hangs from.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Menu {
-    Actions(Point),
-    Crumbs(Point),
+    Actions(Placement),
+    Crumbs(Placement),
 }
 
 pub struct State {
@@ -97,7 +97,6 @@ pub struct State {
     /// The folder a breadcrumb jump left, which going back returns to.
     previous: Option<Option<NodeId>>,
     modifiers: Modifiers,
-    cursor: Point,
     window: Size,
     menu: Option<Menu>,
     dialog: Option<Dialog>,
@@ -118,7 +117,6 @@ impl State {
             me,
             previous: None,
             modifiers: Modifiers::default(),
-            cursor: Point::ORIGIN,
             window: DEFAULT_WINDOW,
             menu: None,
             dialog: None,
@@ -192,13 +190,13 @@ impl State {
                 self.folder.sort_by(key);
                 Task::none()
             }
-            Message::ContextMenu(id) => {
+            Message::ContextMenu(id, placement) => {
                 self.folder.selection.ensure(id);
-                self.menu = Some(Menu::Actions(self.cursor));
+                self.menu = Some(Menu::Actions(placement));
                 Task::none()
             }
-            Message::CrumbsMenu => {
-                self.menu = Some(Menu::Crumbs(self.cursor));
+            Message::CrumbsMenu(placement) => {
+                self.menu = Some(Menu::Crumbs(placement));
                 Task::none()
             }
             Message::CloseMenu => {
@@ -248,10 +246,6 @@ impl State {
             Message::Shortcut(shortcut) => self.shortcut(shortcut),
             Message::Modifiers(modifiers) => {
                 self.modifiers = modifiers;
-                Task::none()
-            }
-            Message::CursorMoved(position) => {
-                self.cursor = position;
                 Task::none()
             }
             Message::Resized(size) => {

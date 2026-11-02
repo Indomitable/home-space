@@ -1,5 +1,6 @@
 use iced::{
-    Alignment, Element, Length, Point, Size,
+    Alignment, Element, Length, Point, Rectangle, Size,
+    alignment::Horizontal,
     widget::{button, column, container, row, text},
 };
 
@@ -15,7 +16,8 @@ use crate::{
 };
 
 const MENU_WIDTH: f32 = 220.0;
-const ITEM_HEIGHT: f32 = 36.0;
+/// Fixed, so the menu's height is known before it is laid out and it can hang above a widget.
+pub(super) const ITEM_HEIGHT: f32 = 36.0;
 const MENU_PADDING: f32 = 4.0;
 const EDGE_MARGIN: f32 = 8.0;
 const LABEL_SPACING: f32 = 12.0;
@@ -79,6 +81,7 @@ pub fn folders(folders: &[Node]) -> Element<'_, Message> {
             .align_y(Alignment::Center),
         )
         .width(Length::Fill)
+        .height(ITEM_HEIGHT)
         .style(theme::tool)
         .on_press(Message::Jump(Some(folder.id)))
         .into()
@@ -94,12 +97,46 @@ fn panel<'a>(items: impl IntoIterator<Item = Element<'a, Message>>) -> Element<'
         .into()
 }
 
-/// Where to put the menu opened at `cursor` so it stays inside `window`.
-pub fn position(cursor: Point, window: Size, items: usize) -> Point {
+/// What a menu hangs from: the pointer, or a widget whose `edge` the menu lines up with.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placement {
+    target: Rectangle,
+    edge: Horizontal,
+}
+
+impl Placement {
+    /// A menu opening under the pointer at `cursor`.
+    pub fn cursor(cursor: Point) -> Self {
+        Self {
+            target: Rectangle::new(cursor, Size::ZERO),
+            edge: Horizontal::Left,
+        }
+    }
+
+    /// A menu hanging from `target`: below it, or above when there is no room, with its `edge`
+    /// lined up with the same edge of `target`.
+    pub fn hanging(target: Rectangle, edge: Horizontal) -> Self {
+        Self { target, edge }
+    }
+}
+
+/// Where to put the menu so it stays inside `window`.
+pub fn position(placement: Placement, window: Size, items: usize) -> Point {
+    let Placement { target, edge } = placement;
     let height = ITEM_HEIGHT * items as f32 + MENU_PADDING * 2.0;
     let max_x = (window.width - MENU_WIDTH - EDGE_MARGIN).max(0.0);
     let max_y = (window.height - height - EDGE_MARGIN).max(0.0);
-    Point::new(cursor.x.min(max_x), cursor.y.min(max_y))
+    let x = match edge {
+        Horizontal::Right => target.x + target.width - MENU_WIDTH,
+        _ => target.x,
+    };
+    let below = target.y + target.height;
+    let y = if below <= max_y {
+        below
+    } else {
+        target.y - height
+    };
+    Point::new(x.clamp(0.0, max_x), y.clamp(0.0, max_y))
 }
 
 /// How many entries the menu shows for `selected`.
@@ -140,14 +177,40 @@ mod tests {
 
     #[test]
     fn menu_opens_at_the_cursor_when_it_fits() {
-        let point = position(Point::new(100.0, 100.0), Size::new(1000.0, 800.0), 4);
+        let placement = Placement::cursor(Point::new(100.0, 100.0));
+        let point = position(placement, Size::new(1000.0, 800.0), 4);
         assert_eq!(point, Point::new(100.0, 100.0));
     }
 
     #[test]
     fn menu_is_pushed_back_inside_the_window() {
-        let point = position(Point::new(990.0, 790.0), Size::new(1000.0, 800.0), 4);
+        let placement = Placement::cursor(Point::new(990.0, 790.0));
+        let point = position(placement, Size::new(1000.0, 800.0), 4);
         assert!(point.x + MENU_WIDTH <= 1000.0);
         assert!(point.y + ITEM_HEIGHT * 4.0 <= 800.0);
+    }
+
+    #[test]
+    fn menu_hangs_below_the_target_with_the_same_edge() {
+        let target = Rectangle::new(Point::new(400.0, 100.0), Size::new(24.0, 20.0));
+        let window = Size::new(1000.0, 800.0);
+
+        let left = position(Placement::hanging(target, Horizontal::Left), window, 4);
+        let right = position(Placement::hanging(target, Horizontal::Right), window, 4);
+
+        assert_eq!(left, Point::new(400.0, 120.0));
+        assert_eq!(right, Point::new(424.0 - MENU_WIDTH, 120.0));
+    }
+
+    #[test]
+    fn menu_hangs_above_the_target_when_there_is_no_room_below() {
+        let target = Rectangle::new(Point::new(400.0, 700.0), Size::new(24.0, 20.0));
+        let point = position(
+            Placement::hanging(target, Horizontal::Right),
+            Size::new(1000.0, 800.0),
+            4,
+        );
+        let height = ITEM_HEIGHT * 4.0 + MENU_PADDING * 2.0;
+        assert_eq!(point.y, 700.0 - height);
     }
 }

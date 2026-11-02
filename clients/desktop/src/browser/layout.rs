@@ -1,5 +1,6 @@
 use iced::{
     Alignment, Element, Length, Padding,
+    alignment::Horizontal,
     widget::{
         Row, button, center, column, container, mouse_area, opaque, pin, row, space, stack, text,
         text_input,
@@ -9,7 +10,10 @@ use iced::{
 use api_client::listing::collapsed_crumbs;
 use protocol::Node;
 
-use super::{HOME, Menu, Message, State, context_menu, dialogs, grid, search, syncing, toolbar};
+use super::{
+    HOME, Menu, Message, State, anchor::Anchor, context_menu, context_menu::Placement, dialogs,
+    grid, search, syncing, toolbar,
+};
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},
     theme,
@@ -173,21 +177,21 @@ impl State {
 
     /// The click-away backdrop and the popup menu.
     fn menu_layers<'a>(&'a self, menu: Menu, selected: &[&'a Node]) -> [Element<'a, Message>; 2] {
-        let (cursor, items, panel) = match menu {
-            Menu::Actions(cursor) => {
+        let (placement, items, panel) = match menu {
+            Menu::Actions(placement) => {
                 let entries = self.syncing.entries(selected);
                 (
-                    cursor,
+                    placement,
                     context_menu::item_count(selected, self.me.lost_and_found_id) + entries.len(),
                     context_menu::view(selected, self.me.lost_and_found_id, entries),
                 )
             }
-            Menu::Crumbs(cursor) => {
+            Menu::Crumbs(placement) => {
                 let hidden = self.folder.hidden_crumbs();
-                (cursor, hidden.len(), context_menu::folders(hidden))
+                (placement, hidden.len(), context_menu::folders(hidden))
             }
         };
-        let position = context_menu::position(cursor, self.window, items);
+        let position = context_menu::position(placement, self.window, items);
         [
             mouse_area(space().width(Length::Fill).height(Length::Fill))
                 .on_press(Message::CloseMenu)
@@ -236,7 +240,7 @@ impl State {
             .enumerate()
             .filter_map(|(index, folder)| {
                 if index == hidden.start && !hidden.is_empty() {
-                    Some(crumb(CRUMB_OVERFLOW, Message::CrumbsMenu))
+                    Some(overflow_crumb())
                 } else if hidden.contains(&index) {
                     None
                 } else {
@@ -266,6 +270,20 @@ fn trail<'a>(crumbs: impl IntoIterator<Item = Element<'a, Message>>) -> Row<'a, 
     .extend(crumbs)
     .spacing(GRID_SPACING)
     .align_y(Alignment::Center)
+}
+
+/// The crumb standing for the hidden folders, whose menu hangs from its left edge.
+fn overflow_crumb<'a>() -> [Element<'a, Message>; 2] {
+    let button = button(text(CRUMB_OVERFLOW))
+        .style(theme::tool)
+        // Never sent: the anchor takes the press, and only needs the button to look enabled.
+        .on_press(Message::CloseMenu);
+    [
+        text(CRUMB_SEPARATOR).into(),
+        Anchor::new(button)
+            .on_press(|bounds| Message::CrumbsMenu(Placement::hanging(bounds, Horizontal::Left)))
+            .into(),
+    ]
 }
 
 /// A separator followed by a link-styled crumb.

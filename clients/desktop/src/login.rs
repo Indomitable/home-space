@@ -51,8 +51,11 @@ pub struct State {
     password: String,
     busy: bool,
     error: Option<String>,
-    /// How the server lets users sign in, once known; the password form shows until then.
+    /// How the server lets users sign in, once known.
     providers: Option<Providers>,
+    /// The server has not answered the first question about how users sign in, so the
+    /// password form stays hidden rather than flashing before the provider button replaces it.
+    first_probe_pending: bool,
     /// Bumped whenever the server changes, so answers about an earlier one are ignored.
     probe: u64,
     /// The browser sign-in in progress, if any.
@@ -68,6 +71,7 @@ impl Default for State {
             busy: false,
             error: None,
             providers: None,
+            first_probe_pending: true,
             probe: 0,
             sso: None,
         }
@@ -84,6 +88,13 @@ impl State {
         (state, Task::perform(session::restore(), Message::Restored))
     }
 
+    /// The login screen after signing out.
+    pub fn signed_out() -> (Self, Task<Message>) {
+        let mut state = Self::default();
+        let task = state.schedule_probe();
+        (state, task)
+    }
+
     pub fn update(&mut self, message: Message) -> Update {
         match message {
             Message::ServerChanged(value) => {
@@ -95,11 +106,17 @@ impl State {
                     Message::ProvidersLoaded(probe, result)
                 }))
             }
-            Message::Probe(..) => Update::Task(Task::none()),
+            Message::Probe(probe, _) => {
+                if probe == self.probe {
+                    self.first_probe_pending = false;
+                }
+                Update::Task(Task::none())
+            }
             Message::ProvidersLoaded(probe, result) => {
                 // An unreachable server leaves the password form, which reports the problem.
                 if probe == self.probe {
                     self.providers = result.ok();
+                    self.first_probe_pending = false;
                 }
                 Update::Task(Task::none())
             }
@@ -210,10 +227,11 @@ impl State {
                 form = form.push(button("Cancel").on_press(Message::Cancel));
             }
         }
-        let password_login = self
-            .providers
-            .as_ref()
-            .is_none_or(|providers| providers.password);
+        let password_login = !self.first_probe_pending
+            && self
+                .providers
+                .as_ref()
+                .is_none_or(|providers| providers.password);
         if password_login {
             if provider.is_some() {
                 form = form.push(text("or"));
@@ -311,6 +329,29 @@ mod tests {
                 name: "Keycloak".to_owned(),
             }),
         }
+    }
+
+    #[test]
+    fn the_login_screen_after_signing_out_asks_the_server_how_to_sign_in() {
+        let (state, _task) = State::signed_out();
+
+        assert_eq!(state.probe, 1);
+        assert!(state.first_probe_pending);
+    }
+
+    #[test]
+    fn the_password_form_waits_for_the_first_answer_and_returns_if_there_is_none() {
+        let mut state = State::default();
+        let _ = state.update(Message::ServerChanged("http://nas.local".to_owned()));
+        assert!(state.first_probe_pending);
+
+        let _ = state.update(Message::ProvidersLoaded(
+            state.probe,
+            Err("down".to_owned()),
+        ));
+
+        assert!(!state.first_probe_pending);
+        assert_eq!(state.providers, None);
     }
 
     #[test]

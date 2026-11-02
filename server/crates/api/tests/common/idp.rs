@@ -156,6 +156,8 @@ impl FakeIdp {
             "iat": now,
             "exp": now + token.expires_in,
             "nonce": token.nonce,
+            // Auth0 sends this as an ISO 8601 string rather than seconds since the epoch.
+            "updated_at": "2026-11-02T17:25:53.422Z",
         });
         if let (Some(claims), Some(extra)) = (claims.as_object_mut(), token.extra.as_object()) {
             claims.extend(extra.clone());

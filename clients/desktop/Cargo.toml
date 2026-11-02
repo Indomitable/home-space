@@ -16,7 +16,9 @@ hex = "0.4.3"
 iced = { version = "0.14.0", features = ["advanced", "svg", "tokio"] }
 keyring = { version = "4.2.0", optional = true }
 notify = "8.2.1"
+open = "5.4.5"
 png = "0.18.1"
+rand = "0.10.3"
 protocol.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 rfd = "0.17.2"
@@ -25,7 +27,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sha2 = "0.11.1"
 time.workspace = true
-tokio = { workspace = true, features = ["fs", "macros", "rt", "time"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt", "time"] }
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
 tokio-util = { version = "0.7.20", features = ["io"] }
 trash = "5.2.9"

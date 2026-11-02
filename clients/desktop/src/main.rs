@@ -6,6 +6,7 @@ mod icons;
 mod locale;
 mod login;
 mod session;
+mod sso;
 mod sync;
 mod theme;
 mod transfers;

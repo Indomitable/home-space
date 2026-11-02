@@ -208,6 +208,11 @@ fn NodeRow(node: Node, actions: TableActions) -> impl IntoView {
         human_size(node.size)
     };
     let modified = short_date(node.updated_at);
+    let meta = if is_folder {
+        modified.clone()
+    } else {
+        format!("{size} \u{b7} {modified}")
+    };
     let href = route::folder(node.id);
     let node_id = node.id;
     let editing = Memo::new(move |_| {
@@ -265,11 +270,14 @@ fn NodeRow(node: Node, actions: TableActions) -> impl IntoView {
                     }
                         .into_any()
                 } else if is_folder {
-                    let (href, name) = (href.clone(), name.clone());
+                    let (href, name, meta) = (href.clone(), name.clone(), meta.clone());
                     view! {
                         <A href=href attr:class="node-table__name node-table__name--link">
                             <Icon name=icon />
-                            {name}
+                            <span class="node-table__text">
+                                {name}
+                                <span class="node-table__meta">{meta}</span>
+                            </span>
                         </A>
                     }
                         .into_any()
@@ -277,7 +285,10 @@ fn NodeRow(node: Node, actions: TableActions) -> impl IntoView {
                     view! {
                         <span class="node-table__name">
                             <Icon name=icon />
-                            {name.clone()}
+                            <span class="node-table__text">
+                                {name.clone()}
+                                <span class="node-table__meta">{meta.clone()}</span>
+                            </span>
                         </span>
                     }
                         .into_any()

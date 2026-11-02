@@ -47,10 +47,12 @@ pub fn Menu(
             .unwrap_or_default();
         if let Some(element) = panel.get_untracked() {
             let style = HtmlElement::style(&element);
-            let y = top(rect.top(), rect.bottom(), measure_height(&element), height);
+            let (panel_width, panel_height) = measure(&element);
+            let y = top(rect.top(), rect.bottom(), panel_height, height);
+            let x = left(rect.right(), panel_width, width);
             let _ = style.set_property("top", &format!("{y}px"));
-            let _ = style.set_property("right", &format!("{}px", width - rect.right()));
-            let _ = style.set_property("left", "auto");
+            let _ = style.set_property("left", &format!("{x}px"));
+            let _ = style.set_property("right", "auto");
         }
     };
 
@@ -71,15 +73,23 @@ pub fn Menu(
     }
 }
 
-/// The panel's height, measured while it is still hidden (before the popover opens).
-fn measure_height(element: &HtmlElement) -> f64 {
+/// The panel's size, measured while it is still hidden (before the popover opens).
+fn measure(element: &HtmlElement) -> (f64, f64) {
     let style = element.style();
     let _ = style.set_property("display", "block");
     let _ = style.set_property("visibility", "hidden");
-    let height = f64::from(element.offset_height());
+    let size = (
+        f64::from(element.offset_width()),
+        f64::from(element.offset_height()),
+    );
     let _ = style.remove_property("display");
     let _ = style.remove_property("visibility");
-    height
+    size
+}
+
+/// Where the panel's left goes: right-aligned with the trigger, kept inside the viewport.
+fn left(trigger_right: f64, panel: f64, viewport: f64) -> f64 {
+    (trigger_right - panel).min(viewport - panel - MENU_GAP).max(MENU_GAP)
 }
 
 /// Where the panel's top goes: under the trigger, or above it when it would run off the bottom.
@@ -151,5 +161,15 @@ mod tests {
     #[test]
     fn menu_stays_inside_a_short_window() {
         assert_eq!(top(100.0, 120.0, 400.0, 300.0), MENU_GAP);
+    }
+
+    #[test]
+    fn menu_right_aligns_with_the_trigger_when_it_fits() {
+        assert_eq!(left(300.0, 180.0, 400.0), 120.0);
+    }
+
+    #[test]
+    fn menu_does_not_run_off_the_left_edge() {
+        assert_eq!(left(100.0, 180.0, 400.0), MENU_GAP);
     }
 }

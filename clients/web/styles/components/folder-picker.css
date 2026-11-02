@@ -1,5 +1,5 @@
 .folder-picker {
-  max-height: 40vh;
+  max-height: min(40vh, 50dvh);
   margin: 0;
   padding: var(--space-1);
   list-style: none;
@@ -25,7 +25,8 @@
   transition: background var(--transition);
 }
 
-.folder-picker__button:hover {
+.folder-picker__button:hover,
+.folder-picker__button:active {
   background: var(--color-accent-soft);
 }
 
@@ -38,4 +39,10 @@
   color: var(--color-muted);
   font-size: var(--text-sm);
   text-align: center;
+}
+
+@media (pointer: coarse) {
+  .folder-picker__button {
+    min-height: var(--touch-target);
+  }
 }

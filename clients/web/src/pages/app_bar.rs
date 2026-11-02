@@ -25,11 +25,22 @@ pub fn AppBar(auth: Auth) -> impl IntoView {
             <span class="app-bar__spacer"></span>
             <A href=route::TRASH_PATH attr:class="button button--ghost">
                 <Icon name="recycling" />
-                "Recycle bin"
+                <span class="label">"Recycle bin"</span>
             </A>
             <span class="app-bar__user">{move || auth.user.get().map(|user| user.username)}</span>
-            <button class="button button--ghost" on:click=move |_| auth.logout()>
-                "Log out"
+            <button
+                class="button button--ghost"
+                aria-label="Log out"
+                title=move || {
+                    auth.user
+                        .get()
+                        .map(|user| format!("Log out {}", user.username))
+                        .unwrap_or_else(|| "Log out".to_owned())
+                }
+                on:click=move |_| auth.logout()
+            >
+                <Icon name="logout" />
+                <span class="label">"Log out"</span>
             </button>
         </header>
     }

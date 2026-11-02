@@ -139,6 +139,11 @@ fn HitRow(hit: SearchHit) -> impl IntoView {
     };
     let modified = short_date(hit.node.updated_at);
     let location = location_label(&hit.location);
+    let meta = if is_folder {
+        location.clone()
+    } else {
+        format!("{location} \u{b7} {size}")
+    };
     let name = hit.node.name;
 
     view! {
@@ -146,10 +151,15 @@ fn HitRow(hit: SearchHit) -> impl IntoView {
             <td class="node-table__cell">
                 <A href=href attr:class="node-table__name node-table__name--link">
                     <Icon name=icon />
-                    {name}
+                    <span class="node-table__text">
+                        {name}
+                        <span class="node-table__meta">{meta}</span>
+                    </span>
                 </A>
             </td>
-            <td class="node-table__cell search-results__location">{location}</td>
+            <td class="node-table__cell node-table__cell--meta search-results__location">
+                {location}
+            </td>
             <td class="node-table__cell node-table__cell--size">{size}</td>
             <td class="node-table__cell node-table__cell--modified">{modified}</td>
         </tr>

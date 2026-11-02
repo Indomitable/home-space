@@ -11,6 +11,9 @@ body {
   color: var(--color-text);
   font: var(--text-md) / 1.5 var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 h1,
@@ -41,6 +44,12 @@ a:hover {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+@media (width < 640px) {
+  .button:has(.icon) > .label {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

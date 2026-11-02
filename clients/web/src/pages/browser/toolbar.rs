@@ -5,6 +5,7 @@ use super::{
     file_drop::files_of,
     menu::{Menu, MenuItem},
 };
+use crate::icon::Icon;
 
 #[component]
 pub fn Toolbar(
@@ -33,13 +34,20 @@ pub fn Toolbar(
             </Show>
             <button
                 class="button"
+                aria-label="New folder"
                 disabled=move || !can_add.get()
                 on:click=move |_| on_new_folder.run(())
             >
-                "New folder"
+                <Icon name="create_new_folder" />
+                <span class="label">"New folder"</span>
             </button>
-            <label class="button button--primary" class:button--disabled=move || !can_add.get()>
-                "Upload files"
+            <label
+                class="button button--primary"
+                aria-label="Upload files"
+                class:button--disabled=move || !can_add.get()
+            >
+                <Icon name="upload" />
+                <span class="label">"Upload files"</span>
                 <input
                     type="file"
                     multiple

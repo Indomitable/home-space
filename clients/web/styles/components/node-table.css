@@ -36,7 +36,13 @@
   transition: background var(--transition);
 }
 
-.node-table__row:hover {
+@media (hover: hover) {
+  .node-table__row:hover {
+    background: var(--color-surface-hover);
+  }
+}
+
+.node-table__row:active {
   background: var(--color-surface-hover);
 }
 
@@ -99,6 +105,20 @@
   text-decoration: none;
 }
 
+.node-table__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.node-table__meta {
+  display: none;
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
 @media (width < 640px) {
   .node-table,
   .node-table__body {
@@ -106,13 +126,14 @@
   }
 
   .node-table__head,
-  .node-table__cell--modified {
+  .node-table__cell--size,
+  .node-table__cell--modified,
+  .node-table__cell--meta {
     display: none;
   }
 
   .node-table__row {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    display: flex;
     align-items: center;
     border-bottom: 1px solid var(--color-border);
   }
@@ -122,14 +143,42 @@
   }
 
   .node-table__cell {
-    padding: var(--space-3) var(--space-3) var(--space-1);
+    padding: var(--space-3) var(--space-2);
     border-bottom: 0;
   }
 
-  .node-table__cell--select,
-  .node-table__cell--actions {
+  .node-table__cell:not(.node-table__cell--select):not(.node-table__cell--actions) {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .node-table__row > .node-table__cell--select,
+  .node-table__row > .node-table__cell--actions {
+    flex: none;
     width: auto;
-    padding: var(--space-2);
+    padding: var(--space-1);
+  }
+
+  .node-table__meta {
+    display: block;
+  }
+
+  .node-table__name {
+    align-items: flex-start;
+    min-width: 0;
+  }
+
+  .node-table__name .icon {
+    margin-top: 2px;
+  }
+
+  .node-table__name--editing,
+  .node-table__row--draft .node-table__name {
+    align-items: center;
+  }
+
+  .node-table__actions .button--small {
+    min-height: var(--touch-target);
   }
 }
 
@@ -150,7 +199,6 @@
   cursor: pointer;
 }
 
-.node-table__checkbox:hover,
 .node-table__checkbox[aria-checked="true"],
 .node-table__checkbox[aria-checked="mixed"] {
   color: var(--color-accent);
@@ -161,7 +209,8 @@
 }
 
 .node-table__row--selected,
-.node-table__row--selected:hover {
+.node-table__row--selected:hover,
+.node-table__row--selected:active {
   background: var(--color-accent-soft);
 }
 
@@ -188,4 +237,17 @@
   display: inline-flex;
   align-items: center;
   line-height: 1;
+}
+
+@media (hover: hover) {
+  .node-table__checkbox:hover {
+    color: var(--color-accent);
+  }
+}
+
+@media (pointer: coarse) {
+  .node-table__checkbox {
+    min-width: var(--touch-target);
+    min-height: var(--touch-target);
+  }
 }

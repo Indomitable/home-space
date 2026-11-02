@@ -252,6 +252,12 @@ pub fn TrashPage(auth: Auth) -> impl IntoView {
 fn TrashRow(item: TrashItem, selected: RwSignal<HashSet<NodeId>>) -> impl IntoView {
     let node_id = item.node.id;
     let icon = node_icon(&item.node);
+    let meta = format!(
+        "{} \u{b7} {} \u{b7} {}",
+        item.original_path,
+        short_date(item.deleted_at),
+        human_size(item.node.size)
+    );
     view! {
         <tr
             class="node-table__row"
@@ -264,7 +270,10 @@ fn TrashRow(item: TrashItem, selected: RwSignal<HashSet<NodeId>>) -> impl IntoVi
             <td class="node-table__cell">
                 <span class="node-table__name">
                     <Icon name=icon />
-                    {item.node.name.clone()}
+                    <span class="node-table__text">
+                        {item.node.name.clone()}
+                        <span class="node-table__meta">{meta}</span>
+                    </span>
                 </span>
             </td>
             <td class="node-table__cell node-table__cell--modified">{item.original_path}</td>

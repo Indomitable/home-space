@@ -135,6 +135,7 @@
     width: 100%;
     border-inline: 0;
     border-bottom: 0;
+    padding-bottom: var(--safe-bottom);
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
 

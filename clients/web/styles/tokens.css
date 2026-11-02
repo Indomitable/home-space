@@ -1,3 +1,6 @@
+/* Responsive conventions (custom properties cannot be used in media queries, so the values repeat):
+   compact = (width < 640px) phones; medium = (width < 960px) details panel becomes a sheet;
+   touch = (pointer: coarse) bigger hit targets; hover backgrounds live in (hover: hover). */
 :root {
   color-scheme: light dark;
 
@@ -41,6 +44,13 @@
   --shadow-lg: 0 24px 48px var(--color-shadow), 0 4px 12px var(--color-shadow);
   --focus-ring: 0 0 0 3px color-mix(in oklab, var(--color-accent) 40%, transparent);
 
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --touch-target: 44px;
+  --gutter: var(--space-4);
+
   --transition: 140ms ease;
   --content-width: 1040px;
 
@@ -49,5 +59,9 @@
   }
   @media (min-width: 1240px) and (max-width: 1919px) {
     --content-width: 1240px;
+  }
+
+  @media (width < 640px) {
+    --gutter: var(--space-3);
   }
 }

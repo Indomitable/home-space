@@ -34,6 +34,11 @@ trash = "5.2.9"
 # session is a file under ~/.local/share/home-space, which unsigned dev builds can read without
 # unlocking the keychain after every rebuild.
 keyring = ["dep:keyring"]
+# Lets the app be inspected: enables iced's devtools (F12 overlay) and reports to the `comet`
+# debugger. Use comet's 0.14.0 tag to match iced 0.14:
+#   cargo install --git https://github.com/iced-rs/comet --tag 0.14.0 && comet
+#   cargo run -p desktop --features debug
+debug = ["iced/debug"]
 
 # macOS formats dates through Foundation instead (see src/locale.rs).
 [target.'cfg(not(target_os = "macos"))'.dependencies]

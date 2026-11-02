@@ -209,5 +209,32 @@ reuse, on a password change or when it expires. So the signing secret alone cann
 a token it signs for a session that does not exist is rejected, and logging out takes effect at
 once rather than when the access token expires.
 
+### Running on a server
+
+`compose.prod.yaml` keeps the database and the blobs in directories you choose and runs both
+containers as one host user, so only that user (and root) can read them:
+
+```sh
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin homespace
+sudo install -d -o homespace -g homespace -m 700 /srv/homespace/db /srv/homespace/files
+
+cat > .env <<EOF
+HOMESPACE_DB_DIR=/srv/homespace/db
+HOMESPACE_DATA_DIR=/srv/homespace/files
+HOMESPACE_UID=$(id -u homespace)
+HOMESPACE_GID=$(id -g homespace)
+HOMESPACE_JWT_SECRET=$(head -c 32 /dev/urandom | base64)
+EOF
+chmod 600 .env
+
+docker compose -f compose.yaml -f compose.prod.yaml up -d --build
+docker compose -f compose.yaml -f compose.prod.yaml run --rm app user add me
+```
+
+The directories must exist and be owned by that user before the first start (mode `700` keeps
+everyone else out). With rootless Podman the uid is remapped, so own the directories through
+`podman unshare chown` instead, or drop the `user:` lines and rely on the rootless user itself.
+Change the default `homespace` database password in `compose.yaml` before exposing anything.
+
 Postgres is published on `127.0.0.1:5433` (`HOMESPACE_DB_PORT`) and the app on `127.0.0.1:8080`
 (`HOMESPACE_PORT`), so it does not clash with the `scripts/db.sh` database on 5432.

@@ -1,0 +1,22 @@
+# Server override: keeps the database and the blobs in directories you choose and runs both
+# containers as one dedicated host user, so only that user can read the files.
+#
+#   docker compose -f compose.yaml -f compose.prod.yaml up -d --build
+#
+# Required variables (put them in a .env next to this file, see "Compose" in the README):
+#   HOMESPACE_DB_DIR     host directory for the Postgres files, e.g. /srv/homespace/db
+#   HOMESPACE_DATA_DIR   host directory for the blobs,          e.g. /srv/homespace/files
+#   HOMESPACE_UID        numeric uid of the owning host user (id -u homespace)
+#   HOMESPACE_GID        numeric gid of the owning host user (id -g homespace)
+services:
+  db:
+    user: "${HOMESPACE_UID:?set HOMESPACE_UID}:${HOMESPACE_GID:?set HOMESPACE_GID}"
+    volumes:
+      - ${HOMESPACE_DB_DIR:?set HOMESPACE_DB_DIR}:/var/lib/postgresql
+      # Postgres looks its running user up by uid; an arbitrary uid has no passwd entry in the image.
+      - /etc/passwd:/etc/passwd:ro
+
+  app:
+    user: "${HOMESPACE_UID:?set HOMESPACE_UID}:${HOMESPACE_GID:?set HOMESPACE_GID}"
+    volumes:
+      - ${HOMESPACE_DATA_DIR:?set HOMESPACE_DATA_DIR}:/data

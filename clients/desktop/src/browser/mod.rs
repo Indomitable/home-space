@@ -4,6 +4,7 @@ mod details;
 mod devices;
 mod dialogs;
 mod files;
+mod fit_column;
 mod folder;
 mod grid;
 mod input;

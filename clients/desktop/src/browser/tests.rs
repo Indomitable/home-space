@@ -2,7 +2,7 @@ use protocol::{Node, SearchHit};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use iced::Point;
+use iced::{Point, Vector};
 use iced_test::simulator;
 
 use super::*;
@@ -265,6 +265,30 @@ fn deep_breadcrumbs_hide_the_middle_folders() {
     assert!(ui.find("level-5").is_ok());
     assert!(ui.find("level-3").is_err());
     assert_eq!(state.folder.hidden_crumbs().len(), 3);
+}
+
+const MENU_AT: Vector = Vector::new(200.0, 150.0);
+
+#[test]
+fn an_entry_of_a_context_menu_moved_into_place_can_be_clicked() {
+    let mut state = state_with_listing();
+    let _ = state.update(Message::ContextMenu(
+        id(FOLDER_ID),
+        Placement::cursor(Point::ORIGIN + MENU_AT),
+    ));
+    let mut ui = simulator(state.view());
+    // The simulator finds a floating widget where it was laid out, before it was moved.
+    let entry = ui.find("Open in web").expect("the web entry is shown");
+    let laid_out = entry.visible_bounds().expect("the web entry is visible");
+
+    ui.point_at(laid_out.center() + MENU_AT);
+    let _ = ui.simulate(iced_test::simulator::click());
+
+    assert!(
+        ui.into_messages().any(
+            |message| matches!(message, Message::OpenInWeb(Some(node)) if node == id(FOLDER_ID))
+        )
+    );
 }
 
 #[test]

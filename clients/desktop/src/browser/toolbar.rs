@@ -257,7 +257,9 @@ pub fn menu_row<'a>(
     button(
         row![
             icon.view(ICON_SIZE, tint),
-            text(label).width(Length::Fill),
+            text(label)
+                .width(Length::Fill)
+                .wrapping(text::Wrapping::None),
             text(shortcut).size(TIP_SIZE),
         ]
         .spacing(LABEL_SPACING * 2.0)

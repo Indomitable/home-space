@@ -118,8 +118,8 @@ impl Mirror {
     }
 
     /// Whether `event` tells nothing new: the node is already held as it is now, as with the
-    /// engine's own changes coming back, or the event is about the recycle bin, which sync
-    /// does not follow.
+    /// engine's own changes coming back, or the event is about the recycle bin or devices,
+    /// which sync does not follow.
     pub fn already_has(&self, event: &Event) -> bool {
         match event {
             Event::NodeCreated { node } | Event::NodeUpdated { node } => self
@@ -127,7 +127,7 @@ impl Mirror {
                 .get(&node.id)
                 .is_some_and(|held| *held == RemoteNode::from(node.clone())),
             Event::NodeDeleted { id, .. } => !self.nodes.contains_key(id),
-            Event::TrashChanged => true,
+            Event::TrashChanged | Event::DevicesChanged => true,
             Event::Resync => false,
         }
     }

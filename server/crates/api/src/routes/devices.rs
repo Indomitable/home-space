@@ -42,6 +42,7 @@ async fn list(
                 created_at: device.created_at,
                 last_seen_at: device.last_seen_at,
                 signed_in: device.signed_in,
+                online: state.hub.is_online(user.id, device.id),
                 uploads: device.uploads,
             })
             .collect(),
@@ -65,7 +66,7 @@ async fn rename(
 }
 
 /// Ends the device's sessions and cancels the uploads it left unfinished. The device stays in
-/// the list, signed out.
+/// the list, signed out, until it has been gone for as long as a session lasts unrefreshed.
 async fn sign_out(
     State(state): State<AppState>,
     user: AuthUser,

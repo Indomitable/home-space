@@ -49,6 +49,15 @@ pub struct Access {
     pub device_id: Option<Uuid>,
 }
 
+/// Whom a ticket or token was issued to: the user, their live session and its device.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Grant {
+    pub user_id: UserId,
+    pub session_id: Uuid,
+    /// `None` when the session names no device.
+    pub device_id: Option<Uuid>,
+}
+
 /// Login, refresh, logout and user management.
 #[derive(Clone, Debug)]
 pub struct AuthService {
@@ -203,6 +212,11 @@ impl AuthService {
         self.config.access_ttl
     }
 
+    /// Lifetime of refresh tokens: how long a session lasts without being refreshed.
+    pub fn refresh_ttl(&self) -> Duration {
+        self.config.refresh_ttl
+    }
+
     /// Issues a short-lived ticket limited to `request`'s scope.
     pub fn issue_ticket(
         &self,
@@ -217,16 +231,40 @@ impl AuthService {
         })
     }
 
-    /// Validates a ticket for `request`'s scope and returns its user.
+    /// Validates a ticket for `request`'s scope and returns whom it was issued to.
     pub async fn verify_ticket(
         &self,
         ticket: &str,
         request: &TicketRequest,
-    ) -> Result<UserId, AuthError> {
+    ) -> Result<Grant, AuthError> {
         let grant = decode_ticket(&self.keys, ticket, &scope_of(request))?;
-        self.require_session(grant.session_id, grant.user_id)
+        let session = self
+            .require_session(grant.session_id, grant.user_id)
             .await?;
-        Ok(grant.user_id)
+        Ok(Grant {
+            user_id: grant.user_id,
+            session_id: grant.session_id,
+            device_id: session.device_id,
+        })
+    }
+
+    /// The device of `grant`'s session. A session that names none takes `device`, which is
+    /// registered to the user first; one that already names a device keeps it.
+    pub async fn session_device(
+        &self,
+        grant: &Grant,
+        device: &DeviceInfo,
+    ) -> Result<Uuid, AuthError> {
+        if let Some(current) = grant.device_id {
+            Ok(current)
+        } else {
+            let device = new_device(device)?;
+            self.db.register_device(grant.user_id, device).await?;
+            self.db
+                .attach_device(grant.session_id, grant.user_id, device.id)
+                .await?;
+            Ok(device.id)
+        }
     }
 
     async fn require_session(
@@ -659,6 +697,88 @@ mod tests {
         };
         let result = auth.login("alice", "password-1", Some(&device)).await;
         assert!(matches!(result, Err(AuthError::InvalidInput(_))));
+    }
+
+    fn laptop() -> DeviceInfo {
+        DeviceInfo {
+            id: Uuid::now_v7(),
+            name: "Laptop".to_owned(),
+            platform: protocol::PLATFORM_LINUX.to_owned(),
+        }
+    }
+
+    async fn grant_of(auth: &AuthService, pair: &TokenPair) -> Grant {
+        let access = auth
+            .verify_access(&pair.access_token)
+            .await
+            .expect("access");
+        Grant {
+            user_id: access.claims.sub,
+            session_id: access.claims.sid,
+            device_id: access.device_id,
+        }
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_session_without_a_device_registers_the_one_it_names(pool: PgPool) {
+        let db = Db::from_pool(pool.clone());
+        let auth = service(pool);
+        let user = auth.create_user("alice", "password-1").await.expect("user");
+        let pair = auth
+            .login("alice", "password-1", None)
+            .await
+            .expect("login");
+        let device = laptop();
+
+        let id = auth
+            .session_device(&grant_of(&auth, &pair).await, &device)
+            .await
+            .expect("device");
+
+        assert_eq!(id, device.id);
+        assert_eq!(grant_of(&auth, &pair).await.device_id, Some(device.id));
+        assert_eq!(db.devices(user.id).await.expect("devices").len(), 1);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_session_with_a_device_keeps_it(pool: PgPool) {
+        let db = Db::from_pool(pool.clone());
+        let auth = service(pool);
+        let user = auth.create_user("alice", "password-1").await.expect("user");
+        let device = laptop();
+        let pair = auth
+            .login("alice", "password-1", Some(&device))
+            .await
+            .expect("login");
+
+        let id = auth
+            .session_device(&grant_of(&auth, &pair).await, &laptop())
+            .await
+            .expect("device");
+
+        assert_eq!(id, device.id);
+        assert_eq!(db.devices(user.id).await.expect("devices").len(), 1);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_blank_device_is_not_registered_for_a_session(pool: PgPool) {
+        let auth = service(pool);
+        auth.create_user("alice", "password-1").await.expect("user");
+        let pair = auth
+            .login("alice", "password-1", None)
+            .await
+            .expect("login");
+        let blank = DeviceInfo {
+            name: " ".to_owned(),
+            ..laptop()
+        };
+
+        let result = auth
+            .session_device(&grant_of(&auth, &pair).await, &blank)
+            .await;
+
+        assert!(matches!(result, Err(AuthError::InvalidInput(_))));
+        assert_eq!(grant_of(&auth, &pair).await.device_id, None);
     }
 
     #[sqlx::test(migrations = "../../migrations")]

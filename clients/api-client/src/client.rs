@@ -5,8 +5,8 @@ use serde::de::DeserializeOwned;
 use tokio::sync::Mutex as AsyncMutex;
 
 use protocol::{
-    Capabilities, ChangesQuery, ChangesResponse, CreateFolderRequest, DeviceInfo, ErrorBody,
-    FileVersion, ListQuery, LoginRequest, Me, MoveRequest, MoveResponse, Node, NodeId,
+    Capabilities, ChangesQuery, ChangesResponse, ClientMessage, CreateFolderRequest, DeviceInfo,
+    ErrorBody, FileVersion, ListQuery, LoginRequest, Me, MoveRequest, MoveResponse, Node, NodeId,
     OidcExchangeRequest, OnConflict, Providers, RefreshRequest, RestoreRequest, SearchHit,
     SearchQuery, TicketRequest, TicketResponse, TokenPair, TrashItem, UpdateRequest, paths,
 };
@@ -80,6 +80,15 @@ impl Client {
     pub fn with_device(mut self, device: DeviceInfo) -> Self {
         self.device = Some(device);
         self
+    }
+
+    /// The hello to send first on the events websocket, naming this client's device so the
+    /// server registers it and shows it online; `None` when the client names no device.
+    pub fn hello(&self) -> Option<String> {
+        let hello = ClientMessage::Hello {
+            device: self.device.clone()?,
+        };
+        serde_json::to_string(&hello).ok()
     }
 
     pub(crate) fn http(&self) -> &reqwest::Client {

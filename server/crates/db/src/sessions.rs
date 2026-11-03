@@ -89,6 +89,26 @@ impl Db {
         Ok(device.map(|device_id| LiveSession { device_id }))
     }
 
+    /// Tags a session that names no device with `device_id`, which must be registered
+    /// first. A session that already has a device keeps it.
+    pub async fn attach_device(
+        &self,
+        session_id: Uuid,
+        user_id: UserId,
+        device_id: Uuid,
+    ) -> Result<(), DbError> {
+        sqlx::query(
+            "UPDATE sessions SET device_id = $3 \
+             WHERE id = $1 AND user_id = $2 AND device_id IS NULL",
+        )
+        .bind(session_id)
+        .bind(user_id)
+        .bind(device_id)
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+
     /// Ends a session and, with it, its refresh tokens.
     pub async fn end_session(&self, session_id: Uuid) -> Result<(), DbError> {
         sqlx::query("DELETE FROM sessions WHERE id = $1")

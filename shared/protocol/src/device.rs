@@ -36,6 +36,9 @@ pub struct Device {
     pub last_seen_at: OffsetDateTime,
     /// Whether the device has a session that has not ended.
     pub signed_in: bool,
+    /// Whether the device has the events websocket open right now.
+    #[serde(default)]
+    pub online: bool,
     /// Whether this is the device that asked.
     pub current: bool,
     /// How many resumable uploads it has left unfinished.

@@ -4,10 +4,11 @@ use uuid::Uuid;
 use web_sys::KeyboardEvent;
 
 use client_core::labels::{HOME, THIS_DEVICE, device_state, platform, sign_out_question};
-use protocol::Device;
+use protocol::{Device, Event};
 
 use crate::{
     components::ErrorAlert,
+    events,
     icon::Icon,
     load,
     locale::short_date,
@@ -42,6 +43,12 @@ pub fn DevicesPage(auth: Auth) -> impl IntoView {
             Err(err) => error.set(Some(auth.fail(&err))),
         },
     );
+
+    events::use_events(move |event| {
+        if matches!(event, Event::DevicesChanged | Event::Resync) {
+            list.refetch();
+        }
+    });
 
     let save = Callback::new(move |()| {
         let Some(Renaming { id, name }) = renaming.get_untracked() else {

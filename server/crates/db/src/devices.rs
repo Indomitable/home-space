@@ -79,7 +79,32 @@ impl Db {
         }
     }
 
-    /// Ends every session of a device of `user`. The device stays in the list.
+    /// Marks a device of `user` as seen now.
+    pub async fn touch_device(&self, user: UserId, id: Uuid) -> Result<(), DbError> {
+        sqlx::query("UPDATE devices SET last_seen_at = now() WHERE user_id = $1 AND id = $2")
+            .bind(user)
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
+    /// Forgets devices that have no live session and were last seen before `seen_before`,
+    /// returning how many were removed.
+    pub async fn prune_devices(&self, seen_before: OffsetDateTime) -> Result<u64, DbError> {
+        let pruned = sqlx::query(
+            "DELETE FROM devices d WHERE d.last_seen_at < $1 \
+             AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = d.user_id \
+                             AND s.device_id = d.id AND s.expires_at > now())",
+        )
+        .bind(seen_before)
+        .execute(self.pool())
+        .await?;
+        Ok(pruned.rows_affected())
+    }
+
+    /// Ends every session of a device of `user`. The device stays in the list until
+    /// [`Db::prune_devices`] forgets it.
     pub async fn sign_out_device(&self, user: UserId, id: Uuid) -> Result<(), DbError> {
         let mut tx = self.pool().begin().await?;
         sqlx::query_scalar::<_, i32>("SELECT 1 FROM devices WHERE user_id = $1 AND id = $2")
@@ -197,6 +222,118 @@ mod tests {
         assert_eq!(signed_in.len(), 2);
         assert!(signed_in.contains(&(laptop, false)));
         assert!(signed_in.contains(&(phone, true)));
+    }
+
+    async fn last_seen(db: &Db, user: UserId, id: Uuid, days_ago: i64) {
+        sqlx::query(
+            "UPDATE devices SET last_seen_at = now() - make_interval(days => $3) \
+             WHERE user_id = $1 AND id = $2",
+        )
+        .bind(user)
+        .bind(id)
+        .bind(i32::try_from(days_ago).expect("days"))
+        .execute(db.pool())
+        .await
+        .expect("last seen");
+    }
+
+    fn days_ago(days: i64) -> OffsetDateTime {
+        OffsetDateTime::now_utc() - time::Duration::days(days)
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_device_signed_out_for_long_is_forgotten(pool: sqlx::PgPool) {
+        let db = Db::from_pool(pool);
+        let alice = db.create_user("alice", "x").await.expect("alice").id;
+        let id = Uuid::now_v7();
+        db.register_device(alice, device(id))
+            .await
+            .expect("register");
+        last_seen(&db, alice, id, 31).await;
+
+        assert_eq!(db.prune_devices(days_ago(30)).await.expect("prune"), 1);
+        assert!(db.devices(alice).await.expect("devices").is_empty());
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_device_signed_out_recently_is_kept(pool: sqlx::PgPool) {
+        let db = Db::from_pool(pool);
+        let alice = db.create_user("alice", "x").await.expect("alice").id;
+        let id = Uuid::now_v7();
+        db.register_device(alice, device(id))
+            .await
+            .expect("register");
+        last_seen(&db, alice, id, 2).await;
+
+        assert_eq!(db.prune_devices(days_ago(30)).await.expect("prune"), 0);
+        assert_eq!(db.devices(alice).await.expect("devices").len(), 1);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_signed_in_device_is_kept(pool: sqlx::PgPool) {
+        let db = Db::from_pool(pool);
+        let alice = db.create_user("alice", "x").await.expect("alice").id;
+        let id = Uuid::now_v7();
+        db.register_device(alice, device(id))
+            .await
+            .expect("register");
+        session(&db, alice, Some(id)).await;
+        last_seen(&db, alice, id, 31).await;
+
+        assert_eq!(db.prune_devices(days_ago(30)).await.expect("prune"), 0);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn touching_a_device_marks_it_seen(pool: sqlx::PgPool) {
+        let db = Db::from_pool(pool);
+        let alice = db.create_user("alice", "x").await.expect("alice").id;
+        let id = Uuid::now_v7();
+        db.register_device(alice, device(id))
+            .await
+            .expect("register");
+        last_seen(&db, alice, id, 2).await;
+
+        db.touch_device(alice, id).await.expect("touch");
+
+        let seen = db.devices(alice).await.expect("devices")[0].last_seen_at;
+        assert!(seen > days_ago(1));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_session_without_a_device_takes_the_one_attached(pool: sqlx::PgPool) {
+        let db = Db::from_pool(pool);
+        let alice = db.create_user("alice", "x").await.expect("alice").id;
+        let id = Uuid::now_v7();
+        db.register_device(alice, device(id))
+            .await
+            .expect("register");
+        let unnamed = session(&db, alice, None).await;
+
+        db.attach_device(unnamed, alice, id).await.expect("attach");
+
+        let live = db.live_session(unnamed, alice).await.expect("live");
+        assert_eq!(live.map(|live| live.device_id), Some(Some(id)));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_session_keeps_the_device_it_has(pool: sqlx::PgPool) {
+        let db = Db::from_pool(pool);
+        let alice = db.create_user("alice", "x").await.expect("alice").id;
+        let (laptop, other) = (Uuid::now_v7(), Uuid::now_v7());
+        db.register_device(alice, device(laptop))
+            .await
+            .expect("laptop");
+        db.register_device(alice, device(other))
+            .await
+            .expect("other");
+        let on_laptop = session(&db, alice, Some(laptop)).await;
+
+        db.attach_device(on_laptop, alice, other)
+            .await
+            .expect("attach");
+
+        let live = db.live_session(on_laptop, alice).await.expect("live");
+        assert_eq!(live.map(|live| live.device_id), Some(Some(laptop)));
     }
 
     #[sqlx::test(migrations = "../../migrations")]

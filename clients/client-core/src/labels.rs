@@ -15,6 +15,9 @@ pub const LOST_AND_FOUND: &str = "Lost & Found";
 /// Marks the device the list is shown on.
 pub const THIS_DEVICE: &str = "This device";
 
+/// A device with the events websocket open.
+pub const ONLINE: &str = "Online";
+
 const LOCATION_SEPARATOR: &str = " / ";
 const PLATFORMS: [(&str, &str); 5] = [
     (PLATFORM_LINUX, "Linux"),
@@ -32,10 +35,12 @@ pub fn platform(platform: &str) -> &str {
         .map_or(platform, |(_, label)| label)
 }
 
-/// Whether a device is signed in, and what it left unfinished, e.g.
+/// Whether a device is online or signed in, and what it left unfinished, e.g.
 /// `Signed in · 2 unfinished uploads`.
 pub fn device_state(device: &Device) -> String {
-    let state = if device.signed_in {
+    let state = if device.online {
+        ONLINE
+    } else if device.signed_in {
         "Signed in"
     } else {
         "Signed out"
@@ -115,6 +120,7 @@ mod tests {
             created_at: OffsetDateTime::UNIX_EPOCH,
             last_seen_at: OffsetDateTime::UNIX_EPOCH,
             signed_in,
+            online: false,
             current: false,
             uploads,
         }
@@ -137,6 +143,15 @@ mod tests {
             device_state(&device(true, 3)),
             "Signed in · 3 unfinished uploads"
         );
+    }
+
+    #[test]
+    fn an_online_device_says_so_before_its_uploads() {
+        let online = Device {
+            online: true,
+            ..device(true, 1)
+        };
+        assert_eq!(device_state(&online), "Online · 1 unfinished upload");
     }
 
     #[test]

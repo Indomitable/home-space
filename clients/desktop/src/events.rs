@@ -43,7 +43,9 @@ fn listen(client: Client) -> impl Stream<Item = Event> {
         loop {
             match client.ticket(&TicketRequest::Events).await {
                 Ok(ticket) => {
-                    if let Ok((socket, _)) = connect_async(client.events_url(&ticket.ticket)).await
+                    if let Ok((mut socket, _)) =
+                        connect_async(client.events_url(&ticket.ticket)).await
+                        && greet(&client, &mut socket).await
                     {
                         delay = MIN_RETRY;
                         let resynced = !reconnecting || output.send(Event::Resync).await.is_ok();
@@ -60,6 +62,14 @@ fn listen(client: Client) -> impl Stream<Item = Event> {
             delay = (delay * 2).min(MAX_RETRY);
         }
     })
+}
+
+/// Sends the hello naming this device; `false` when the socket is already gone.
+async fn greet(client: &Client, socket: &mut Socket) -> bool {
+    match client.hello() {
+        Some(hello) => socket.send(tungstenite::Message::text(hello)).await.is_ok(),
+        None => true,
+    }
 }
 
 /// Passes events on until the socket closes; `false` once nobody listens anymore.

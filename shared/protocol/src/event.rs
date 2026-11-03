@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{Node, NodeId};
+use crate::{DeviceInfo, Node, NodeId};
 
 /// A change to a user's tree, pushed over the websocket.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,8 +18,19 @@ pub enum Event {
     },
     /// Files entered or left the recycle bin.
     TrashChanged,
+    /// A device of the user came online or went offline.
+    DevicesChanged,
     /// Events were missed; the client should refetch what it displays.
     Resync,
+}
+
+/// A message a client sends over the websocket.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ClientMessage {
+    /// Names the device on the other end, so the server can register it and mark it online.
+    /// Sent once, right after connecting.
+    Hello { device: DeviceInfo },
 }
 
 #[cfg(test)]
@@ -41,6 +52,31 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&Event::TrashChanged).expect("json"),
             r#"{"type":"trash_changed"}"#
+        );
+    }
+
+    #[test]
+    fn devices_changed_serializes_as_a_bare_tag() {
+        assert_eq!(
+            serde_json::to_string(&Event::DevicesChanged).expect("json"),
+            r#"{"type":"devices_changed"}"#
+        );
+    }
+
+    #[test]
+    fn hello_round_trips() {
+        let hello = ClientMessage::Hello {
+            device: DeviceInfo {
+                id: Uuid::nil(),
+                name: "Laptop".to_owned(),
+                platform: crate::PLATFORM_LINUX.to_owned(),
+            },
+        };
+        let json = serde_json::to_string(&hello).expect("json");
+        assert!(json.contains(r#""type":"hello""#));
+        assert_eq!(
+            serde_json::from_str::<ClientMessage>(&json).expect("back"),
+            hello
         );
     }
 

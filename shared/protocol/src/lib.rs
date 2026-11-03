@@ -25,7 +25,7 @@ pub use device::{
     PLATFORM_WINDOWS, RenameDevice,
 };
 pub use error::{ErrorBody, ErrorCode};
-pub use event::Event;
+pub use event::{ClientMessage, Event};
 pub use ids::{NodeId, UserId};
 pub use node::{
     Conflict, ContentQuery, CreateFolderRequest, FileVersion, ListQuery, MoveRequest, MoveResponse,

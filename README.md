@@ -90,6 +90,14 @@ A reverse proxy still needs a body limit of `HOMESPACE_MAX_UPLOAD_BYTES` on `/ap
 for single-request uploads and replacements made through the API, and one above the chunk size on
 `/api/v1/uploads`. See [`docs/nginx/example.domain.com.conf`](docs/nginx/example.domain.com.conf).
 
+Sync clients catch up through a journal of changes (`GET /changes?since=<cursor>`). Every day the
+server compacts it to the latest entry of each file and folder, which is all a client reads, so a
+client can catch up however long it was away. It does not grow with every edit.
+
+| Variable | Default | |
+|---|---|---|
+| `HOMESPACE_CHANGES_RETENTION_DAYS` | unset | Also drop journal entries older than this. A client offline for longer then reads its folders again in full. |
+
 ### API (`/api/v1`)
 
 | Method | Path | Purpose |

@@ -8,7 +8,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use protocol::{NodeId, NodeKind};
 
-use super::model::{Base, Mapping, RemoteNode};
+use super::model::{Base, Mapping, RemoteNode, SavedUpload};
 
 const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS mappings (
@@ -36,12 +36,22 @@ const SCHEMA: &str = "
         key   TEXT PRIMARY KEY,
         value TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS uploads (
+        path   TEXT PRIMARY KEY,
+        id     TEXT NOT NULL,     -- the server's upload session
+        node   TEXT,              -- the file it replaces, or NULL for a new one
+        parent TEXT,              -- folder of a new file, NULL for Home
+        name   TEXT NOT NULL,
+        size   INTEGER NOT NULL,
+        mtime  INTEGER NOT NULL,
+        sha256 TEXT NOT NULL
+    );
 ";
 const HOME: &str = "";
 const CURSOR: &str = "cursor";
 
 /// What the sync remembers between runs, for one account: the mappings, the last known
-/// remote tree with its change cursor, and the bases.
+/// remote tree with its change cursor, the bases, and the chunked uploads under way.
 pub struct Store {
     db: Mutex<Connection>,
 }
@@ -266,6 +276,54 @@ impl Store {
         Ok(())
     }
 
+    /// The upload session saved for `path`, if any.
+    pub fn saved_upload(&self, path: &Path) -> Result<Option<SavedUpload>> {
+        self.db()
+            .query_row(
+                "SELECT path, id, node, parent, name, size, mtime, sha256 FROM uploads \
+                 WHERE path = ?1",
+                params![path_text(path)],
+                saved_upload,
+            )
+            .optional()
+            .map(Option::flatten)
+    }
+
+    pub fn saved_uploads(&self) -> Result<Vec<SavedUpload>> {
+        let db = self.db();
+        let mut statement =
+            db.prepare("SELECT path, id, node, parent, name, size, mtime, sha256 FROM uploads")?;
+        let rows = statement.query_map([], saved_upload)?;
+        rows.filter_map(Result::transpose).collect()
+    }
+
+    /// Saves `upload` so that it can be continued after a restart, replacing the one of its path.
+    pub fn save_upload(&self, upload: &SavedUpload) -> Result<()> {
+        self.db().execute(
+            "INSERT OR REPLACE INTO uploads (path, id, node, parent, name, size, mtime, sha256) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                path_text(&upload.path),
+                upload.id.to_string(),
+                upload.node.map(|id| id.to_string()),
+                upload.parent.map(|id| id.to_string()),
+                upload.name,
+                i64::try_from(upload.size).unwrap_or(i64::MAX),
+                upload.mtime,
+                upload.sha256,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn forget_upload(&self, path: &Path) -> Result<()> {
+        self.db().execute(
+            "DELETE FROM uploads WHERE path = ?1",
+            params![path_text(path)],
+        )?;
+        Ok(())
+    }
+
     /// Moves the bases at and under `from` to `to`.
     pub fn rebase(&self, from: &Path, to: &Path) -> Result<()> {
         let moved: Vec<Base> = self
@@ -286,6 +344,28 @@ impl Store {
         }
         tx.commit()
     }
+}
+
+/// The upload of a row, or `None` for one whose ids cannot be read.
+fn saved_upload(row: &rusqlite::Row<'_>) -> Result<Option<SavedUpload>> {
+    let path: String = row.get(0)?;
+    let id: String = row.get(1)?;
+    let node: Option<String> = row.get(2)?;
+    let parent: Option<String> = row.get(3)?;
+    let size: i64 = row.get(5)?;
+    let Ok(id) = id.parse() else {
+        return Ok(None);
+    };
+    Ok(Some(SavedUpload {
+        path: PathBuf::from(path),
+        id,
+        node: node.as_deref().and_then(node_id),
+        parent: parent.as_deref().and_then(node_id),
+        name: row.get(4)?,
+        size: u64::try_from(size).unwrap_or(0),
+        mtime: row.get(6)?,
+        sha256: row.get(7)?,
+    }))
 }
 
 fn remote_key(remote: Option<NodeId>) -> String {
@@ -384,6 +464,34 @@ mod tests {
         assert_eq!(bases.len(), 2);
         store.forget_base(id(2), None).expect("forget");
         assert_eq!(store.bases().expect("bases").len(), 1);
+    }
+
+    #[test]
+    fn saved_uploads_are_replaced_per_path_and_forgotten() {
+        let store = Store::in_memory().expect("store");
+        let upload = SavedUpload {
+            path: PathBuf::from("/s/big.bin"),
+            id: uuid::Uuid::from_u128(7),
+            node: None,
+            parent: Some(id(1)),
+            name: "big.bin".to_owned(),
+            size: 100,
+            mtime: 42,
+            sha256: "abc".to_owned(),
+        };
+        store.save_upload(&upload).expect("save");
+        let newer = SavedUpload {
+            id: uuid::Uuid::from_u128(8),
+            ..upload.clone()
+        };
+        store.save_upload(&newer).expect("replace");
+        assert_eq!(
+            store.saved_uploads().expect("all"),
+            std::slice::from_ref(&newer)
+        );
+        assert_eq!(store.saved_upload(&upload.path).expect("one"), Some(newer));
+        store.forget_upload(&upload.path).expect("forget");
+        assert_eq!(store.saved_upload(&upload.path).expect("none"), None);
     }
 
     #[test]

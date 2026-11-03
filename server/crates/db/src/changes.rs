@@ -100,6 +100,23 @@ impl Db {
         })
     }
 
+    /// Drops the entries of each node but its latest; returns how many were dropped.
+    ///
+    /// Reading the journal only ever uses a node's latest entry, so this changes no answer and
+    /// clients can still catch up from any cursor.
+    pub async fn compact_changes(&self) -> Result<u64, DbError> {
+        let dropped = sqlx::query(
+            "DELETE FROM node_changes c WHERE EXISTS ( \
+                 SELECT 1 FROM node_changes later \
+                 WHERE later.owner_id = c.owner_id AND later.node_id = c.node_id \
+                 AND later.seq > c.seq \
+             )",
+        )
+        .execute(self.pool())
+        .await?;
+        Ok(dropped.rows_affected())
+    }
+
     /// Drops journal entries recorded before `before`; returns how many were dropped.
     ///
     /// Clients whose cursor is older than what was dropped must read the whole tree again.
@@ -219,6 +236,38 @@ mod tests {
             .await
             .expect("empty");
         assert_eq!((empty.changes.len(), empty.cursor), (0, next.cursor));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn compacting_keeps_the_latest_entry_of_each_node(pool: PgPool) {
+        let db = Db::from_pool(pool);
+        let alice = db.create_user("alice", "x").await.expect("alice").id;
+        let start = cursor(&db, alice).await;
+        let renamed = file(&db, alice, None, "a.txt").await;
+        let kept = file(&db, alice, None, "b.txt").await;
+        let middle = cursor(&db, alice).await;
+        let update = NodeUpdate {
+            name: Some("c.txt".to_owned()),
+            ..NodeUpdate::default()
+        };
+        db.update_node(alice, renamed.id, update)
+            .await
+            .expect("rename");
+        let before = db.changes(alice, Some(start), 100).await.expect("before");
+        let since_middle = db.changes(alice, Some(middle), 100).await.expect("middle");
+
+        let dropped = db.compact_changes().await.expect("compact");
+
+        assert!(dropped > 0);
+        let after = db.changes(alice, Some(start), 100).await.expect("after");
+        assert_eq!(ids(&after), ids(&before));
+        assert_eq!(after.cursor, before.cursor);
+        assert_eq!(
+            ids(&db.changes(alice, Some(middle), 100).await.expect("middle")),
+            ids(&since_middle)
+        );
+        assert!(ids(&after).contains(&kept.id));
+        assert_eq!(db.compact_changes().await.expect("again"), 0);
     }
 
     #[sqlx::test(migrations = "../../migrations")]

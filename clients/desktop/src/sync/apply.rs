@@ -13,15 +13,17 @@ use iced::futures::{StreamExt, stream};
 use sha2::{Digest, Sha256};
 use tokio::{fs, io::AsyncWriteExt};
 use tokio_util::io::ReaderStream;
+use uuid::Uuid;
 
 use api_client::{ApiError, Client, RESUMABLE_THRESHOLD};
-use protocol::{CreateUpload, ErrorCode, NodeId, NodeKind};
+use protocol::{CreateUpload, ErrorCode, NodeId, NodeKind, UploadSession};
 
 use super::{
-    model::{Base, LocalEntry, RemoteNode, datetime, nanos},
+    model::{Base, LocalEntry, RemoteNode, SavedUpload, datetime, nanos},
     plan::Action,
     queue::{self, Active, Fault, Progress},
     scan::{hash_file, is_ignored},
+    store::Store,
 };
 use crate::transfers::{part_path, read_range};
 
@@ -88,12 +90,19 @@ impl From<io::Error> for Failure {
     }
 }
 
+impl From<rusqlite::Error> for Failure {
+    fn from(err: rusqlite::Error) -> Self {
+        Self::local(format!("the sync database: {err}"))
+    }
+}
+
 /// The remote folder for each local folder that has one, `None` standing for Home.
 pub type Folders = HashMap<PathBuf, Option<NodeId>>;
 
 /// Carries out `action`, reporting the bytes of a transfer to `progress`.
 pub async fn execute(
     client: &Client,
+    store: &Store,
     folders: &Folders,
     progress: &Progress,
     action: Action,
@@ -151,7 +160,7 @@ pub async fn execute(
             Ok(vec![Effect::Base(base)])
         }
         Action::Upload { node, path, local } => {
-            upload(client, folders, progress, node, path, local).await
+            upload(client, store, folders, progress, node, path, local).await
         }
         Action::Adopt { node, path, local } => {
             Ok(vec![Effect::Base(Base::new(node, path, &local))])
@@ -197,6 +206,7 @@ pub async fn execute(
 /// finish.
 pub fn execute_all<'a>(
     client: &'a Client,
+    store: &'a Store,
     folders: &'a Folders,
     progress: &'a Progress,
     halt: &'a AtomicBool,
@@ -208,7 +218,7 @@ pub fn execute_all<'a>(
             let outcome = if halt.load(Ordering::Relaxed) {
                 Err(Failure::Halted)
             } else {
-                execute(client, folders, progress, action.clone()).await
+                execute(client, store, folders, progress, action.clone()).await
             };
             (action, outcome)
         })
@@ -230,6 +240,7 @@ fn place(folders: &Folders, path: &Path) -> Result<(Option<NodeId>, String), Fai
 
 async fn upload(
     client: &Client,
+    store: &Store,
     folders: &Folders,
     progress: &Progress,
     node: Option<NodeId>,
@@ -238,39 +249,84 @@ async fn upload(
 ) -> Result<Vec<Effect>, Failure> {
     let _active = Active::start(progress, &path);
     unchanged(&path, Some(&local)).await?;
-    if local.unhashed {
-        // Left to the upload by the scan. The file is read again just after, from the cache.
-        let target = path.clone();
-        let stop = AtomicBool::new(false);
-        let sha256 = tokio::task::spawn_blocking(move || hash_file(&target, &stop))
-            .await
-            .map_err(|err| Failure::local(err.to_string()))??;
-        unchanged(&path, Some(&local)).await?;
-        local.sha256 = Some(sha256);
-        local.unhashed = false;
-    }
-    let modified = Some(datetime(local.mtime));
-    let stored = if local.size > RESUMABLE_THRESHOLD {
-        let mut request = CreateUpload {
-            parent_id: None,
-            name: String::new(),
-            size: local.size,
-            modified_at: modified,
-            mime: None,
-            node_id: node,
-        };
-        if node.is_none() {
-            (request.parent_id, request.name) = place(folders, &path)?;
+    let sha256 = match local.sha256.clone() {
+        Some(sha256) => sha256,
+        None => {
+            // Left to the upload by the scan. The file is read again just after, from the cache.
+            let target = path.clone();
+            let stop = AtomicBool::new(false);
+            let sha256 = tokio::task::spawn_blocking(move || hash_file(&target, &stop))
+                .await
+                .map_err(|err| Failure::local(err.to_string()))??;
+            unchanged(&path, Some(&local)).await?;
+            local.sha256 = Some(sha256.clone());
+            local.unhashed = false;
+            sha256
         }
+    };
+    let modified = Some(datetime(local.mtime));
+    let saved = store.saved_upload(&path)?;
+    let stored = if local.size > RESUMABLE_THRESHOLD {
+        let (parent, name) = match node {
+            Some(_) => (None, String::new()),
+            None => place(folders, &path)?,
+        };
+        let wanted = SavedUpload {
+            path: path.clone(),
+            id: Uuid::nil(),
+            node,
+            parent,
+            name,
+            size: local.size,
+            mtime: local.mtime,
+            sha256,
+        };
         queue::set(progress, &path, 0);
-        client
-            .upload_resumable(
-                &request,
+        let session = match resumable(client, store, saved, &wanted).await? {
+            Some(session) => session,
+            None => {
+                let request = CreateUpload {
+                    parent_id: wanted.parent,
+                    name: wanted.name.clone(),
+                    size: wanted.size,
+                    modified_at: modified,
+                    mime: None,
+                    node_id: wanted.node,
+                };
+                let session = client.create_upload(&request).await?;
+                store.save_upload(&SavedUpload {
+                    id: session.id,
+                    ..wanted
+                })?;
+                session
+            }
+        };
+        queue::set(progress, &path, session.offset);
+        let sent = client
+            .continue_upload(
+                session,
+                local.size,
                 |offset, len| read_range(&path, offset, len),
                 |done| queue::set(progress, &path, done),
             )
-            .await?
+            .await;
+        match sent {
+            Ok(stored) => {
+                store.forget_upload(&path)?;
+                stored
+            }
+            Err(err) if is_passing(&err) => return Err(err.into()),
+            Err(err) => {
+                // The server will not take the rest; the next pass starts over.
+                let _ = client.cancel_upload(session.id).await;
+                store.forget_upload(&path)?;
+                return Err(err.into());
+            }
+        }
     } else {
+        if let Some(saved) = saved {
+            discard(client, store, &saved).await?;
+        }
         let body = || file_body(&path, progress);
         match node {
             Some(id) => client.replace_content(id, modified, body).await?,
@@ -290,6 +346,46 @@ async fn upload(
         download(client, progress, &stored, &path, Some(&local)).await?
     };
     Ok(vec![Effect::Remote(stored), Effect::Base(base)])
+}
+
+/// The session of `saved` to continue, when it still sends `wanted` and the server still has
+/// it. A saved upload of other content or to another place is cancelled.
+async fn resumable(
+    client: &Client,
+    store: &Store,
+    saved: Option<SavedUpload>,
+    wanted: &SavedUpload,
+) -> Result<Option<UploadSession>, Failure> {
+    let Some(saved) = saved else {
+        return Ok(None);
+    };
+    if !saved.is_same(wanted) {
+        discard(client, store, &saved).await?;
+        return Ok(None);
+    }
+    match client.upload_status(saved.id).await {
+        Ok(session) => Ok(Some(session)),
+        Err(err) if is_passing(&err) => Err(err.into()),
+        Err(_) => {
+            // Expired or cancelled on the server.
+            store.forget_upload(&saved.path)?;
+            Ok(None)
+        }
+    }
+}
+
+/// Cancels `saved` on the server and forgets it. It stays saved while the server cannot be
+/// asked, so that a later pass cancels it.
+pub async fn discard(client: &Client, store: &Store, saved: &SavedUpload) -> Result<(), Failure> {
+    match client.cancel_upload(saved.id).await {
+        Err(err) if is_passing(&err) => Err(err.into()),
+        _ => Ok(store.forget_upload(&saved.path)?),
+    }
+}
+
+/// Whether `err` may pass, so that an upload is worth keeping for later.
+fn is_passing(err: &ApiError) -> bool {
+    err.is_transient() || *err == ApiError::Unauthorized
 }
 
 /// Writes the content of `node` to `path` through a partial file, unless the local file is
@@ -419,7 +515,17 @@ fn remove_if_empty(path: &Path) -> Result<bool, Failure> {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::{Value, json};
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{header, method, path as url},
+    };
+
     use super::*;
+
+    const SESSION: &str = "0193a4a0-0000-7000-8000-000000000001";
+    const NEWER: &str = "0193a4a0-0000-7000-8000-000000000002";
+    const SIZE: u64 = RESUMABLE_THRESHOLD + 10;
 
     fn temp(name: &str) -> PathBuf {
         let path =
@@ -464,6 +570,230 @@ mod tests {
         assert_eq!(unchanged(&path, Some(&scanned)).await, Err(Failure::Stale));
         assert_eq!(unchanged(&dir.join("missing"), None).await, Ok(()));
         std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    async fn signed_in(server: &MockServer) -> Client {
+        Mock::given(method("POST"))
+            .and(url(protocol::paths::LOGIN))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": "token", "refresh_token": "refresh", "expires_in": 900
+            })))
+            .mount(server)
+            .await;
+        Mock::given(method("GET"))
+            .and(url(protocol::paths::ME))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "00000000-0000-0000-0000-000000000001",
+                "username": "alice",
+                "lost_and_found_id": "00000000-0000-0000-0000-0000000000f0"
+            })))
+            .mount(server)
+            .await;
+        let client = Client::new(server.uri());
+        client.login("alice", "pw").await.expect("login");
+        client
+    }
+
+    fn session(id: &str, offset: u64) -> Value {
+        json!({ "id": id, "offset": offset, "size": SIZE, "chunk_size": SIZE })
+    }
+
+    /// Answers the chunk at `offset` of upload `id` with the stored file of `sha256`.
+    async fn completes(server: &MockServer, id: &str, offset: u64, sha256: &str) {
+        Mock::given(method("PATCH"))
+            .and(url(protocol::paths::upload(id.parse().expect("id"))))
+            .and(header(protocol::paths::UPLOAD_OFFSET, offset.to_string()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "offset": SIZE,
+                "node": {
+                    "id": "0193a4a0-0000-7000-8000-0000000000aa", "parent_id": null,
+                    "kind": "file", "name": "big.bin", "size": SIZE, "sha256": sha256,
+                    "mime": "application/octet-stream", "version": 1,
+                    "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+                }
+            })))
+            .expect(1)
+            .mount(server)
+            .await;
+    }
+
+    /// A big file in `dir` as the scan finds it, with its hash.
+    fn big_file(dir: &Path) -> (PathBuf, LocalEntry) {
+        let path = dir.join("big.bin");
+        std::fs::write(&path, vec![7u8; usize::try_from(SIZE).expect("size")]).expect("file");
+        let meta = std::fs::metadata(&path).expect("meta");
+        let local = LocalEntry {
+            kind: NodeKind::File,
+            size: meta.len(),
+            mtime: nanos(meta.modified().expect("mtime")),
+            sha256: Some(hash_file(&path, &AtomicBool::new(false)).expect("hash")),
+            unhashed: false,
+        };
+        (path, local)
+    }
+
+    fn saved(path: &Path, id: &str, local: &LocalEntry) -> SavedUpload {
+        SavedUpload {
+            path: path.to_path_buf(),
+            id: id.parse().expect("id"),
+            node: None,
+            parent: None,
+            name: "big.bin".to_owned(),
+            size: local.size,
+            mtime: local.mtime,
+            sha256: local.sha256.clone().expect("hash"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_saved_upload_continues_from_the_servers_offset() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        let dir = temp("resume");
+        let (path, local) = big_file(&dir);
+        let store = Store::in_memory().expect("store");
+        store
+            .save_upload(&saved(&path, SESSION, &local))
+            .expect("save");
+        Mock::given(method("GET"))
+            .and(url(protocol::paths::upload(SESSION.parse().expect("id"))))
+            .respond_with(ResponseTemplate::new(200).set_body_json(session(SESSION, 1000)))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(url(protocol::paths::UPLOADS))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+        completes(
+            &server,
+            SESSION,
+            1000,
+            local.sha256.as_deref().expect("hash"),
+        )
+        .await;
+        let folders = Folders::from([(dir.clone(), None)]);
+
+        let effects = upload(
+            &client,
+            &store,
+            &folders,
+            &Progress::default(),
+            None,
+            path.clone(),
+            local,
+        )
+        .await
+        .expect("upload");
+
+        assert_eq!(effects.len(), 2);
+        assert_eq!(store.saved_upload(&path).expect("saved"), None);
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[tokio::test]
+    async fn a_saved_upload_of_other_content_is_cancelled_and_started_again() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        let dir = temp("restart");
+        let (path, local) = big_file(&dir);
+        let store = Store::in_memory().expect("store");
+        let old = SavedUpload {
+            sha256: "edited since".to_owned(),
+            ..saved(&path, SESSION, &local)
+        };
+        store.save_upload(&old).expect("save");
+        Mock::given(method("DELETE"))
+            .and(url(protocol::paths::upload(SESSION.parse().expect("id"))))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(url(protocol::paths::UPLOADS))
+            .respond_with(ResponseTemplate::new(201).set_body_json(session(NEWER, 0)))
+            .expect(1)
+            .mount(&server)
+            .await;
+        completes(&server, NEWER, 0, local.sha256.as_deref().expect("hash")).await;
+        let folders = Folders::from([(dir.clone(), None)]);
+
+        upload(
+            &client,
+            &store,
+            &folders,
+            &Progress::default(),
+            None,
+            path.clone(),
+            local,
+        )
+        .await
+        .expect("upload");
+
+        assert_eq!(store.saved_upload(&path).expect("saved"), None);
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[tokio::test]
+    async fn a_saved_upload_stays_while_the_server_cannot_be_reached() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        let dir = temp("unreachable");
+        let (path, local) = big_file(&dir);
+        let store = Store::in_memory().expect("store");
+        let kept = saved(&path, SESSION, &local);
+        store.save_upload(&kept).expect("save");
+        Mock::given(method("GET"))
+            .and(url(protocol::paths::upload(SESSION.parse().expect("id"))))
+            .respond_with(ResponseTemplate::new(502))
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .respond_with(ResponseTemplate::new(502))
+            .mount(&server)
+            .await;
+        let folders = Folders::from([(dir.clone(), None)]);
+
+        let outcome = upload(
+            &client,
+            &store,
+            &folders,
+            &Progress::default(),
+            None,
+            path.clone(),
+            local,
+        )
+        .await;
+        let discarded = discard(&client, &store, &kept).await;
+
+        assert!(matches!(outcome, Err(Failure::Unreachable(_))));
+        assert!(matches!(discarded, Err(Failure::Unreachable(_))));
+        assert_eq!(store.saved_upload(&path).expect("saved"), Some(kept));
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[tokio::test]
+    async fn a_discarded_upload_is_cancelled_and_forgotten() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        let store = Store::in_memory().expect("store");
+        let local = LocalEntry {
+            sha256: Some("x".to_owned()),
+            ..LocalEntry::folder()
+        };
+        let gone = saved(Path::new("/sync/deleted.bin"), SESSION, &local);
+        store.save_upload(&gone).expect("save");
+        Mock::given(method("DELETE"))
+            .and(url(protocol::paths::upload(SESSION.parse().expect("id"))))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        discard(&client, &store, &gone).await.expect("discard");
+
+        assert_eq!(store.saved_uploads().expect("saved"), []);
     }
 
     #[test]

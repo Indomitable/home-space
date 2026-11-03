@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     io,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, atomic::AtomicBool},
     time::SystemTime,
 };
 
@@ -18,7 +18,7 @@ use super::{
     model::{Base, LocalEntry, RemoteNode, datetime, nanos},
     plan::Action,
     queue::{self, Active, Progress},
-    scan::is_ignored,
+    scan::{hash_file, is_ignored},
 };
 use crate::transfers::{part_path, read_range};
 
@@ -204,10 +204,21 @@ async fn upload(
     progress: &Progress,
     node: Option<NodeId>,
     path: PathBuf,
-    local: LocalEntry,
+    mut local: LocalEntry,
 ) -> Result<Vec<Effect>, Failure> {
     let _active = Active::start(progress, &path);
     unchanged(&path, Some(&local)).await?;
+    if local.unhashed {
+        // Left to the upload by the scan. The file is read again just after, from the cache.
+        let target = path.clone();
+        let stop = AtomicBool::new(false);
+        let sha256 = tokio::task::spawn_blocking(move || hash_file(&target, &stop))
+            .await
+            .map_err(|err| Failure::Error(err.to_string()))??;
+        unchanged(&path, Some(&local)).await?;
+        local.sha256 = Some(sha256);
+        local.unhashed = false;
+    }
     let modified = Some(datetime(local.mtime));
     let stored = if local.size > RESUMABLE_THRESHOLD {
         let mut request = CreateUpload {
@@ -415,6 +426,7 @@ mod tests {
             size: meta.len(),
             mtime: nanos(meta.modified().expect("mtime")),
             sha256: None,
+            unhashed: false,
         };
         assert_eq!(unchanged(&path, Some(&scanned)).await, Ok(()));
         assert_eq!(unchanged(&path, None).await, Err(Failure::Stale));

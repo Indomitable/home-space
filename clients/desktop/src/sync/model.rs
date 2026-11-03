@@ -48,8 +48,12 @@ pub struct LocalEntry {
     pub size: u64,
     /// Modification time in nanoseconds since the Unix epoch.
     pub mtime: i64,
-    /// Lowercase hex SHA-256 of a file; `None` for folders and files that could not be read.
+    /// Lowercase hex SHA-256 of a file; `None` for folders, files that could not be read and
+    /// files left `unhashed`.
     pub sha256: Option<String>,
+    /// A new file whose hash the plan does not need: nothing is recorded or on the server at
+    /// its path and it cannot be a moved file. It is hashed when it is uploaded.
+    pub unhashed: bool,
 }
 
 impl LocalEntry {
@@ -59,7 +63,13 @@ impl LocalEntry {
             size: 0,
             mtime: 0,
             sha256: None,
+            unhashed: false,
         }
+    }
+
+    /// Whether the file was meant to be hashed but could not be read.
+    pub fn is_unreadable(&self) -> bool {
+        self.kind == NodeKind::File && self.sha256.is_none() && !self.unhashed
     }
 }
 

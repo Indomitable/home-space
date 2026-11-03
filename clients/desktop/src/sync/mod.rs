@@ -479,9 +479,11 @@ impl Engine {
             .iter()
             .map(|base| (base.path.clone(), base.clone()))
             .collect();
+        let remote = layout.entries.keys().cloned().collect();
         let stop = Arc::clone(&self.stop);
-        let mut task =
-            tokio::task::spawn_blocking(move || scan::scan(&roots, &skipped, &known, &stop));
+        let mut task = tokio::task::spawn_blocking(move || {
+            scan::scan(&roots, &skipped, &known, &remote, &stop)
+        });
         let blind = || Scan {
             blind: layout.roots.clone(),
             ..Scan::default()

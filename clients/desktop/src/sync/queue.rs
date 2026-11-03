@@ -257,6 +257,7 @@ mod tests {
             size,
             mtime: 0,
             sha256: None,
+            unhashed: false,
         }
     }
 

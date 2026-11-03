@@ -9,6 +9,8 @@ use files::FilesError;
 use protocol::{ErrorBody, ErrorCode};
 use search::SearchError;
 
+const INTERRUPTED_BODY: &str = "the request body was cut off";
+
 /// Error returned by handlers, rendered as `{ "error": code, "message": text }`.
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
@@ -31,7 +33,20 @@ pub enum ApiError {
 }
 
 impl ApiError {
+    /// Whether the request body stopped arriving, as when the client or a proxy in front of
+    /// the server drops the connection mid-upload. Bytes received so far are kept.
+    fn is_interrupted_body(&self) -> bool {
+        matches!(
+            self,
+            Self::Files(FilesError::Io(err))
+                if err.get_ref().is_some_and(|inner| inner.is::<axum::Error>())
+        )
+    }
+
     fn status_and_code(&self) -> (StatusCode, ErrorCode) {
+        if self.is_interrupted_body() {
+            return (StatusCode::BAD_REQUEST, ErrorCode::BadRequest);
+        }
         match self {
             Self::Unauthorized | Self::Auth(AuthError::InvalidCredentials) => {
                 (StatusCode::UNAUTHORIZED, ErrorCode::Unauthorized)
@@ -67,6 +82,9 @@ impl IntoResponse for ApiError {
         let message = if status == StatusCode::INTERNAL_SERVER_ERROR {
             tracing::error!(error = %self, "request failed");
             "internal server error".to_owned()
+        } else if self.is_interrupted_body() {
+            tracing::warn!(error = %self, "request body interrupted");
+            INTERRUPTED_BODY.to_owned()
         } else {
             self.to_string()
         };
@@ -78,5 +96,34 @@ impl IntoResponse for ApiError {
             }),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    use super::*;
+
+    #[test]
+    fn a_cut_off_body_is_a_bad_request_not_a_server_error() {
+        let cut = io::Error::other(axum::Error::new(io::Error::from(
+            io::ErrorKind::ConnectionReset,
+        )));
+        let error = ApiError::Files(FilesError::Io(cut));
+        assert_eq!(
+            error.status_and_code(),
+            (StatusCode::BAD_REQUEST, ErrorCode::BadRequest)
+        );
+    }
+
+    #[test]
+    fn a_disk_error_is_still_a_server_error() {
+        let disk = io::Error::from(io::ErrorKind::StorageFull);
+        let error = ApiError::Files(FilesError::Io(disk));
+        assert_eq!(
+            error.status_and_code(),
+            (StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Internal)
+        );
     }
 }

@@ -2,7 +2,10 @@ use std::{
     collections::HashMap,
     io,
     path::{Path, PathBuf},
-    sync::{Arc, atomic::AtomicBool},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::SystemTime,
 };
 
@@ -17,7 +20,7 @@ use protocol::{CreateUpload, ErrorCode, NodeId, NodeKind};
 use super::{
     model::{Base, LocalEntry, RemoteNode, datetime, nanos},
     plan::Action,
-    queue::{self, Active, Progress},
+    queue::{self, Active, Fault, Progress},
     scan::{hash_file, is_ignored},
 };
 use crate::transfers::{part_path, read_range};
@@ -39,27 +42,49 @@ pub enum Effect {
     Folder(PathBuf, NodeId),
 }
 
+/// Code of a failure on this computer, such as a file that could not be read.
+pub const LOCAL_CODE: &str = "local";
+/// Code of a path that cannot be synced as it is.
+pub const BLOCKED_CODE: &str = "blocked";
+
 /// Why an action did not finish.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Failure {
     /// The local file changed after the scan; the next pass looks again.
     Stale,
-    Error(String),
+    /// Not started, since the server became unreachable during the pass.
+    Halted,
+    /// The server could not be reached, which is no fault of the path.
+    Unreachable(Fault),
+    Error(Fault),
     SignedOut,
+}
+
+impl Failure {
+    fn local(reason: impl Into<String>) -> Self {
+        Self::Error(Fault::now(LOCAL_CODE, reason))
+    }
+
+    fn blocked(reason: impl Into<String>) -> Self {
+        Self::Error(Fault::now(BLOCKED_CODE, reason))
+    }
 }
 
 impl From<ApiError> for Failure {
     fn from(err: ApiError) -> Self {
         match err {
             ApiError::Unauthorized => Self::SignedOut,
-            other => Self::Error(other.to_string()),
+            other if other.is_unreachable() => {
+                Self::Unreachable(Fault::now(other.code(), other.to_string()))
+            }
+            other => Self::Error(Fault::now(other.code(), other.to_string())),
         }
     }
 }
 
 impl From<io::Error> for Failure {
     fn from(err: io::Error) -> Self {
-        Self::Error(err.to_string())
+        Self::local(err.to_string())
     }
 }
 
@@ -111,9 +136,7 @@ pub async fn execute(
                     .await?
                     .into_iter()
                     .find(|node| node.kind == NodeKind::Folder && node.name == name)
-                    .ok_or_else(|| {
-                        Failure::Error("a file of this name is on the server".to_owned())
-                    })?,
+                    .ok_or_else(|| Failure::blocked("a file of this name is on the server"))?,
                 other => other?,
             };
             let id = folder.id;
@@ -148,15 +171,15 @@ pub async fn execute(
             let target = path.clone();
             tokio::task::spawn_blocking(move || trash::delete(target))
                 .await
-                .map_err(|err| Failure::Error(err.to_string()))?
-                .map_err(|err| Failure::Error(err.to_string()))?;
+                .map_err(|err| Failure::local(err.to_string()))?
+                .map_err(|err| Failure::local(err.to_string()))?;
             Ok(vec![Effect::Forget(node, Some(path))])
         }
         Action::RemoveLocalDir { node, path } => {
             let target = path.clone();
             let removed = tokio::task::spawn_blocking(move || remove_if_empty(&target))
                 .await
-                .map_err(|err| Failure::Error(err.to_string()))??;
+                .map_err(|err| Failure::local(err.to_string()))??;
             // A folder still holding something unsynced is left; the next pass tries again.
             Ok(if removed {
                 vec![Effect::Forget(node, Some(path))]
@@ -165,21 +188,28 @@ pub async fn execute(
             })
         }
         Action::Forget { node } => Ok(vec![Effect::Forget(node, None)]),
-        Action::Blocked { reason, .. } => Err(Failure::Error(reason)),
+        Action::Blocked { reason, .. } => Err(Failure::blocked(reason)),
     }
 }
 
-/// Carries out `actions` at most `limit` at a time, yielding each with its outcome.
+/// Carries out `actions` at most `limit` at a time, yielding each with its outcome. Once
+/// `halt` is set, the actions not started yet fail as [`Failure::Halted`]; those running
+/// finish.
 pub fn execute_all<'a>(
     client: &'a Client,
     folders: &'a Folders,
     progress: &'a Progress,
+    halt: &'a AtomicBool,
     actions: Vec<Action>,
     limit: usize,
 ) -> impl iced::futures::Stream<Item = (Action, Result<Vec<Effect>, Failure>)> + 'a {
     stream::iter(actions)
         .map(move |action| async move {
-            let outcome = execute(client, folders, progress, action.clone()).await;
+            let outcome = if halt.load(Ordering::Relaxed) {
+                Err(Failure::Halted)
+            } else {
+                execute(client, folders, progress, action.clone()).await
+            };
             (action, outcome)
         })
         .buffer_unordered(limit)
@@ -190,11 +220,11 @@ fn place(folders: &Folders, path: &Path) -> Result<(Option<NodeId>, String), Fai
     let parent = path
         .parent()
         .and_then(|parent| folders.get(parent))
-        .ok_or_else(|| Failure::Error("its folder is not on the server yet".to_owned()))?;
+        .ok_or_else(|| Failure::blocked("its folder is not on the server yet"))?;
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
-        .ok_or_else(|| Failure::Error("the name is not valid Unicode".to_owned()))?;
+        .ok_or_else(|| Failure::blocked("the name is not valid Unicode"))?;
     Ok((*parent, name.to_owned()))
 }
 
@@ -214,7 +244,7 @@ async fn upload(
         let stop = AtomicBool::new(false);
         let sha256 = tokio::task::spawn_blocking(move || hash_file(&target, &stop))
             .await
-            .map_err(|err| Failure::Error(err.to_string()))??;
+            .map_err(|err| Failure::local(err.to_string()))??;
         unchanged(&path, Some(&local)).await?;
         local.sha256 = Some(sha256);
         local.unhashed = false;

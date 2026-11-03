@@ -361,7 +361,7 @@ impl Work<'_> {
         base: Option<Base>,
         other: Option<Base>,
     ) {
-        if local.as_ref().is_some_and(|local| local.sha256.is_none()) {
+        if local.as_ref().is_some_and(LocalEntry::is_unreadable) {
             self.actions.push(Action::Blocked {
                 path,
                 reason: "the file could not be read".to_owned(),
@@ -621,6 +621,7 @@ mod tests {
             size: 1,
             mtime,
             sha256: Some(sha.to_owned()),
+            unhashed: false,
         }
     }
 
@@ -1073,5 +1074,40 @@ mod tests {
             &[base(1, "a.txt", "x")],
         );
         assert!(matches!(actions.as_slice(), [Action::Blocked { .. }]));
+    }
+
+    fn unhashed() -> LocalEntry {
+        LocalEntry {
+            sha256: None,
+            unhashed: true,
+            ..file("", 5)
+        }
+    }
+
+    #[test]
+    fn a_new_unhashed_file_is_uploaded() {
+        let actions = plan(&home(vec![]), &scan(vec![("a.txt", unhashed())]), &[]);
+        assert_eq!(
+            actions,
+            [Action::Upload {
+                node: None,
+                path: p("a.txt"),
+                local: unhashed(),
+            }]
+        );
+    }
+
+    #[test]
+    fn an_unhashed_file_meeting_a_remote_one_is_uploaded_into_it() {
+        let layout = home(vec![with_sha(node(1, None, File, "a.txt"), "x")]);
+        let actions = plan(&layout, &scan(vec![("a.txt", unhashed())]), &[]);
+        assert_eq!(
+            actions,
+            [Action::Upload {
+                node: Some(id(1)),
+                path: p("a.txt"),
+                local: unhashed(),
+            }]
+        );
     }
 }

@@ -3,7 +3,7 @@ use std::{
     fs, io,
     io::Read,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use sha2::{Digest, Sha256};
@@ -13,6 +13,8 @@ use protocol::NodeKind;
 use super::model::{Base, LocalEntry, nanos};
 
 const HASH_BUFFER: usize = 64 * 1024;
+/// The most files hashed at once.
+const HASHERS: usize = 8;
 /// Names the sync never uploads: system clutter, editor locks and our own partial downloads.
 const IGNORED_NAMES: &[&str] = &[".DS_Store", "Thumbs.db", "desktop.ini", ".localized"];
 const IGNORED_PREFIXES: &[&str] = &["~$", ".~lock.", "._"];
@@ -47,19 +49,110 @@ pub fn is_ignored(name: &str) -> bool {
 
 /// Lists everything under `roots` except the `skipped` paths.
 ///
-/// Files are hashed unless their size and modification time match what `known` recorded at
-/// the same path. Symbolic links are not followed or synced. Once `stop` is set the scan
-/// gives up, leaving every root blind.
+/// A file whose size and modification time match what `known` recorded at its path keeps
+/// the recorded hash. Other files are hashed, several at a time, when the plan needs the
+/// hash: something is recorded or on the server (`remote`) at their path, or they may be a
+/// recorded file moved here, having the size of one gone from its path. The rest are new
+/// and left `unhashed` for the upload. Symbolic links are not followed or synced. Once
+/// `stop` is set the scan gives up, leaving every root blind.
 pub fn scan(
     roots: &[PathBuf],
     skipped: &HashSet<PathBuf>,
     known: &HashMap<PathBuf, Base>,
+    remote: &HashSet<PathBuf>,
     stop: &AtomicBool,
 ) -> Scan {
     let stopped = || Scan {
         blind: roots.to_vec(),
         ..Scan::default()
     };
+    let Some(mut scan) = walk(roots, skipped, known, stop) else {
+        return stopped();
+    };
+    let gone_sizes: HashSet<u64> = known
+        .values()
+        .filter(|base| base.kind == NodeKind::File)
+        .filter(|base| {
+            scan.entries
+                .get(&base.path)
+                .is_none_or(|entry| entry.kind != NodeKind::File)
+        })
+        .map(|base| base.size)
+        .collect();
+    let to_hash: Vec<PathBuf> = scan
+        .entries
+        .iter()
+        .filter(|(path, entry)| {
+            entry.unhashed
+                && (remote.contains(*path)
+                    || known.contains_key(*path)
+                    || gone_sizes.contains(&entry.size))
+        })
+        .map(|(path, _)| path.clone())
+        .collect();
+    let hashed = hash_all(to_hash, stop);
+    // Some files were left out or failed as interrupted.
+    if stop.load(Ordering::Relaxed) {
+        return stopped();
+    }
+    for (path, sha256) in hashed {
+        if let Some(entry) = scan.entries.get_mut(&path) {
+            entry.sha256 = sha256.ok();
+            entry.unhashed = false;
+        }
+    }
+    scan
+}
+
+/// Hashes `paths` on a few threads at once, as many as the machine has cores up to
+/// [`HASHERS`].
+fn hash_all(paths: Vec<PathBuf>, stop: &AtomicBool) -> Vec<(PathBuf, io::Result<String>)> {
+    let threads = std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .clamp(1, HASHERS)
+        .min(paths.len());
+    if threads <= 1 {
+        return paths
+            .into_iter()
+            .map(|path| {
+                let sha256 = hash_file(&path, stop);
+                (path, sha256)
+            })
+            .collect();
+    }
+    let next = AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut hashed = Vec::new();
+                    loop {
+                        let at = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(path) = paths.get(at) else { break };
+                        if stop.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        hashed.push((path.clone(), hash_file(path, stop)));
+                    }
+                    hashed
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|worker| worker.join().unwrap_or_default())
+            .collect()
+    })
+}
+
+/// Lists the entries under `roots`, leaving files without a recorded hash `unhashed`;
+/// `None` once `stop` is set.
+fn walk(
+    roots: &[PathBuf],
+    skipped: &HashSet<PathBuf>,
+    known: &HashMap<PathBuf, Base>,
+    stop: &AtomicBool,
+) -> Option<Scan> {
     let mut scan = Scan::default();
     for root in roots {
         if !root.is_dir() {
@@ -71,7 +164,7 @@ pub fn scan(
         let mut pending = vec![root.clone()];
         while let Some(dir) = pending.pop() {
             if stop.load(Ordering::Relaxed) {
-                return stopped();
+                return None;
             }
             let listing = match fs::read_dir(&dir) {
                 Ok(listing) => listing,
@@ -103,37 +196,28 @@ pub fn scan(
                     scan.entries.insert(path.clone(), LocalEntry::folder());
                     pending.push(path);
                 } else if meta.is_file() {
-                    let entry = file_entry(&path, &meta, known.get(&path), stop);
-                    if stop.load(Ordering::Relaxed) {
-                        return stopped();
-                    }
+                    let entry = file_entry(&meta, known.get(&path));
                     scan.entries.insert(path, entry);
                 }
             }
         }
     }
-    scan
+    Some(scan)
 }
 
-fn file_entry(
-    path: &Path,
-    meta: &fs::Metadata,
-    known: Option<&Base>,
-    stop: &AtomicBool,
-) -> LocalEntry {
+fn file_entry(meta: &fs::Metadata, known: Option<&Base>) -> LocalEntry {
     let size = meta.len();
     let mtime = meta.modified().map(nanos).unwrap_or(0);
-    let sha256 = match known {
-        Some(base) if base.kind == NodeKind::File && base.size == size && base.mtime == mtime => {
-            base.sha256.clone()
-        }
-        _ => hash_file(path, stop).ok(),
-    };
+    let recorded = known.and_then(|base| {
+        let same = base.kind == NodeKind::File && base.size == size && base.mtime == mtime;
+        same.then(|| base.sha256.clone()).flatten()
+    });
     LocalEntry {
         kind: NodeKind::File,
         size,
         mtime,
-        sha256,
+        unhashed: recorded.is_none(),
+        sha256: recorded,
     }
 }
 
@@ -188,21 +272,91 @@ mod tests {
         fs::write(root.join(".DS_Store"), "x").expect("ds");
         fs::write(root.join("c.txt.part"), "x").expect("part");
         let skipped = HashSet::from([root.join("skip")]);
+        let remote = HashSet::from([root.join("docs/a.txt")]);
 
         let scan = scan(
             std::slice::from_ref(&root),
             &skipped,
             &HashMap::new(),
+            &remote,
             &AtomicBool::new(false),
         );
 
         let mut paths: Vec<_> = scan.entries.keys().cloned().collect();
         paths.sort();
         assert_eq!(paths, [root.join("docs"), root.join("docs/a.txt")]);
+        let a = &scan.entries[&root.join("docs/a.txt")];
         assert_eq!(
-            scan.entries[&root.join("docs/a.txt")].sha256.as_deref(),
+            a.sha256.as_deref(),
             Some("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
         );
+        assert!(!a.unhashed);
+    }
+
+    #[test]
+    fn new_files_are_left_unhashed_unless_they_may_be_moved() {
+        let dir = TempDir::new("unhashed");
+        let root = dir.0.clone();
+        for (name, content) in [("new.txt", "hello"), ("moved.txt", "abc"), ("c.txt", "c")] {
+            fs::write(root.join(name), content).expect("file");
+        }
+        let gone = |n: u128, name: &str, size: u64| Base {
+            node: crate::sync::layout::tests::id(n),
+            path: root.join(name),
+            kind: NodeKind::File,
+            sha256: Some("old".to_owned()),
+            size,
+            mtime: 0,
+        };
+        // Gone from its path with the size of moved.txt; c.txt is still where it was.
+        let known = HashMap::from([
+            (root.join("was.txt"), gone(1, "was.txt", 3)),
+            (root.join("c.txt"), gone(2, "c.txt", 5)),
+        ]);
+
+        let scan = scan(
+            std::slice::from_ref(&root),
+            &HashSet::new(),
+            &known,
+            &HashSet::new(),
+            &AtomicBool::new(false),
+        );
+
+        let new = &scan.entries[&root.join("new.txt")];
+        assert!(new.unhashed && new.sha256.is_none() && !new.is_unreadable());
+        let moved = &scan.entries[&root.join("moved.txt")];
+        assert!(!moved.unhashed && moved.sha256.is_some());
+        // Recorded at its path but changed: hashed.
+        let changed = &scan.entries[&root.join("c.txt")];
+        assert!(!changed.unhashed && changed.sha256.is_some());
+    }
+
+    #[test]
+    fn many_files_are_hashed_in_parallel() {
+        let dir = TempDir::new("parallel");
+        let root = dir.0.clone();
+        let names: Vec<String> = (0..50).map(|n| format!("f{n}.txt")).collect();
+        for name in &names {
+            fs::write(root.join(name), name).expect("file");
+        }
+        let remote = names.iter().map(|name| root.join(name)).collect();
+
+        let scan = scan(
+            std::slice::from_ref(&root),
+            &HashSet::new(),
+            &HashMap::new(),
+            &remote,
+            &AtomicBool::new(false),
+        );
+
+        let stop = AtomicBool::new(false);
+        for name in &names {
+            let path = root.join(name);
+            assert_eq!(
+                scan.entries[&path].sha256.as_ref().ok_or("unhashed"),
+                hash_file(&path, &stop).as_ref().map_err(|_| "unreadable")
+            );
+        }
     }
 
     #[test]
@@ -225,6 +379,7 @@ mod tests {
             std::slice::from_ref(&dir.0),
             &HashSet::new(),
             &known,
+            &HashSet::new(),
             &AtomicBool::new(false),
         );
 
@@ -238,6 +393,7 @@ mod tests {
             std::slice::from_ref(&root),
             &HashSet::new(),
             &HashMap::new(),
+            &HashSet::new(),
             &AtomicBool::new(false),
         );
         assert!(scan.entries.is_empty());
@@ -253,6 +409,7 @@ mod tests {
             std::slice::from_ref(&dir.0),
             &HashSet::new(),
             &HashMap::new(),
+            &HashSet::new(),
             &AtomicBool::new(true),
         );
 

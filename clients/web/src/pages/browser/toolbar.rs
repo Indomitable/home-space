@@ -1,3 +1,4 @@
+use client_core::selection::shows_bulk_actions;
 use leptos::prelude::*;
 use web_sys::{File, HtmlInputElement};
 
@@ -19,8 +20,7 @@ pub fn Toolbar(
 ) -> impl IntoView {
     view! {
         <div class="explorer__toolbar">
-            // A single row has its own row actions, so the bulk menu waits for several.
-            <Show when=move || { selected_count.get() > 1 }>
+            <Show when=move || shows_bulk_actions(selected_count.get())>
                 <Menu
                     id="bulk-menu".to_owned()
                     label="Actions for selected items"

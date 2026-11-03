@@ -99,6 +99,7 @@ async fn create_folder(
 ) -> Result<(StatusCode, Json<Node>), ApiError> {
     let node = state
         .files
+        .on_device(user.device_id)
         .create_folder(user.id, request.parent_id, &request.name)
         .await?;
     state.index_name(&node).await;
@@ -118,6 +119,7 @@ async fn upload(
 ) -> Result<(StatusCode, Json<Node>), ApiError> {
     let outcome = state
         .files
+        .on_device(user.device_id)
         .upload(
             user.id,
             query.parent_id,
@@ -140,6 +142,7 @@ async fn replace_content(
 ) -> Result<Json<Node>, ApiError> {
     let outcome = state
         .files
+        .on_device(user.device_id)
         .replace_content(
             user.id,
             id,
@@ -273,7 +276,11 @@ async fn update(
         name: request.name,
         parent_id: request.parent_id,
     };
-    let outcome = state.files.update(user.id, id, changes).await?;
+    let outcome = state
+        .files
+        .on_device(user.device_id)
+        .update(user.id, id, changes)
+        .await?;
     let node = publish_moved(&state, user.id, outcome).await;
     Ok(Json(node))
 }
@@ -285,6 +292,7 @@ async fn move_nodes(
 ) -> Result<Json<MoveResponse>, ApiError> {
     let batch = state
         .files
+        .on_device(user.device_id)
         .move_nodes(
             user.id,
             &request.ids,
@@ -352,7 +360,12 @@ async fn delete(
     user: AuthUser,
     Path(id): Path<NodeId>,
 ) -> Result<StatusCode, ApiError> {
-    let node = state.files.delete(user.id, id).await?.node;
+    let node = state
+        .files
+        .on_device(user.device_id)
+        .delete(user.id, id)
+        .await?
+        .node;
     state.hub.publish(
         user.id,
         Event::NodeDeleted {

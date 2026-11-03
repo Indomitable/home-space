@@ -1,4 +1,5 @@
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 use crate::{Db, DbError, Node, NodeId, UserId};
 
@@ -9,6 +10,8 @@ pub struct NodeChange {
     pub id: NodeId,
     /// The node as it is now; `None` when it was deleted or moved to the recycle bin.
     pub node: Option<Node>,
+    /// The device that made the change, when it was made from one.
+    pub device_id: Option<Uuid>,
 }
 
 /// A page of an owner's change journal.
@@ -58,11 +61,13 @@ impl Db {
         if since < pruned {
             return Err(DbError::Pruned);
         }
-        let mut latest = sqlx::query_as::<_, (NodeId, i64)>(
-            "SELECT node_id, max(seq) AS seq FROM node_changes c \
-             WHERE owner_id = $1 AND seq > $2 AND NOT EXISTS \
-             (SELECT 1 FROM user_folders uf WHERE uf.trash_id = c.node_id) \
-             GROUP BY node_id ORDER BY seq LIMIT $3",
+        let mut latest = sqlx::query_as::<_, (NodeId, i64, Option<Uuid>)>(
+            "SELECT node_id, seq, device_id FROM ( \
+                 SELECT DISTINCT ON (node_id) node_id, seq, device_id FROM node_changes c \
+                 WHERE owner_id = $1 AND seq > $2 AND NOT EXISTS \
+                 (SELECT 1 FROM user_folders uf WHERE uf.trash_id = c.node_id) \
+                 ORDER BY node_id, seq DESC \
+             ) latest ORDER BY seq LIMIT $3",
         )
         .bind(owner)
         .bind(since)
@@ -71,7 +76,7 @@ impl Db {
         .await?;
         let more = latest.len() > usize::try_from(limit).unwrap_or(usize::MAX);
         latest.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
-        let ids = latest.iter().map(|(id, _)| *id).collect::<Vec<_>>();
+        let ids = latest.iter().map(|(id, _, _)| *id).collect::<Vec<_>>();
         let mut nodes = sqlx::query_as::<_, Node>(concat!(
             "SELECT id, owner_id, parent_id, kind, name, size, sha256, mime, version, \
              created_at, updated_at FROM nodes \
@@ -82,15 +87,20 @@ impl Db {
         .bind(&ids)
         .fetch_all(self.pool())
         .await?;
-        let cursor = latest.last().map_or(since, |(_, seq)| *seq);
+        let cursor = latest.last().map_or(since, |(_, seq, _)| *seq);
         let changes = latest
             .into_iter()
-            .map(|(id, seq)| {
+            .map(|(id, seq, device_id)| {
                 let node = nodes
                     .iter()
                     .position(|node| node.id == id)
                     .map(|at| nodes.swap_remove(at));
-                NodeChange { seq, id, node }
+                NodeChange {
+                    seq,
+                    id,
+                    node,
+                    device_id,
+                }
             })
             .collect();
         Ok(ChangeBatch {
@@ -289,5 +299,31 @@ mod tests {
         assert!(end > start);
         let batch = db.changes(alice, Some(end), 100).await.expect("from end");
         assert!(batch.changes.is_empty());
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_change_names_the_device_that_made_it_last(pool: PgPool) {
+        let db = Db::from_pool(pool);
+        let alice = db.create_user("alice", "x").await.expect("alice").id;
+        let start = cursor(&db, alice).await;
+        let laptop = Uuid::now_v7();
+        let first = folder(&db.on_device(Some(laptop)), alice, "a").await;
+        let second = folder(&db.on_device(Some(laptop)), alice, "b").await;
+        let update = NodeUpdate {
+            name: Some("c".to_owned()),
+            parent_id: None,
+        };
+        db.update_node(alice, second.id, update)
+            .await
+            .expect("rename");
+
+        let batch = db.changes(alice, Some(start), 100).await.expect("changes");
+
+        let devices: Vec<(NodeId, Option<Uuid>)> = batch
+            .changes
+            .iter()
+            .map(|change| (change.id, change.device_id))
+            .collect();
+        assert_eq!(devices, [(first.id, Some(laptop)), (second.id, None)]);
     }
 }

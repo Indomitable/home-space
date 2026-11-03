@@ -4,6 +4,7 @@ use bytes::Bytes;
 use futures_util::Stream;
 use time::OffsetDateTime;
 use tokio::fs;
+use uuid::Uuid;
 
 use db::{
     BlobOp, Db, DeletedNodes, FOLDER_MIME, FileVersion, MoveBatch, MoveOutcome, NewContent,
@@ -44,6 +45,15 @@ impl FileService {
     pub fn with_chunk_bytes(mut self, chunk_bytes: u64) -> Self {
         self.chunk_bytes = chunk_bytes.max(1);
         self
+    }
+
+    /// The same service, recording `device` as the maker of the changes made through it.
+    #[must_use]
+    pub fn on_device(&self, device: Option<Uuid>) -> Self {
+        Self {
+            db: self.db.on_device(device),
+            ..self.clone()
+        }
     }
 
     /// The chunk size resumable uploads ask clients for.

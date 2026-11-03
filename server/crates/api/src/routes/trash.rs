@@ -63,6 +63,7 @@ async fn restore(
 ) -> Result<Json<MoveResponse>, ApiError> {
     let mut batch = state
         .files
+        .on_device(user.device_id)
         .restore(user.id, &request.ids, request.on_conflict)
         .await?;
     // Clients never see the bin folder, so binned files report no parent.
@@ -112,7 +113,11 @@ fn reindex_content(state: &AppState, owner: UserId, batch: &MoveBatch) {
 }
 
 async fn empty(State(state): State<AppState>, user: AuthUser) -> Result<StatusCode, ApiError> {
-    state.files.empty_trash(user.id).await?;
+    state
+        .files
+        .on_device(user.device_id)
+        .empty_trash(user.id)
+        .await?;
     state.hub.publish(user.id, Event::TrashChanged);
     Ok(StatusCode::NO_CONTENT)
 }
@@ -122,7 +127,11 @@ async fn purge(
     user: AuthUser,
     Path(id): Path<NodeId>,
 ) -> Result<StatusCode, ApiError> {
-    state.files.purge_trashed(user.id, id).await?;
+    state
+        .files
+        .on_device(user.device_id)
+        .purge_trashed(user.id, id)
+        .await?;
     state.hub.publish(user.id, Event::TrashChanged);
     Ok(StatusCode::NO_CONTENT)
 }

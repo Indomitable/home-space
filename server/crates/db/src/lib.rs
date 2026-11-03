@@ -44,14 +44,19 @@ pub use sqlx::PgPool;
 pub use trash::{LOST_AND_FOUND, SpecialFolders, TrashOutcome, TrashedNode};
 pub use uploads::{NewUpload, Upload};
 
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{Postgres, Transaction, postgres::PgPoolOptions};
+use uuid::Uuid;
 
 const MAX_CONNECTIONS: u32 = 10;
+/// The transaction setting the change journal's trigger reads the writing device from.
+const DEVICE_SETTING: &str = "homespace.device_id";
 
 /// Handle to the database; cheap to clone.
 #[derive(Clone, Debug)]
 pub struct Db {
     pool: PgPool,
+    /// The device the writes are made from, recorded in the change journal.
+    device: Option<Uuid>,
 }
 
 impl Db {
@@ -61,12 +66,35 @@ impl Db {
             .max_connections(MAX_CONNECTIONS)
             .connect(database_url)
             .await?;
-        Ok(Self { pool })
+        Ok(Self { pool, device: None })
     }
 
     /// Wraps an existing pool (used by tests).
     pub fn from_pool(pool: PgPool) -> Self {
-        Self { pool }
+        Self { pool, device: None }
+    }
+
+    /// The same database, recording `device` as the maker of the node changes written
+    /// through it; `None` records none.
+    #[must_use]
+    pub fn on_device(&self, device: Option<Uuid>) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            device,
+        }
+    }
+
+    /// Starts a transaction whose node changes are recorded as made by this handle's device.
+    pub(crate) async fn begin(&self) -> Result<Transaction<'static, Postgres>, DbError> {
+        let mut tx = self.pool.begin().await?;
+        if let Some(device) = self.device {
+            sqlx::query("SELECT set_config($1, $2, true)")
+                .bind(DEVICE_SETTING)
+                .bind(device.to_string())
+                .execute(&mut *tx)
+                .await?;
+        }
+        Ok(tx)
     }
 
     /// Applies all pending migrations.

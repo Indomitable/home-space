@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{Node, NodeId};
 
@@ -17,9 +18,21 @@ pub struct ChangesQuery {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Change {
     /// The node was created or changed; this is its current state.
-    Upserted { seq: i64, node: Node },
+    Upserted {
+        seq: i64,
+        node: Node,
+        /// The device that made the change, when it was made from one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        device_id: Option<Uuid>,
+    },
     /// The node was deleted or moved to the recycle bin.
-    Deleted { seq: i64, id: NodeId },
+    Deleted {
+        seq: i64,
+        id: NodeId,
+        /// The device that deleted it, when it was deleted from one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        device_id: Option<Uuid>,
+    },
 }
 
 /// Body of `GET /changes`.
@@ -38,8 +51,6 @@ pub struct ChangesResponse {
 
 #[cfg(test)]
 mod tests {
-    use uuid::Uuid;
-
     use super::*;
 
     #[test]
@@ -47,9 +58,23 @@ mod tests {
         let change = Change::Deleted {
             seq: 7,
             id: NodeId(Uuid::nil()),
+            device_id: Some(Uuid::nil()),
         };
         let json = serde_json::to_string(&change).expect("json");
         assert!(json.contains(r#""type":"deleted""#));
         assert_eq!(serde_json::from_str::<Change>(&json).expect("back"), change);
+    }
+
+    #[test]
+    fn a_change_from_an_older_server_has_no_device() {
+        let json = r#"{"type":"deleted","seq":7,"id":"00000000-0000-0000-0000-000000000000"}"#;
+        let change: Change = serde_json::from_str(json).expect("change");
+        assert!(matches!(
+            change,
+            Change::Deleted {
+                device_id: None,
+                ..
+            }
+        ));
     }
 }

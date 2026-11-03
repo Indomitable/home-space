@@ -38,10 +38,12 @@ async fn changes(
                 Some(node) => Change::Upserted {
                     seq: change.seq,
                     node: Node::from(node),
+                    device_id: change.device_id,
                 },
                 None => Change::Deleted {
                     seq: change.seq,
                     id: change.id,
+                    device_id: change.device_id,
                 },
             })
             .collect(),

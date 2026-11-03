@@ -170,7 +170,12 @@ async fn append(
             Ok(piece)
         }
     });
-    match state.files.append_chunk(user.id, id, offset, chunk).await {
+    match state
+        .files
+        .on_device(user.device_id)
+        .append_chunk(user.id, id, offset, chunk)
+        .await
+    {
         Ok(ChunkOutcome::Partial { offset }) => Ok(with_offset(
             StatusCode::OK,
             offset,

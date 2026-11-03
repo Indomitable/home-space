@@ -92,7 +92,9 @@ for single-request uploads and replacements made through the API, and one above 
 
 Sync clients catch up through a journal of changes (`GET /changes?since=<cursor>`). Every day the
 server compacts it to the latest entry of each file and folder, which is all a client reads, so a
-client can catch up however long it was away. It does not grow with every edit.
+client can catch up however long it was away. It does not grow with every edit. Each entry names
+the device (`device_id`) that made the latest change, when it came from a client that registered
+one.
 
 | Variable | Default | |
 |---|---|---|

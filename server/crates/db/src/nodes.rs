@@ -159,7 +159,8 @@ pub struct NodeUpdate {
 impl Db {
     /// Inserts a node under a folder owned by `owner` (or at the root).
     pub async fn create_node(&self, owner: UserId, new: NewNode) -> Result<Node, DbError> {
-        self.require_folder(owner, new.parent_id).await?;
+        let mut tx = self.begin().await?;
+        require_folder(&mut tx, owner, new.parent_id).await?;
         let node = sqlx::query_as::<_, Node>(concat!(
             "INSERT INTO nodes (id, owner_id, parent_id, kind, name, size, sha256, mime) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING ",
@@ -174,8 +175,9 @@ impl Db {
         .bind(new.size)
         .bind(new.sha256)
         .bind(new.mime)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(node)
     }
 
@@ -252,7 +254,7 @@ impl Db {
         id: NodeId,
         update: NodeUpdate,
     ) -> Result<MoveOutcome, DbError> {
-        let mut tx = self.pool().begin().await?;
+        let mut tx = self.begin().await?;
         let current = lock_node(&mut tx, owner, id).await?;
         let new_parent = update.parent_id.unwrap_or(current.parent_id);
         let name = update.name.unwrap_or_else(|| current.name.clone());
@@ -308,7 +310,7 @@ impl Db {
         parent: Option<NodeId>,
         on_conflict: OnConflict,
     ) -> Result<MoveBatch, DbError> {
-        let mut tx = self.pool().begin().await?;
+        let mut tx = self.begin().await?;
         let sources = lock_selection(&mut tx, owner, ids).await?;
         let target = match parent {
             Some(id) => Some(lock_folder(&mut tx, owner, id).await?),
@@ -334,7 +336,7 @@ impl Db {
         name: &str,
         content: NewContent,
     ) -> Result<StoreOutcome, DbError> {
-        let mut tx = self.pool().begin().await?;
+        let mut tx = self.begin().await?;
         require_folder(&mut tx, owner, parent).await?;
         let existing = find_sibling(&mut tx, owner, parent, NodeKind::File, name, None).await?;
         let outcome = match existing {
@@ -372,7 +374,7 @@ impl Db {
         id: NodeId,
         content: NewContent,
     ) -> Result<StoreOutcome, DbError> {
-        let mut tx = self.pool().begin().await?;
+        let mut tx = self.begin().await?;
         let node = lock_node(&mut tx, owner, id).await?;
         if node.kind != NodeKind::File {
             return Err(DbError::NotFound);
@@ -384,7 +386,7 @@ impl Db {
 
     /// Deletes a node and its descendants; returns the ids whose stored content is now unused.
     pub async fn delete_node(&self, owner: UserId, id: NodeId) -> Result<DeletedNodes, DbError> {
-        let mut tx = self.pool().begin().await?;
+        let mut tx = self.begin().await?;
         let files = sqlx::query_scalar::<_, NodeId>(
             "WITH RECURSIVE subtree AS ( \
                  SELECT id, kind FROM nodes WHERE id = $1 AND owner_id = $2 \

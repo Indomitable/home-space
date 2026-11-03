@@ -59,7 +59,7 @@ impl Db {
     /// A file moves there itself. A folder's files all move there, each remembering its path,
     /// and the folders are removed. Lost & Found, and folders containing it, cannot be deleted.
     pub async fn trash_node(&self, owner: UserId, id: NodeId) -> Result<TrashOutcome, DbError> {
-        let mut tx = self.pool().begin().await?;
+        let mut tx = self.begin().await?;
         let node = lock_node(&mut tx, owner, id).await?;
         let folders = special_folders(&mut tx, owner).await?;
         match ensure_not_descendant(&mut tx, owner, id, folders.lost_and_found_id).await {
@@ -105,7 +105,7 @@ impl Db {
         ids: &[NodeId],
         on_conflict: OnConflict,
     ) -> Result<MoveBatch, DbError> {
-        let mut tx = self.pool().begin().await?;
+        let mut tx = self.begin().await?;
         let folders = special_folders(&mut tx, owner).await?;
         let mut unique = ids.to_vec();
         unique.sort_by_key(|id| id.0);
@@ -168,7 +168,7 @@ impl Db {
 
     /// Permanently deletes every binned file; returns the ids whose content is now unused.
     pub async fn empty_trash(&self, owner: UserId) -> Result<DeletedNodes, DbError> {
-        let mut tx = self.pool().begin().await?;
+        let mut tx = self.begin().await?;
         let deleted = delete_binned(&mut tx, owner, None).await?;
         tx.commit().await?;
         Ok(deleted)
@@ -176,7 +176,7 @@ impl Db {
 
     /// Permanently deletes one binned file; `NotFound` when it is not in the bin.
     pub async fn purge_trashed(&self, owner: UserId, id: NodeId) -> Result<DeletedNodes, DbError> {
-        let mut tx = self.pool().begin().await?;
+        let mut tx = self.begin().await?;
         let deleted = delete_binned(&mut tx, owner, Some(id)).await?;
         if deleted.files.is_empty() {
             return Err(DbError::NotFound);

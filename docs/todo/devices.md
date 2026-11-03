@@ -45,23 +45,21 @@ Steps 1 and 2 below (migration `0010_devices.sql`):
   uploads. The desktop keeps its saved upload sessions and continues them after signing in again.
 - **API client.** `Client::with_device`, `devices`, `rename_device`, `sign_out_device`, `uploads`.
 
+Step 3 (migration `0011_change_devices.sql`):
+
+- **Tagged changes.** `node_changes.device_id` records the device behind each change.
+  - API routes write through `state.files.on_device(user.device_id)`. Its transactions set
+    `homespace.device_id` with `set_config(..., true)`, which lasts only for that transaction.
+  - `record_node_change()` reads the setting. Writes without it (no device, background jobs)
+    record `NULL`. The setting reads as `''` once a transaction that set it has ended, so the
+    trigger maps `''` to `NULL`.
+- **`GET /changes`** returns `device_id` on each entry: the device of the node's latest change,
+  since only that one is kept after compaction.
+- **Echo skipping does not use it.** Sync skips a live event when it already holds the node as
+  the event shows it. Skipping by device would be wrong: the desktop's file browser also writes
+  as this device, and sync has not applied those writes yet.
+
 ## Left
-
-### Tagging changes (step 3)
-
-```sql
-ALTER TABLE node_changes ADD COLUMN device_id UUID;   -- no foreign key, like owner_id
-```
-
-- The API runs `SET LOCAL homespace.device_id = '<id>'` in each write transaction.
-  `record_node_change()` reads it with `current_setting('homespace.device_id', true)` and stores
-  it. Writes without it (CLI, background jobs) record `NULL`.
-  - Every write in `db::nodes` has to take the device, and so do `FileService` methods.
-- **`GET /changes`** returns `device_id` with each entry. With journal compaction, only the latest
-  writer of each node is known, which is what "edited on" needs.
-- Echo skipping does not need it, and is done: sync skips a live event when it already holds
-  the node as the event shows it. Skipping by device would be wrong, since the desktop's file
-  browser also writes as this device, and sync has not applied those writes yet.
 
 ### Client features (step 4)
 

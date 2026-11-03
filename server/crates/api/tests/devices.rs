@@ -173,3 +173,29 @@ async fn a_client_that_names_no_device_still_signs_in(pool: PgPool) {
     let own = app.get("/api/v1/uploads?this_device=true", &token).await;
     assert_eq!(own.json(), json!([]));
 }
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn the_change_feed_names_the_device_a_change_came_from(pool: PgPool) {
+    let app = setup(pool).await;
+    let laptop = Uuid::now_v7();
+    let token = sign_in_from(&app, "alice", laptop, "Laptop").await;
+    let start = app.get("/api/v1/changes", &token).await.json()["cursor"].clone();
+    let created = app
+        .json(
+            Method::POST,
+            "/api/v1/folders",
+            Some(&token),
+            json!({ "name": "docs" }),
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::CREATED);
+
+    let changes = app
+        .get(&format!("/api/v1/changes?since={start}"), &token)
+        .await
+        .json();
+
+    let change = &changes["changes"][0];
+    assert_eq!(change["node"]["id"], created.json()["id"]);
+    assert_eq!(change["device_id"], json!(laptop));
+}

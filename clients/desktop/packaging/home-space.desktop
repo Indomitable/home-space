@@ -1,8 +1,19 @@
 [Desktop Entry]
-Type=Application
-Name=Home Space
-Comment=Browse and transfer your home-space files
-Exec=HomeSpace
-Icon=home-space
 Categories=Network;FileTransfer;
+Comment[en_US]=Browse and transfer your Home Space files
+Comment=Browse and transfer your Home Space files
+Exec=HomeSpace
+GenericName[en_US]=
+GenericName=
+Icon=home-space
+MimeType=
+Name[en_US]=Home Space
+Name=Home Space
+Path=
+StartupNotify=true
 StartupWMClass=home-space
+Terminal=false
+TerminalOptions=
+Type=Application
+X-KDE-SubstituteUID=false
+X-KDE-Username=

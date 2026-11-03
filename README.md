@@ -93,7 +93,8 @@ server already has. Unfinished uploads are kept under `<storage>/uploads/`. See
 
 A reverse proxy still needs a body limit of `HOMESPACE_MAX_UPLOAD_BYTES` on `/api/v1/files`
 for single-request uploads and replacements made through the API, and one above the chunk size on
-`/api/v1/uploads`. See [`docs/nginx/example.domain.com.conf`](docs/nginx/example.domain.com.conf).
+`/api/v1/uploads`. With nginx, a regex location for `/api/v1/files/{id}/content` (such as one that
+turns off buffering for downloads) takes over replacements too, so give it the same limit. See [`docs/nginx/example.domain.com.conf`](docs/nginx/example.domain.com.conf).
 
 Sync clients catch up through a journal of changes (`GET /changes?since=<cursor>`). Every day the
 server compacts it to the latest entry of each file and folder, which is all a client reads, so a

@@ -73,6 +73,21 @@ CREATE TABLE group_members (
 - Users: a table with usage bars, filters and row actions (edit, reset password, disable, delete).
 - Groups: a list with member editing.
 
+### Desktop sync ignore list
+
+The desktop client skips some names when it syncs (`IGNORED_NAMES`, `IGNORED_PREFIXES` and
+`IGNORED_SUFFIXES` in `clients/desktop/src/sync/scan.rs`, applied by `is_ignored`). The list is
+hard-coded, so changing it means a new client build.
+
+- Make it a server-side setting that admins edit in the panel: exact names, prefixes and
+  suffixes (later maybe glob patterns), with the current built-in list as the default.
+- `GET /sync/ignore` (any signed-in user) returns the list; `PUT /admin/sync/ignore` replaces it.
+  Clients fetch it at sign-in and on a sync pass, and fall back to the built-in list when the
+  server is unreachable or too old to have the endpoint.
+- Decide what happens to files that are already synced and then match a new rule: leave them
+  as they are on both sides, and only stop treating new matches as changes.
+- Optionally let a user add their own patterns on top, in the desktop app's settings.
+
 ## Order
 
 The admin role and groups come before or together with `sharing.md`, because shares to specific

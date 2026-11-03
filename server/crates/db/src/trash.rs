@@ -15,7 +15,7 @@ pub const LOST_AND_FOUND: &str = "Lost & Found";
 macro_rules! node_columns {
     () => {
         "n.id, n.owner_id, n.parent_id, n.kind, n.name, n.size, n.sha256, n.mime, n.version, \
-         n.created_at, n.updated_at"
+         n.created_at, n.updated_at, n.edited_on"
     };
 }
 

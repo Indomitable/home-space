@@ -1,5 +1,6 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 use crate::NodeId;
 
@@ -31,6 +32,10 @@ pub struct Node {
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
+    /// The device that wrote the content, or created the folder; `None` when it was not a
+    /// registered device, or the server is older.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited_on: Option<Uuid>,
 }
 
 /// A previous version of a file.
@@ -44,6 +49,9 @@ pub struct FileVersion {
     pub modified_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     pub archived_at: OffsetDateTime,
+    /// The device that wrote this content, as for [`Node::edited_on`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited_on: Option<Uuid>,
 }
 
 /// What to do when a file being moved or restored meets a live file of the same name.
@@ -222,6 +230,7 @@ mod tests {
             version: 1,
             created_at: OffsetDateTime::UNIX_EPOCH,
             updated_at: OffsetDateTime::UNIX_EPOCH,
+            edited_on: None,
         };
         let json = serde_json::to_value(&node).expect("json");
         assert_eq!(json["kind"], "file");

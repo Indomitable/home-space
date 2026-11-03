@@ -41,6 +41,8 @@ pub struct Node {
     pub version: i32,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
+    /// The device that wrote the content, or created the folder.
+    pub edited_on: Option<Uuid>,
 }
 
 /// A previous version of a file; its content is stored under its own id.
@@ -55,6 +57,8 @@ pub struct FileVersion {
     pub mime: String,
     pub modified_at: OffsetDateTime,
     pub archived_at: OffsetDateTime,
+    /// The device that wrote this content.
+    pub edited_on: Option<Uuid>,
 }
 
 impl From<FileVersion> for protocol::FileVersion {
@@ -66,6 +70,7 @@ impl From<FileVersion> for protocol::FileVersion {
             mime: version.mime,
             modified_at: version.modified_at,
             archived_at: version.archived_at,
+            edited_on: version.edited_on,
         }
     }
 }
@@ -83,6 +88,7 @@ impl From<Node> for protocol::Node {
             version: node.version,
             created_at: node.created_at,
             updated_at: node.updated_at,
+            edited_on: node.edited_on,
         }
     }
 }
@@ -114,6 +120,7 @@ mod tests {
             version: 1,
             created_at: now,
             updated_at: now,
+            edited_on: None,
         }
     }
 

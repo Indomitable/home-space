@@ -48,7 +48,7 @@ pub enum Outcome {
     Closed,
     Done,
     /// A restore went through; the response says what came back and where to.
-    Restored(MoveResponse),
+    Restored(Box<MoveResponse>),
     Failed,
 }
 
@@ -237,7 +237,7 @@ impl Dialog {
                 Kind::Conflicts {
                     retry: Retry::Restore { .. },
                     ..
-                } => Outcome::Restored(response),
+                } => Outcome::Restored(Box::new(response)),
                 _ => Outcome::Done,
             },
             Message::Placed(Ok(response)) => {
@@ -570,6 +570,7 @@ mod tests {
             version: 1,
             created_at: OffsetDateTime::UNIX_EPOCH,
             updated_at: OffsetDateTime::UNIX_EPOCH,
+            edited_on: None,
         }
     }
 

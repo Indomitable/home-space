@@ -1,12 +1,12 @@
 use api_client::{ApiError, Client};
-use client_core::format::human_size;
+use client_core::{format::human_size, labels::edited_on};
 use iced::widget::stack;
 use iced::widget::text::Wrapping;
 use iced::{
     Alignment, Element, Length,
     widget::{button, column, container, row, scrollable, space, text},
 };
-use protocol::{FileVersion, Node, NodeId, NodeKind};
+use protocol::{Device, FileVersion, Node, NodeId, NodeKind};
 
 use super::Message as BrowserMessage;
 use crate::{
@@ -26,7 +26,7 @@ const FOLDER_LABEL: &str = "Folder";
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Loaded(NodeId, Result<(Node, Vec<FileVersion>), ApiError>),
+    Loaded(NodeId, Result<Loaded, ApiError>),
     Download(i32),
     Downloaded(Result<(), String>),
     AskDelete(i32),
@@ -36,10 +36,19 @@ pub enum Message {
     Close,
 }
 
+/// A node with its previous versions and the devices that may have written them.
+#[derive(Debug, Clone)]
+pub struct Loaded {
+    node: Node,
+    versions: Vec<FileVersion>,
+    devices: Vec<Device>,
+}
+
 /// The details panel of one node.
 pub struct State {
     node: Node,
     versions: Vec<FileVersion>,
+    devices: Vec<Device>,
     confirming: Option<i32>,
     error: Option<String>,
 }
@@ -51,6 +60,7 @@ impl State {
         let state = Self {
             node,
             versions: Vec::new(),
+            devices: Vec::new(),
             confirming: None,
             error: None,
         };
@@ -70,9 +80,10 @@ impl State {
         match message {
             Message::Loaded(id, result) if id == self.node.id => {
                 match result {
-                    Ok((node, versions)) => {
-                        self.node = node;
-                        self.versions = versions;
+                    Ok(loaded) => {
+                        self.node = loaded.node;
+                        self.versions = loaded.versions;
+                        self.devices = loaded.devices;
                         self.error = None;
                     }
                     Err(err) => self.error = Some(err.to_string()),
@@ -144,6 +155,10 @@ impl State {
         facts = facts
             .push(fact("Created", short_date(node.created_at)))
             .push(fact("Modified", short_date(node.updated_at)));
+        if let Some(device) = edited_on(node.edited_on, &self.devices) {
+            let label = if is_file { "Edited on" } else { "Created on" };
+            facts = facts.push(fact(label, device));
+        }
         if let Some(local) = synced_to {
             facts = facts.push(fact("Synced to", local));
         }
@@ -172,14 +187,17 @@ impl State {
         }
         let rows = self.versions.iter().map(|version| {
             let number = version.version;
+            let mut meta = format!(
+                "{} · {}",
+                human_size(version.size),
+                short_date(version.modified_at)
+            );
+            if let Some(device) = edited_on(version.edited_on, &self.devices) {
+                meta = format!("{meta} · {device}");
+            }
             let info = column![
                 text(format!("Version {number}")),
-                text(format!(
-                    "{} · {}",
-                    human_size(version.size),
-                    short_date(version.modified_at)
-                ))
-                .size(META_SIZE),
+                text(meta).size(META_SIZE)
             ];
             let actions: Element<'_, Message> = if self.confirming == Some(number) {
                 row![
@@ -229,7 +247,12 @@ fn load(client: &Client, id: NodeId) -> Task {
                 NodeKind::File => client.versions(id).await?,
                 NodeKind::Folder => Vec::new(),
             };
-            Ok((node, versions))
+            let devices = client.devices().await?;
+            Ok(Loaded {
+                node,
+                versions,
+                devices,
+            })
         },
         move |result| Message::Loaded(id, result),
     )
@@ -268,4 +291,64 @@ async fn save(
     }
     out.flush().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use iced_test::simulator;
+    use time::OffsetDateTime;
+    use uuid::Uuid;
+
+    use protocol::PLATFORM_LINUX;
+
+    use super::*;
+
+    const LAPTOP: u128 = 7;
+
+    fn file() -> Node {
+        Node {
+            id: NodeId(Uuid::from_u128(1)),
+            parent_id: None,
+            kind: NodeKind::File,
+            name: "report.pdf".to_owned(),
+            size: 2048,
+            sha256: None,
+            mime: "application/pdf".to_owned(),
+            version: 2,
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+            edited_on: Some(Uuid::from_u128(LAPTOP)),
+        }
+    }
+
+    fn laptop() -> Device {
+        Device {
+            id: Uuid::from_u128(LAPTOP),
+            name: "Laptop".to_owned(),
+            platform: PLATFORM_LINUX.to_owned(),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            last_seen_at: OffsetDateTime::UNIX_EPOCH,
+            signed_in: true,
+            current: false,
+            uploads: 0,
+        }
+    }
+
+    #[test]
+    fn the_panel_names_the_device_a_file_was_edited_on() {
+        let client = Client::new("http://localhost");
+        let node = file();
+        let (mut state, _task) = State::open(&client, node.clone());
+        let loaded = Loaded {
+            node,
+            versions: Vec::new(),
+            devices: vec![laptop()],
+        };
+        let _ = state.update(&client, Message::Loaded(state.node_id(), Ok(loaded)));
+
+        let mut ui = simulator(state.view(None));
+
+        assert!(ui.find("Edited on").is_ok());
+        assert!(ui.find("Laptop").is_ok());
+    }
 }

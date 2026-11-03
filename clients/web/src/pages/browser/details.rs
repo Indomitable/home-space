@@ -1,21 +1,34 @@
 use leptos::{prelude::*, task::spawn_local};
 
 use api_client::ApiError;
-use client_core::format::human_size;
-use protocol::{Event, FileVersion, Node, NodeId, NodeKind, TicketRequest};
+use client_core::{format::human_size, labels::edited_on};
+use protocol::{Device, Event, FileVersion, Node, NodeId, NodeKind, TicketRequest};
 
 use crate::{components::ErrorAlert, events, icon::Icon, load, locale::short_date, session};
 
 const FOLDER_LABEL: &str = "Folder";
 
-async fn fetch(id: NodeId) -> Result<(Node, Vec<FileVersion>), ApiError> {
+/// A node with its previous versions and the devices that may have written them.
+#[derive(Clone)]
+struct Loaded {
+    node: Node,
+    versions: Vec<FileVersion>,
+    devices: Vec<Device>,
+}
+
+async fn fetch(id: NodeId) -> Result<Loaded, ApiError> {
     let client = session::client();
     let node = client.get(id).await?;
     let versions = match node.kind {
         NodeKind::File => client.versions(id).await?,
         NodeKind::Folder => Vec::new(),
     };
-    Ok((node, versions))
+    let devices = client.devices().await?;
+    Ok(Loaded {
+        node,
+        versions,
+        devices,
+    })
 }
 
 /// A panel beside the listing with the details of one node and the previous versions of a file.
@@ -25,7 +38,7 @@ pub fn DetailsPanel(
     details: RwSignal<Option<NodeId>>,
     auth: session::Auth,
 ) -> impl IntoView {
-    let state = RwSignal::new(None::<(Node, Vec<FileVersion>)>);
+    let state = RwSignal::new(None::<Loaded>);
     let error = RwSignal::new(None::<String>);
     let confirming = RwSignal::new(None::<i32>);
 
@@ -81,7 +94,7 @@ pub fn DetailsPanel(
         <aside class="details" aria-label="Details">
             <header class="details__header">
                 <h2 class="details__title">
-                    {move || state.read().as_ref().map(|(node, _)| node.name.clone())}
+                    {move || state.read().as_ref().map(|loaded| loaded.node.name.clone())}
                 </h2>
                 <button
                     class="button button--ghost button--small details__close-button"
@@ -95,8 +108,10 @@ pub fn DetailsPanel(
             {move || {
                 state
                     .get()
-                    .map(|(node, versions)| {
+                    .map(|Loaded { node, versions, devices }| {
                         let is_file = node.kind == NodeKind::File;
+                        let device = edited_on(node.edited_on, &devices);
+                        let device_label = if is_file { "Edited on" } else { "Created on" };
                         let kind = if is_file { node.mime.clone() } else { FOLDER_LABEL.to_owned() };
                         view! {
                             <dl class="details__list">
@@ -115,6 +130,13 @@ pub fn DetailsPanel(
                                 <dd>{short_date(node.created_at)}</dd>
                                 <dt>"Modified"</dt>
                                 <dd>{short_date(node.updated_at)}</dd>
+                                {device
+                                    .map(|device| {
+                                        view! {
+                                            <dt>{device_label}</dt>
+                                            <dd>{device}</dd>
+                                        }
+                                    })}
                             </dl>
                             {is_file
                                 .then(|| {
@@ -132,9 +154,11 @@ pub fn DetailsPanel(
                                                         {versions
                                                             .into_iter()
                                                             .map(|version| {
+                                                                let device = edited_on(version.edited_on, &devices);
                                                                 view! {
                                                                     <VersionRow
                                                                         version
+                                                                        device
                                                                         confirming
                                                                         on_download=Callback::new(download)
                                                                         on_delete=Callback::new(delete)
@@ -159,6 +183,8 @@ pub fn DetailsPanel(
 #[component]
 fn VersionRow(
     version: FileVersion,
+    /// The device that wrote the version, if known.
+    device: Option<String>,
     confirming: RwSignal<Option<i32>>,
     on_download: Callback<i32>,
     on_delete: Callback<i32>,
@@ -170,7 +196,17 @@ fn VersionRow(
             <div class="details__version-info">
                 <span class="details__version-number">{format!("Version {number}")}</span>
                 <span class="details__version-meta">
-                    {format!("{} · {}", human_size(version.size), short_date(version.modified_at))}
+                    {
+                        let meta = format!(
+                            "{} · {}",
+                            human_size(version.size),
+                            short_date(version.modified_at),
+                        );
+                        match device {
+                            Some(device) => format!("{meta} · {device}"),
+                            None => meta,
+                        }
+                    }
                 </span>
             </div>
             <div class="details__version-actions">

@@ -30,6 +30,7 @@ fn node(name: &str, kind: NodeKind, raw: u128) -> Node {
         version: 1,
         created_at: OffsetDateTime::UNIX_EPOCH,
         updated_at: OffsetDateTime::UNIX_EPOCH,
+        edited_on: None,
     }
 }
 
@@ -474,7 +475,9 @@ fn restore_clashes_open_the_conflicts_dialog() {
         ..protocol::MoveResponse::default()
     };
 
-    let _ = state.update(Message::Trash(trash::Message::Restored(Ok(response))));
+    let _ = state.update(Message::Trash(trash::Message::Restored(Ok(Box::new(
+        response,
+    )))));
 
     assert!(state.dialog.is_some());
 }

@@ -8,4 +8,4 @@ Future improvements. Each item links to its write-up in [`todo/`](todo/).
 | Medium | L | [Android app (Kotlin, Compose): upload tracked phone folders to the server](todo/android-app.md) |
 | Medium | L | [Administration panel: users, password resets, quotas, groups](todo/admin-panel.md) |
 | Medium | M | [Optional upload limit, free-space check and storage usage in the UI](todo/storage-limits.md) |
-| Medium | M | [Registered devices: "edited on", Android (registration, tagged changes and device list done)](todo/devices.md) |
+| Medium | M | [Registered devices: Android (registration, tagged changes, device list and "edited on" done)](todo/devices.md) |

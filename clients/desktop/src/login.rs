@@ -3,7 +3,12 @@ use std::time::Duration;
 use api_client::{ApiError, Client};
 use iced::widget::container::bordered_box;
 use iced::widget::{row, space};
-use iced::{keyboard::{self, Key, key::Named}, task, widget::{button, column, container, operation, text, text_input}, Alignment, Element, Length, Subscription, Task, Padding};
+use iced::{
+    Alignment, Element, Length, Padding, Subscription, Task,
+    keyboard::{self, Key, key::Named},
+    task,
+    widget::{button, column, container, operation, text, text_input},
+};
 use protocol::{Me, Providers};
 
 use crate::{
@@ -15,7 +20,12 @@ const DEFAULT_SERVER: &str = "http://127.0.0.1:8080";
 const FORM_WIDTH: f32 = 360.0;
 const FORM_SPACING: f32 = 12.0;
 const FORM_PADDING: f32 = 24.0;
-const INPUT_PADDING: Padding = Padding { top: 8.0, left: 8.0, bottom: 8.0, right: 8.0 };
+const INPUT_PADDING: Padding = Padding {
+    top: 8.0,
+    left: 8.0,
+    bottom: 8.0,
+    right: 8.0,
+};
 const BUTTON_HEIGHT: Length = Length::Fixed(40.0);
 const RESUME_FAILED: &str = "Could not resume the session";
 /// How long the server field must rest before the server is asked how users sign in.

@@ -66,20 +66,23 @@ pub fn is_ignored(name: &str) -> bool {
 /// the recorded hash. Other files are hashed, several at a time, when the plan needs the
 /// hash: something is recorded or on the server (`remote`) at their path, or they may be a
 /// recorded file moved here, having the size of one gone from its path. The rest are new
-/// and left `unhashed` for the upload. Symbolic links are not followed or synced. Once
+/// and left `unhashed` for the upload. Files under the `rehashed` folders never keep a
+/// recorded hash, so content changed without a change of size or modification time is
+/// found too. Symbolic links are not followed or synced. Once
 /// `stop` is set the scan gives up, leaving every root blind.
 pub fn scan(
     roots: &[PathBuf],
     skipped: &HashSet<PathBuf>,
     known: &HashMap<PathBuf, Base>,
     remote: &HashSet<PathBuf>,
+    rehashed: &[PathBuf],
     stop: &AtomicBool,
 ) -> Scan {
     let stopped = || Scan {
         blind: roots.to_vec(),
         ..Scan::default()
     };
-    let Some(mut scan) = walk(roots, skipped, known, stop) else {
+    let Some(mut scan) = walk(roots, skipped, known, rehashed, stop) else {
         return stopped();
     };
     let gone_sizes: HashSet<u64> = known
@@ -158,12 +161,13 @@ fn hash_all(paths: Vec<PathBuf>, stop: &AtomicBool) -> Vec<(PathBuf, io::Result<
     })
 }
 
-/// Lists the entries under `roots`, leaving files without a recorded hash `unhashed`;
-/// `None` once `stop` is set.
+/// Lists the entries under `roots`, leaving files without a recorded hash, or under the
+/// `rehashed` folders, `unhashed`; `None` once `stop` is set.
 fn walk(
     roots: &[PathBuf],
     skipped: &HashSet<PathBuf>,
     known: &HashMap<PathBuf, Base>,
+    rehashed: &[PathBuf],
     stop: &AtomicBool,
 ) -> Option<Scan> {
     let mut scan = Scan::default();
@@ -209,7 +213,10 @@ fn walk(
                     scan.entries.insert(path.clone(), LocalEntry::folder());
                     pending.push(path);
                 } else if meta.is_file() {
-                    let entry = file_entry(&meta, known.get(&path));
+                    let recorded = known
+                        .get(&path)
+                        .filter(|_| !rehashed.iter().any(|folder| path.starts_with(folder)));
+                    let entry = file_entry(&meta, recorded);
                     scan.entries.insert(path, entry);
                 }
             }
@@ -292,6 +299,7 @@ mod tests {
             &skipped,
             &HashMap::new(),
             &remote,
+            &[],
             &AtomicBool::new(false),
         );
 
@@ -332,6 +340,7 @@ mod tests {
             &HashSet::new(),
             &known,
             &HashSet::new(),
+            &[],
             &AtomicBool::new(false),
         );
 
@@ -359,6 +368,7 @@ mod tests {
             &HashSet::new(),
             &HashMap::new(),
             &remote,
+            &[],
             &AtomicBool::new(false),
         );
 
@@ -393,10 +403,42 @@ mod tests {
             &HashSet::new(),
             &known,
             &HashSet::new(),
+            &[],
             &AtomicBool::new(false),
         );
 
         assert_eq!(scan.entries[&path].sha256.as_deref(), Some("recorded"));
+    }
+
+    #[test]
+    fn a_rehashed_folder_ignores_the_recorded_hash() {
+        let dir = TempDir::new("rehashed");
+        let path = dir.0.join("a.txt");
+        fs::write(&path, "hello").expect("a");
+        let meta = fs::metadata(&path).expect("meta");
+        let base = Base {
+            node: crate::sync::layout::tests::id(1),
+            path: path.clone(),
+            kind: NodeKind::File,
+            sha256: Some("recorded".to_owned()),
+            size: meta.len(),
+            mtime: nanos(meta.modified().expect("mtime")),
+        };
+        let known = HashMap::from([(path.clone(), base)]);
+
+        let scan = scan(
+            std::slice::from_ref(&dir.0),
+            &HashSet::new(),
+            &known,
+            &HashSet::new(),
+            std::slice::from_ref(&dir.0),
+            &AtomicBool::new(false),
+        );
+
+        assert_eq!(
+            scan.entries[&path].sha256.as_deref(),
+            Some("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+        );
     }
 
     #[test]
@@ -407,6 +449,7 @@ mod tests {
             &HashSet::new(),
             &HashMap::new(),
             &HashSet::new(),
+            &[],
             &AtomicBool::new(false),
         );
         assert!(scan.entries.is_empty());
@@ -423,6 +466,7 @@ mod tests {
             &HashSet::new(),
             &HashMap::new(),
             &HashSet::new(),
+            &[],
             &AtomicBool::new(true),
         );
 

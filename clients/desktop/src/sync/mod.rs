@@ -126,6 +126,8 @@ pub struct Status {
     pub activity: Activity,
     /// Everything with work ahead, then what failed.
     pub queue: Vec<Item>,
+    /// Synced folders whose next pass reads everything again, trusting no cache.
+    pub verifying: HashSet<Option<NodeId>>,
 }
 
 impl Status {
@@ -147,6 +149,11 @@ impl Status {
     /// The queue in numbers.
     pub fn summary(&self) -> Summary {
         queue::summarize(&self.queue)
+    }
+
+    /// Whether the folder `node` waits for, or is in, a verifying pass.
+    pub fn is_verifying(&self, node: Option<NodeId>) -> bool {
+        self.verifying.contains(&node)
     }
 
     /// The mapping set on `node` itself, if any.
@@ -190,6 +197,10 @@ pub enum Command {
     RemoteChanged(Event),
     /// Tries the failed paths again now: these ones, or all of them with `None`.
     Retry(Option<Vec<PathBuf>>),
+    /// Reads the synced folder `node` (`None` for Home) from scratch on both sides: the
+    /// server's tree again, and every local file hashed again, catching what the caches
+    /// missed.
+    Verify(Option<NodeId>),
 }
 
 /// Sends commands to the running engine.
@@ -314,6 +325,8 @@ struct Engine {
     mappings: Vec<Mapping>,
     /// Set when the mapped folders must be read from scratch.
     reload: bool,
+    /// Synced folders whose local files are hashed again on the next scan.
+    verify: HashSet<Option<NodeId>>,
     problems: HashMap<PathBuf, Problem>,
     /// Set while the server cannot be reached.
     outage: Option<Outage>,
@@ -351,6 +364,7 @@ impl Engine {
             client,
             mappings: store.mappings()?,
             reload: mirror.cursor.is_none(),
+            verify: HashSet::new(),
             mirror,
             store: Arc::new(store),
             problems: HashMap::new(),
@@ -397,6 +411,13 @@ impl Engine {
                 self.outage = None;
                 false
             }
+            Command::Verify(remote) => {
+                if self.synced_root(remote).is_some() {
+                    self.verify.insert(remote);
+                    self.reload = true;
+                }
+                false
+            }
             Command::Map(mapping) => {
                 if let Some(local) = &mapping.local {
                     let others: Vec<&Path> = self
@@ -426,9 +447,18 @@ impl Engine {
                     return false;
                 }
                 self.mappings.retain(|m| m.remote != remote);
+                self.verify.remove(&remote);
                 true
             }
         }
+    }
+
+    /// Where the folder `remote` syncs to, if it does.
+    fn synced_root(&self, remote: Option<NodeId>) -> Option<&Path> {
+        self.mappings
+            .iter()
+            .find(|m| m.remote == remote)
+            .and_then(|m| m.local.as_deref())
     }
 
     /// Brings everything mapped in sync once; returns when the next pass is due unless
@@ -481,6 +511,7 @@ impl Engine {
             // A command cut the scan short; it is handled first, then the pass starts over.
             return Ok(Some(Duration::ZERO));
         };
+        self.verify.clear();
         self.unreadable = self.faults_of(&scan.unreadable);
         let now = Instant::now();
         let planned = plan::plan(&layout, &scan, &bases);
@@ -528,6 +559,12 @@ impl Engine {
     ) -> Option<Scan> {
         let roots = layout.roots.clone();
         let skipped = layout.skipped.clone();
+        let rehashed: Vec<PathBuf> = self
+            .verify
+            .iter()
+            .filter_map(|&remote| self.synced_root(remote))
+            .map(Path::to_path_buf)
+            .collect();
         let known = bases
             .iter()
             .map(|base| (base.path.clone(), base.clone()))
@@ -535,7 +572,7 @@ impl Engine {
         let remote = layout.entries.keys().cloned().collect();
         let stop = Arc::clone(&self.stop);
         let mut task = tokio::task::spawn_blocking(move || {
-            scan::scan(&roots, &skipped, &known, &remote, &stop)
+            scan::scan(&roots, &skipped, &known, &remote, &rehashed, &stop)
         });
         let blind = || Scan {
             blind: layout.roots.clone(),
@@ -893,6 +930,7 @@ impl Engine {
             outage: self.outage.clone(),
             activity: self.activity,
             queue,
+            verifying: self.verify.clone(),
         };
         let _ = output.send(Update::Status(Arc::new(status))).await;
     }
@@ -1075,5 +1113,54 @@ mod tests {
         assert!(due(&chosen));
         assert!(!due(Path::new("/sync/b")));
         assert!(engine.outage.is_none());
+    }
+
+    async fn mapped_engine() -> (Engine, Sender<Update>) {
+        let mut engine = engine();
+        let (mut output, _updates) = iced::futures::channel::mpsc::channel(4);
+        engine
+            .handle(
+                Command::Map(Mapping {
+                    remote: None,
+                    local: Some(PathBuf::from("/sync")),
+                }),
+                &mut output,
+            )
+            .await;
+        engine.reload = false;
+        (engine, output)
+    }
+
+    #[tokio::test]
+    async fn verify_reads_the_server_again_and_rehashes_the_folder() {
+        let (mut engine, mut output) = mapped_engine().await;
+
+        engine.handle(Command::Verify(None), &mut output).await;
+
+        assert!(engine.reload);
+        assert!(engine.verify.contains(&None));
+    }
+
+    #[tokio::test]
+    async fn verify_of_a_folder_not_synced_does_nothing() {
+        let (mut engine, mut output) = mapped_engine().await;
+        let other = NodeId::from(uuid::Uuid::from_u128(7));
+
+        engine
+            .handle(Command::Verify(Some(other)), &mut output)
+            .await;
+
+        assert!(!engine.reload);
+        assert!(engine.verify.is_empty());
+    }
+
+    #[tokio::test]
+    async fn unmapping_drops_a_pending_verify() {
+        let (mut engine, mut output) = mapped_engine().await;
+        engine.handle(Command::Verify(None), &mut output).await;
+
+        engine.handle(Command::Unmap(None), &mut output).await;
+
+        assert!(engine.verify.is_empty());
     }
 }

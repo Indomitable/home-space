@@ -86,7 +86,8 @@ pub enum Message {
 
 pub enum Update {
     Task(Task<Message>),
-    SignedOut,
+    /// Signed out of `server`, which the login screen offers again.
+    SignedOut { server: String },
 }
 
 /// A popup menu and what it hangs from.
@@ -153,7 +154,9 @@ impl State {
 
     pub fn update(&mut self, message: Message) -> Update {
         match message {
-            Message::SignedOut => Update::SignedOut,
+            Message::SignedOut => Update::SignedOut {
+                server: self.client.base_url().to_owned(),
+            },
             message => {
                 let task = self.handle(message);
                 Update::Task(Task::batch([task, self.follow_selection()]))

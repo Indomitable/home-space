@@ -31,8 +31,8 @@ impl App {
             },
             (Self::Browser(state), Message::Browser(message)) => match state.update(message) {
                 browser::Update::Task(task) => task.map(Message::Browser),
-                browser::Update::SignedOut => {
-                    let (state, task) = login::State::signed_out();
+                browser::Update::SignedOut { server } => {
+                    let (state, task) = login::State::signed_out(server);
                     *self = Self::Login(state);
                     task.map(Message::Login)
                 }

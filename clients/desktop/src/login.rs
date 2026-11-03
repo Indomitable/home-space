@@ -105,9 +105,12 @@ impl State {
         )
     }
 
-    /// The login screen after signing out.
-    pub fn signed_out() -> (Self, Task<Message>) {
-        let mut state = Self::default();
+    /// The login screen after signing out of `server`, which it offers again.
+    pub fn signed_out(server: String) -> (Self, Task<Message>) {
+        let mut state = Self {
+            server,
+            ..Self::default()
+        };
         let task = state.schedule_probe();
         (state, task)
     }
@@ -413,10 +416,11 @@ mod tests {
 
     #[test]
     fn the_login_screen_after_signing_out_asks_the_server_how_to_sign_in() {
-        let (state, _task) = State::signed_out();
+        let (state, _task) = State::signed_out(SAVED_SERVER.to_owned());
 
         assert_eq!(state.probe, 1);
         assert!(state.first_probe_pending);
+        assert_eq!(state.server, SAVED_SERVER);
     }
 
     #[test]

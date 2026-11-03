@@ -95,6 +95,11 @@ impl Client {
         &self.http
     }
 
+    /// The server this client talks to (no trailing slash).
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     /// Absolute URL for a server path.
     pub fn url(&self, path: &str) -> String {
         format!("{}{path}", self.base_url)

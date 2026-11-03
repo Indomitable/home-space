@@ -1,6 +1,7 @@
 mod anchor;
 mod context_menu;
 mod details;
+mod devices;
 mod dialogs;
 mod files;
 mod folder;
@@ -65,6 +66,8 @@ pub enum Message {
     OpenTrash,
     Trash(trash::Message),
     OpenSyncQueue,
+    OpenDevices,
+    Devices(devices::Message),
     Transfer(transfers::Message),
     Shortcut(Shortcut),
     Modifiers(Modifiers),
@@ -99,6 +102,8 @@ enum Page {
     Trash(Box<trash::State>),
     /// What the sync has left to do.
     SyncQueue,
+    /// The user's devices.
+    Devices(Box<devices::State>),
 }
 
 pub struct State {
@@ -242,6 +247,8 @@ impl State {
             Message::OpenTrash => self.open_trash(),
             Message::Trash(message) => self.trash_update(message),
             Message::OpenSyncQueue => self.open_sync_queue(),
+            Message::OpenDevices => self.open_devices(),
+            Message::Devices(message) => self.devices_update(message),
             Message::Transfer(message) => {
                 let reload = matches!(message, transfers::Message::BatchDone(Direction::Upload));
                 let task = self
@@ -361,8 +368,8 @@ impl State {
             || self.folder.parent().is_some()
     }
 
-    /// Leaves the search, the recycle bin or the sync queue; in a folder, goes to the one a breadcrumb jump left
-    /// or else to the parent.
+    /// Leaves the search or another page, such as the recycle bin; in a folder, goes to the one
+    /// a breadcrumb jump left or else to the parent.
     fn back(&mut self) -> Task<Message> {
         if self.search.is_active() {
             self.search.clear();
@@ -401,6 +408,25 @@ impl State {
         Task::none()
     }
 
+    fn open_devices(&mut self) -> Task<Message> {
+        self.search.clear();
+        self.folder.error = None;
+        self.details = None;
+        self.menu = None;
+        self.folder.selection.clear();
+        let mut devices = devices::State::open();
+        let task = devices.load(&self.client);
+        self.page = Page::Devices(Box::new(devices));
+        task.map(Message::Devices)
+    }
+
+    fn devices_update(&mut self, message: devices::Message) -> Task<Message> {
+        match &mut self.page {
+            Page::Devices(devices) => devices.update(&self.client, message).map(Message::Devices),
+            _ => Task::none(),
+        }
+    }
+
     fn trash_update(&mut self, message: trash::Message) -> Task<Message> {
         let Page::Trash(trash) = &mut self.page else {
             return Task::none();
@@ -423,6 +449,7 @@ impl State {
     fn reload(&mut self) -> Task<Message> {
         match &mut self.page {
             Page::Trash(trash) => trash.load(&self.client).map(Message::Trash),
+            Page::Devices(devices) => devices.load(&self.client).map(Message::Devices),
             Page::Folder | Page::SyncQueue => self.folder.reload(&self.client),
         }
     }
@@ -563,6 +590,17 @@ impl State {
                 _ => {}
             }
             Task::none()
+        } else if let Page::Devices(devices) = &mut self.page {
+            match shortcut {
+                Shortcut::Escape if devices.is_asking() => {
+                    self.devices_update(devices::Message::Cancel)
+                }
+                Shortcut::Refresh => self.reload(),
+                Shortcut::Escape | Shortcut::Back | Shortcut::Parent => {
+                    self.open_folder(self.folder.id)
+                }
+                _ => Task::none(),
+            }
         } else if matches!(self.page, Page::SyncQueue) {
             match shortcut {
                 Shortcut::Escape | Shortcut::Back | Shortcut::Parent => {

@@ -27,7 +27,9 @@ pub fn AppBar(auth: Auth) -> impl IntoView {
                 <Icon name="recycling" />
                 <span class="label">"Recycle bin"</span>
             </A>
-            <span class="app-bar__user">{move || auth.user.get().map(|user| user.username)}</span>
+            <A href=route::DEVICES_PATH attr:class="app-bar__user" attr:title="Your devices">
+                {move || auth.user.get().map(|user| user.username)}
+            </A>
             <button
                 class="button button--ghost"
                 aria-label="Log out"

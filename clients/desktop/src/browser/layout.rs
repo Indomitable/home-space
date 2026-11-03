@@ -36,6 +36,7 @@ const SEARCH_PLACEHOLDER: &str = "Search files and folders";
 const DROP_PADDING: f32 = 32.0;
 const TRASH: &str = "Recycle bin";
 const SYNC_QUEUE: &str = "Sync queue";
+const DEVICES: &str = "Devices";
 const CRUMB_SEPARATOR: &str = "›";
 const CRUMB_OVERFLOW: &str = "…";
 
@@ -105,6 +106,13 @@ impl State {
                     header,
                     trail(crumb(SYNC_QUEUE, Message::OpenSyncQueue)),
                     sync_queue::view(self.syncing.status())
+                ]
+                .spacing(SPACING)
+                .into(),
+                Page::Devices(devices) => column![
+                    header,
+                    trail(crumb(DEVICES, Message::OpenDevices)),
+                    devices.view().map(Message::Devices)
                 ]
                 .spacing(SPACING)
                 .into(),

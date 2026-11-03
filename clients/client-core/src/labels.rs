@@ -1,4 +1,6 @@
-use protocol::Node;
+use protocol::{
+    Device, Node, PLATFORM_ANDROID, PLATFORM_LINUX, PLATFORM_MACOS, PLATFORM_WEB, PLATFORM_WINDOWS,
+};
 use time::OffsetDateTime;
 
 use crate::format::human_size;
@@ -9,7 +11,50 @@ pub const HOME: &str = "Home";
 /// The name of the folder that receives restored files whose folder is gone.
 pub const LOST_AND_FOUND: &str = "Lost & Found";
 
+/// Marks the device the list is shown on.
+pub const THIS_DEVICE: &str = "This device";
+
 const LOCATION_SEPARATOR: &str = " / ";
+const PLATFORMS: [(&str, &str); 5] = [
+    (PLATFORM_LINUX, "Linux"),
+    (PLATFORM_MACOS, "macOS"),
+    (PLATFORM_WINDOWS, "Windows"),
+    (PLATFORM_WEB, "Web browser"),
+    (PLATFORM_ANDROID, "Android"),
+];
+
+/// What a device runs, e.g. `macOS`; a platform this client does not know is shown as is.
+pub fn platform(platform: &str) -> &str {
+    PLATFORMS
+        .iter()
+        .find(|(known, _)| *known == platform)
+        .map_or(platform, |(_, label)| label)
+}
+
+/// Whether a device is signed in, and what it left unfinished, e.g.
+/// `Signed in · 2 unfinished uploads`.
+pub fn device_state(device: &Device) -> String {
+    let state = if device.signed_in {
+        "Signed in"
+    } else {
+        "Signed out"
+    };
+    match device.uploads {
+        0 => state.to_owned(),
+        1 => format!("{state} · 1 unfinished upload"),
+        count => format!("{state} · {count} unfinished uploads"),
+    }
+}
+
+/// The question asked before signing `device` out, saying what it cancels.
+pub fn sign_out_question(device: &Device) -> String {
+    let name = device.name.as_str();
+    match device.uploads {
+        0 => format!("Sign out “{name}”?"),
+        1 => format!("Sign out “{name}” and cancel its unfinished upload?"),
+        count => format!("Sign out “{name}” and cancel its {count} unfinished uploads?"),
+    }
+}
 
 /// Where a search hit lives, e.g. `Home / Photos / 2026`.
 pub fn location_label(location: &[String]) -> String {
@@ -47,6 +92,47 @@ mod tests {
         assert_eq!(
             location_label(&["a".to_owned(), "b".to_owned()]),
             "Home / a / b"
+        );
+    }
+
+    fn device(signed_in: bool, uploads: i64) -> Device {
+        Device {
+            id: uuid::Uuid::nil(),
+            name: "Laptop".to_owned(),
+            platform: PLATFORM_LINUX.to_owned(),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            last_seen_at: OffsetDateTime::UNIX_EPOCH,
+            signed_in,
+            current: false,
+            uploads,
+        }
+    }
+
+    #[test]
+    fn known_platforms_get_a_name_and_others_are_shown_as_is() {
+        assert_eq!(platform(PLATFORM_MACOS), "macOS");
+        assert_eq!(platform("desktop"), "desktop");
+    }
+
+    #[test]
+    fn the_device_state_counts_unfinished_uploads() {
+        assert_eq!(device_state(&device(true, 0)), "Signed in");
+        assert_eq!(
+            device_state(&device(false, 1)),
+            "Signed out · 1 unfinished upload"
+        );
+        assert_eq!(
+            device_state(&device(true, 3)),
+            "Signed in · 3 unfinished uploads"
+        );
+    }
+
+    #[test]
+    fn signing_out_says_what_it_cancels() {
+        assert_eq!(sign_out_question(&device(true, 0)), "Sign out “Laptop”?");
+        assert_eq!(
+            sign_out_question(&device(true, 2)),
+            "Sign out “Laptop” and cancel its 2 unfinished uploads?"
         );
     }
 

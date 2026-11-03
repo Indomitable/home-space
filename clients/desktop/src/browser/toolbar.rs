@@ -167,6 +167,7 @@ pub fn view<'a>(
             vec![
                 Tool::new(Icon::Sync, "Sync queue", "", Some(Message::OpenSyncQueue)),
                 Tool::new(Icon::Recycling, "Recycle bin", "", Some(Message::OpenTrash)),
+                Tool::new(Icon::Devices, "Devices", "", Some(Message::OpenDevices)),
             ],
         )
     } else {

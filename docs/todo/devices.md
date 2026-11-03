@@ -59,17 +59,26 @@ Step 3 (migration `0011_change_devices.sql`):
   the event shows it. Skipping by device would be wrong: the desktop's file browser also writes
   as this device, and sync has not applied those writes yet.
 
+Step 4, the device list in the clients:
+
+- **Desktop.** A Devices page, from the toolbar next to the recycle bin. It lists each device
+  with its platform, when it was last seen, whether it is signed in and its unfinished uploads.
+  A device can be renamed in place; signing one out asks first and says how many uploads it
+  cancels. This device is marked and signs out with the header's Sign out instead.
+- **Web.** The same list at `/devices`, opened from the username in the app bar.
+- **Shared labels.** `client_core::labels` names the platforms and words the device state and
+  the sign-out question for both clients.
+- **macOS name.** The desktop names itself after `scutil --get ComputerName`, since macOS has
+  no `/etc/hostname` and does not export `HOSTNAME`.
+
 ## Left
 
-### Client features (step 4)
-
-- **Desktop.**
-  - A Devices section in settings: the list, rename, sign out.
-  - Conflict copies are named after the other device ("report (Laptop).docx").
-  - On macOS the host name falls back to "Desktop", since neither `/etc/hostname` nor `HOSTNAME`
-    is there. Read the computer name instead.
-- **Web.** The same Devices list, on an account page, which the web client does not have yet.
+- **"Edited on Laptop".** The change journal knows the device of each node's latest change, but
+  nodes do not carry it. Showing it in the details panel needs the device on `Node` (or a lookup
+  of the journal), and the device names.
 - **Android.** Registers on first sign-in, so its uploads show as "from Phone".
+- Conflict copies named after the other device do not apply: sync keeps no conflict copies,
+  the server keeps the losing content as a version.
 
 ## Not in scope
 

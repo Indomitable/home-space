@@ -1,0 +1,11 @@
+.device-kind {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+  font-weight: 400;
+}
+
+@media (width < 640px) {
+  .device-kind {
+    display: none;
+  }
+}

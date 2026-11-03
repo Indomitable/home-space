@@ -500,6 +500,29 @@ fn waiting_upload(name: &str) -> crate::sync::Item {
 }
 
 #[test]
+fn the_toolbar_opens_the_devices() {
+    let state = state_with_listing();
+    let mut ui = simulator(state.view());
+
+    ui.click("Devices").expect("the entry is shown");
+
+    let messages: Vec<_> = ui.into_messages().collect();
+    assert!(matches!(messages.as_slice(), [Message::OpenDevices]));
+}
+
+#[test]
+fn opening_the_devices_loads_them_and_escape_leaves() {
+    let mut state = state_with_listing();
+
+    let update = state.update(Message::OpenDevices);
+    assert!(matches!(update, Update::Task(task) if task.units() > 0));
+    assert!(matches!(state.page, Page::Devices(_)));
+
+    let _ = state.update(Message::Shortcut(Shortcut::Escape));
+    assert!(matches!(state.page, Page::Folder));
+}
+
+#[test]
 fn the_toolbar_offers_the_sync_queue_next_to_the_recycle_bin() {
     let state = state_with_listing();
     let mut ui = simulator(state.view());

@@ -626,3 +626,88 @@ fn a_waiting_file_in_another_folder_is_not_listed_here() {
     let mut ui = simulator(state.view());
     assert!(ui.find("new.txt").is_err());
 }
+
+fn with_synced_file(state: &mut State, raw: u128, path: PathBuf) {
+    let status = crate::sync::Status {
+        files: std::collections::HashMap::from([(id(raw), path)]),
+        ..crate::sync::Status::default()
+    };
+    let update = crate::sync::Update::Status(std::sync::Arc::new(status));
+    let _ = state.update(Message::Sync(syncing::Message::Engine(update)));
+}
+
+#[test]
+fn a_synced_file_on_disk_has_a_local_copy() {
+    let mut state = state_with_listing();
+    let dir = std::env::temp_dir().join(format!("home-space-test-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("temp dir is created");
+    let path = dir.join(FILE_NAME);
+    std::fs::write(&path, b"pdf").expect("temp file is written");
+    with_synced_file(&mut state, FILE_ID, path.clone());
+
+    let file = state
+        .folder
+        .node(id(FILE_ID))
+        .cloned()
+        .expect("file is listed");
+    let local = state.local_copy(&file);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert_eq!(local, Some(path));
+}
+
+#[test]
+fn a_synced_file_not_yet_on_disk_has_no_local_copy() {
+    let mut state = state_with_listing();
+    let path = std::env::temp_dir().join(format!("home-space-missing-{}", Uuid::new_v4()));
+    with_synced_file(&mut state, FILE_ID, path);
+
+    let file = state
+        .folder
+        .node(id(FILE_ID))
+        .cloned()
+        .expect("file is listed");
+
+    assert_eq!(state.local_copy(&file), None);
+}
+
+#[test]
+fn an_unsynced_file_has_no_local_copy() {
+    let state = state_with_listing();
+    let file = state
+        .folder
+        .node(id(FILE_ID))
+        .cloned()
+        .expect("file is listed");
+
+    assert_eq!(state.local_copy(&file), None);
+}
+
+#[test]
+fn double_clicking_an_unsynced_file_stays_in_the_folder() {
+    let mut state = state_with_listing();
+
+    let _ = state.update(Message::Click(id(FILE_ID)));
+    let _ = state.update(Message::Click(id(FILE_ID)));
+
+    assert_eq!(state.folder.id, None);
+    assert!(state.folder.error.is_none());
+}
+
+#[test]
+fn the_context_menu_of_a_file_offers_open() {
+    let mut state = state_with_listing();
+    let _ = state.update(Message::ContextMenu(
+        id(FILE_ID),
+        context_menu::Placement::cursor(Point::ORIGIN),
+    ));
+    let mut ui = simulator(state.view());
+
+    ui.click("Open").expect("open is shown");
+
+    let messages: Vec<_> = ui.into_messages().collect();
+    assert!(matches!(
+        messages.as_slice(),
+        [Message::Act(Action::OpenFile)]
+    ));
+}

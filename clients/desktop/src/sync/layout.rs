@@ -92,6 +92,15 @@ impl Layout {
         }
     }
 
+    /// The local path of each synced file.
+    pub fn files(&self) -> HashMap<NodeId, PathBuf> {
+        self.entries
+            .iter()
+            .filter(|(_, node)| node.kind == NodeKind::File)
+            .map(|(path, node)| (node.id, path.clone()))
+            .collect()
+    }
+
     /// Whether `path` is synced: under a mapping's folder and not left out of it.
     pub fn covers(&self, path: &Path) -> bool {
         self.roots
@@ -169,6 +178,15 @@ pub(super) mod tests {
         assert_eq!(layout.paths[&id(6)], Path::new("/sync/Photos/Raw/r.raw"));
         assert_eq!(layout.folders[Path::new("/sync")], None);
         assert_eq!(layout.folders[Path::new("/sync/Photos")], Some(id(3)));
+    }
+
+    #[test]
+    fn files_holds_only_the_synced_files() {
+        let layout = Layout::new(&home(), &[map(None, Some("/sync")), map(Some(5), None)]);
+        let files = layout.files();
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[&id(2)], Path::new("/sync/Docs/a.txt"));
+        assert_eq!(files[&id(4)], Path::new("/sync/Photos/p.jpg"));
     }
 
     #[test]

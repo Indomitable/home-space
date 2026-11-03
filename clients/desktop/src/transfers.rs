@@ -110,6 +110,14 @@ enum Existing {
     Fail,
 }
 
+/// What happens to a file once it is downloaded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Then {
+    Keep,
+    /// Opens it with the system's default app.
+    Open,
+}
+
 /// A remote file and where to save it.
 #[derive(Debug, Clone)]
 pub struct DownloadFile {
@@ -118,6 +126,7 @@ pub struct DownloadFile {
     target: PathBuf,
     size: u64,
     existing: Existing,
+    then: Then,
 }
 
 impl DownloadFile {
@@ -129,6 +138,15 @@ impl DownloadFile {
             target,
             size: byte_size(node.size),
             existing: Existing::Replace,
+            then: Then::Keep,
+        }
+    }
+
+    /// Downloads `node` to `target`, replacing it, and then opens it with the default app.
+    pub fn opening(node: &Node, target: PathBuf) -> Self {
+        Self {
+            then: Then::Open,
+            ..Self::replacing(node, target)
         }
     }
 }
@@ -470,6 +488,7 @@ pub async fn plan_download(
                 target,
                 size: byte_size(node.size),
                 existing: Existing::Fail,
+                then: Then::Keep,
             }),
             NodeKind::Folder if depth >= MAX_DEPTH => return Err(TOO_DEEP.to_owned()),
             NodeKind::Folder => {
@@ -648,9 +667,19 @@ async fn download_all(
 ) {
     for (file, id) in files.iter().zip(ids) {
         let _ = output.send(Message::Started(*id)).await;
-        let result = download_file(client, file, *id, output).await;
+        let result = download_file(client, file, *id, output)
+            .await
+            .and_then(|()| match file.then {
+                Then::Keep => Ok(()),
+                Then::Open => open_file(&file.target),
+            });
         let _ = output.send(Message::Finished(*id, result)).await;
     }
+}
+
+/// Opens `path` with the system's default app.
+pub fn open_file(path: &Path) -> Result<(), String> {
+    open::that_detached(path).map_err(|err| format!("could not open {}: {err}", path.display()))
 }
 
 async fn download_file(
@@ -752,6 +781,35 @@ mod tests {
             total,
             state,
         }
+    }
+
+    fn file_node() -> Node {
+        Node {
+            id: NodeId(uuid::Uuid::from_u128(1)),
+            parent_id: None,
+            kind: NodeKind::File,
+            name: "a.txt".to_owned(),
+            size: 3,
+            sha256: None,
+            mime: String::new(),
+            version: 1,
+            created_at: time::OffsetDateTime::UNIX_EPOCH,
+            updated_at: time::OffsetDateTime::UNIX_EPOCH,
+            edited_on: None,
+        }
+    }
+
+    #[test]
+    fn an_opening_download_replaces_and_then_opens() {
+        let file = DownloadFile::opening(&file_node(), PathBuf::from("/tmp/a.txt"));
+        assert_eq!(file.existing, Existing::Replace);
+        assert_eq!(file.then, Then::Open);
+    }
+
+    #[test]
+    fn a_replacing_download_is_kept() {
+        let file = DownloadFile::replacing(&file_node(), PathBuf::from("/tmp/a.txt"));
+        assert_eq!(file.then, Then::Keep);
     }
 
     #[test]

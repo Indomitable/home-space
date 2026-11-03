@@ -115,6 +115,8 @@ pub struct Status {
     pub names: HashMap<NodeId, String>,
     /// Where each synced folder is on disk, Home under `None`.
     pub locations: HashMap<Option<NodeId>, PathBuf>,
+    /// Where each synced file is on disk.
+    pub files: HashMap<NodeId, PathBuf>,
     /// Paths with work ahead.
     pub pending: usize,
     /// Paths that failed, with why.
@@ -138,6 +140,11 @@ impl Status {
     /// Where the folder `node` syncs to, if it does.
     pub fn location(&self, node: Option<NodeId>) -> Option<&Path> {
         self.locations.get(&node).map(PathBuf::as_path)
+    }
+
+    /// Where the file `node` syncs to, if it does; it may not be on disk yet.
+    pub fn file_path(&self, node: NodeId) -> Option<&Path> {
+        self.files.get(&node).map(PathBuf::as_path)
     }
 
     /// The new files and folders waiting to be uploaded into `folder` (`None` for Home),
@@ -924,6 +931,7 @@ impl Engine {
             mappings: self.mappings.clone(),
             names,
             locations,
+            files: layout.files(),
             pending: pending_paths.len(),
             problems,
             error,

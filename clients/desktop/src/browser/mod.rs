@@ -16,13 +16,13 @@ mod syncing;
 mod toolbar;
 mod trash;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use iced::{Size, Subscription, Task, event, keyboard::Modifiers, window};
 
 use api_client::{ApiError, Client};
 use client_core::listing::SortKey;
-use protocol::{Me, NodeId, NodeKind, paths};
+use protocol::{Me, Node, NodeId, NodeKind, paths};
 
 use self::{
     context_menu::Placement,
@@ -470,9 +470,36 @@ impl State {
         let node = self.folder.node(id).cloned();
         match node {
             Some(node) if node.kind == NodeKind::Folder => self.open_folder(Some(node.id)),
-            Some(node) => files::download(&self.client, vec![node]),
+            Some(node) => match self.local_copy(&node) {
+                Some(path) => self.open_local(&path),
+                None => files::download(&self.client, vec![node]),
+            },
             None => Task::none(),
         }
+    }
+
+    /// Opens the file `node` with the default app: its synced copy, or else a fresh download.
+    fn open_file(&mut self, node: &Node) -> Task<Message> {
+        match self.local_copy(node) {
+            Some(path) => self.open_local(&path),
+            None => files::download_and_open(node.clone()),
+        }
+    }
+
+    fn open_local(&mut self, path: &Path) -> Task<Message> {
+        if let Err(err) = transfers::open_file(path) {
+            self.folder.error = Some(err);
+        }
+        Task::none()
+    }
+
+    /// Where the synced file `node` is on disk, once it is there.
+    fn local_copy(&self, node: &Node) -> Option<PathBuf> {
+        self.syncing
+            .status()
+            .file_path(node.id)
+            .filter(|path| path.is_file())
+            .map(Path::to_path_buf)
     }
 
     fn act(&mut self, action: Action) -> Task<Message> {
@@ -480,6 +507,7 @@ impl State {
         match (action, selected.as_slice()) {
             (_, []) => Task::none(),
             (Action::Open, [node]) => self.activate(node.id),
+            (Action::OpenFile, [node]) => self.open_file(node),
             (Action::Rename, [node]) => {
                 let (dialog, task) = Dialog::rename(node.clone());
                 self.dialog = Some(dialog);
@@ -490,7 +518,7 @@ impl State {
                 self.details = Some(details);
                 task.map(Message::Details)
             }
-            (Action::Open | Action::Rename | Action::Details, _) => Task::none(),
+            (Action::Open | Action::OpenFile | Action::Rename | Action::Details, _) => Task::none(),
             (Action::Download, _) => files::download(&self.client, selected),
             (Action::Move, _) => {
                 let (dialog, task) = Dialog::move_nodes(&self.client, selected);

@@ -6,7 +6,9 @@ use api_client::Client;
 use protocol::{Node, NodeId, NodeKind};
 
 use super::Message;
-use crate::transfers::{self, DownloadFile, UploadPlan};
+use crate::transfers::{self, DownloadFile, UploadPlan, sanitize_component};
+
+const TEMP_FOLDER: &str = "home-space";
 
 /// Asks for files to upload into `parent` and plans their transfer.
 pub fn pick_upload(parent: Option<NodeId>) -> Task<Message> {
@@ -70,4 +72,29 @@ pub fn download(client: &Client, nodes: Vec<Node>) -> Task<Message> {
             )
         }
     }
+}
+
+/// Where `node` is downloaded to be opened: a folder of its own in the system's temp folder, so
+/// the file keeps its name and the system picks the app by its extension.
+pub fn temp_target(node: &Node) -> PathBuf {
+    std::env::temp_dir()
+        .join(TEMP_FOLDER)
+        .join(node.id.0.to_string())
+        .join(sanitize_component(&node.name))
+}
+
+/// Downloads the file `node` to the temp folder and opens it with the default app.
+pub fn download_and_open(node: Node) -> Task<Message> {
+    let target = temp_target(&node);
+    Task::perform(
+        async move {
+            if let Some(parent) = target.parent() {
+                tokio::fs::create_dir_all(parent)
+                    .await
+                    .map_err(|err| format!("{}: {err}", parent.display()))?;
+            }
+            Ok(vec![DownloadFile::opening(&node, target)])
+        },
+        Message::DownloadPlanned,
+    )
 }

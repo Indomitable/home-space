@@ -32,6 +32,8 @@ const UPLOAD_SHORTCUT: &str = "Ctrl+U";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Open,
+    /// Opens a file with the system's default app.
+    OpenFile,
     Download,
     Rename,
     Move,
@@ -43,6 +45,7 @@ impl Action {
     fn icon(self) -> Icon {
         match self {
             Self::Open => Icon::Folder,
+            Self::OpenFile => Icon::Web,
             Self::Download => Icon::Download,
             Self::Rename => Icon::Rename,
             Self::Move => Icon::Move,
@@ -53,7 +56,7 @@ impl Action {
 
     fn label(self) -> &'static str {
         match self {
-            Self::Open => "Open",
+            Self::Open | Self::OpenFile => "Open",
             Self::Download => "Download",
             Self::Rename => "Rename",
             Self::Move => "Move",
@@ -66,7 +69,7 @@ impl Action {
         match self {
             Self::Open | Self::Download => "Enter",
             Self::Rename => "F2",
-            Self::Move | Self::Details => "",
+            Self::OpenFile | Self::Move | Self::Details => "",
             Self::Delete => "Delete",
         }
     }
@@ -78,8 +81,11 @@ pub fn actions(selected: &[&Node], lost_and_found: NodeId) -> Vec<(Action, bool)
     let single = selected.len() == 1;
     let any = !selected.is_empty();
     let deletable = any && selected.iter().all(|node| node.id != lost_and_found);
-    let single_folder = matches!(selected, [node] if node.kind == NodeKind::Folder);
-    let open = single_folder.then_some((Action::Open, true));
+    let open = match selected {
+        [node] if node.kind == NodeKind::Folder => Some((Action::Open, true)),
+        [_] => Some((Action::OpenFile, true)),
+        _ => None,
+    };
     open.into_iter()
         .chain([
             (Action::Download, any),
@@ -173,7 +179,7 @@ pub fn view<'a>(
     } else {
         let (trailing, leading): (Vec<_>, Vec<_>) = actions(selected, lost_and_found)
             .into_iter()
-            .filter(|(action, _)| *action != Action::Open)
+            .filter(|(action, _)| !matches!(action, Action::Open | Action::OpenFile))
             .map(|(action, enabled)| Tool::action(action, enabled))
             .partition(|tool| tool.danger);
         (Some(selected.len()), leading, trailing)
@@ -397,6 +403,33 @@ mod tests {
             .map(|(action, _)| action)
             .collect();
         assert!(enabled.contains(&Action::Rename) && enabled.contains(&Action::Move));
+    }
+
+    fn first_action(selected: &[&Node]) -> Option<Action> {
+        actions(selected, LOST_AND_FOUND)
+            .first()
+            .map(|(action, _)| *action)
+    }
+
+    #[test]
+    fn a_single_file_opens_first() {
+        let node = file(1);
+        assert_eq!(first_action(&[&node]), Some(Action::OpenFile));
+    }
+
+    #[test]
+    fn a_single_folder_opens_first() {
+        let node = Node {
+            kind: NodeKind::Folder,
+            ..file(1)
+        };
+        assert_eq!(first_action(&[&node]), Some(Action::Open));
+    }
+
+    #[test]
+    fn several_nodes_cannot_be_opened() {
+        let (first, second) = (file(1), file(2));
+        assert_eq!(first_action(&[&first, &second]), Some(Action::Download));
     }
 
     fn selection_tools() -> Vec<Tool<'static>> {

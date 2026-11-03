@@ -1,13 +1,14 @@
 use iced::{
-    Alignment, Element, Length, Point, Rectangle, Size,
+    Alignment, Element, Length, Point, Rectangle, Size, Vector,
     alignment::Horizontal,
-    widget::{button, column, container, row, text},
+    widget::{button, container, float, pin, row, text},
 };
 
 use protocol::{Node, NodeId, NodeKind};
 
 use super::{
     Message,
+    fit_column::fit_column,
     toolbar::{actions, menu_item, menu_row},
 };
 use crate::{
@@ -15,8 +16,6 @@ use crate::{
     theme,
 };
 
-const MENU_WIDTH: f32 = 220.0;
-/// Fixed, so the menu's height is known before it is laid out and it can hang above a widget.
 pub(super) const ITEM_HEIGHT: f32 = 36.0;
 const MENU_PADDING: f32 = 4.0;
 const EDGE_MARGIN: f32 = 8.0;
@@ -90,9 +89,8 @@ pub fn folders(folders: &[Node]) -> Element<'_, Message> {
 }
 
 fn panel<'a>(items: impl IntoIterator<Item = Element<'a, Message>>) -> Element<'a, Message> {
-    container(column(items))
+    container(fit_column(items))
         .padding(MENU_PADDING)
-        .width(MENU_WIDTH)
         .style(theme::panel)
         .into()
 }
@@ -120,28 +118,31 @@ impl Placement {
     }
 }
 
-/// Where to put the menu so it stays inside `window`.
-pub fn position(placement: Placement, window: Size, items: usize) -> Point {
+/// `menu` placed by `placement`. It is moved once laid out, as only then is its size known.
+pub fn place<'a>(menu: Element<'a, Message>, placement: Placement) -> Element<'a, Message> {
+    pin(float(menu).translate(move |bounds, viewport| {
+        let at = position(placement, viewport.size(), bounds.size());
+        Vector::new(at.x - bounds.x, at.y - bounds.y)
+    }))
+    .into()
+}
+
+/// Where to put a `menu` sized menu so it stays inside `window`.
+fn position(placement: Placement, window: Size, menu: Size) -> Point {
     let Placement { target, edge } = placement;
-    let height = ITEM_HEIGHT * items as f32 + MENU_PADDING * 2.0;
-    let max_x = (window.width - MENU_WIDTH - EDGE_MARGIN).max(0.0);
-    let max_y = (window.height - height - EDGE_MARGIN).max(0.0);
+    let max_x = (window.width - menu.width - EDGE_MARGIN).max(0.0);
+    let max_y = (window.height - menu.height - EDGE_MARGIN).max(0.0);
     let x = match edge {
-        Horizontal::Right => target.x + target.width - MENU_WIDTH,
+        Horizontal::Right => target.x + target.width - menu.width,
         _ => target.x,
     };
     let below = target.y + target.height;
     let y = if below <= max_y {
         below
     } else {
-        target.y - height
+        target.y - menu.height
     };
     Point::new(x.clamp(0.0, max_x), y.clamp(0.0, max_y))
-}
-
-/// How many entries the menu shows for `selected`.
-pub fn item_count(selected: &[&Node], lost_and_found: NodeId) -> usize {
-    actions(selected, lost_and_found).len() + usize::from(web_entry(selected).is_some())
 }
 
 #[cfg(test)]
@@ -150,6 +151,8 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+
+    const MENU: Size = Size::new(300.0, 152.0);
 
     fn node(kind: NodeKind) -> Node {
         Node {
@@ -179,16 +182,16 @@ mod tests {
     #[test]
     fn menu_opens_at_the_cursor_when_it_fits() {
         let placement = Placement::cursor(Point::new(100.0, 100.0));
-        let point = position(placement, Size::new(1000.0, 800.0), 4);
+        let point = position(placement, Size::new(1000.0, 800.0), MENU);
         assert_eq!(point, Point::new(100.0, 100.0));
     }
 
     #[test]
     fn menu_is_pushed_back_inside_the_window() {
         let placement = Placement::cursor(Point::new(990.0, 790.0));
-        let point = position(placement, Size::new(1000.0, 800.0), 4);
-        assert!(point.x + MENU_WIDTH <= 1000.0);
-        assert!(point.y + ITEM_HEIGHT * 4.0 <= 800.0);
+        let point = position(placement, Size::new(1000.0, 800.0), MENU);
+        assert!(point.x + MENU.width <= 1000.0);
+        assert!(point.y + MENU.height <= 800.0);
     }
 
     #[test]
@@ -196,11 +199,11 @@ mod tests {
         let target = Rectangle::new(Point::new(400.0, 100.0), Size::new(24.0, 20.0));
         let window = Size::new(1000.0, 800.0);
 
-        let left = position(Placement::hanging(target, Horizontal::Left), window, 4);
-        let right = position(Placement::hanging(target, Horizontal::Right), window, 4);
+        let left = position(Placement::hanging(target, Horizontal::Left), window, MENU);
+        let right = position(Placement::hanging(target, Horizontal::Right), window, MENU);
 
         assert_eq!(left, Point::new(400.0, 120.0));
-        assert_eq!(right, Point::new(424.0 - MENU_WIDTH, 120.0));
+        assert_eq!(right, Point::new(424.0 - MENU.width, 120.0));
     }
 
     #[test]
@@ -209,9 +212,8 @@ mod tests {
         let point = position(
             Placement::hanging(target, Horizontal::Right),
             Size::new(1000.0, 800.0),
-            4,
+            MENU,
         );
-        let height = ITEM_HEIGHT * 4.0 + MENU_PADDING * 2.0;
-        assert_eq!(point.y, 700.0 - height);
+        assert_eq!(point.y, 700.0 - MENU.height);
     }
 }

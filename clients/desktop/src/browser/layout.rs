@@ -2,7 +2,7 @@ use iced::{
     Alignment, Element, Length, Padding,
     alignment::Horizontal,
     widget::{
-        Row, button, center, column, container, mouse_area, opaque, pin, row, space, stack, text,
+        Row, button, center, column, container, mouse_area, opaque, row, space, stack, text,
         text_input,
     },
 };
@@ -237,27 +237,26 @@ impl State {
 
     /// The click-away backdrop and the popup menu.
     fn menu_layers<'a>(&'a self, menu: Menu, selected: &[&'a Node]) -> [Element<'a, Message>; 2] {
-        let (placement, items, panel) = match menu {
-            Menu::Actions(placement) => {
-                let entries = self.syncing.entries(selected);
-                (
-                    placement,
-                    context_menu::item_count(selected, self.me.lost_and_found_id) + entries.len(),
-                    context_menu::view(selected, self.me.lost_and_found_id, entries),
-                )
-            }
-            Menu::Crumbs(placement) => {
-                let hidden = self.folder.hidden_crumbs();
-                (placement, hidden.len(), context_menu::folders(hidden))
-            }
+        let (placement, panel) = match menu {
+            Menu::Actions(placement) => (
+                placement,
+                context_menu::view(
+                    selected,
+                    self.me.lost_and_found_id,
+                    self.syncing.entries(selected),
+                ),
+            ),
+            Menu::Crumbs(placement) => (
+                placement,
+                context_menu::folders(self.folder.hidden_crumbs()),
+            ),
         };
-        let position = context_menu::position(placement, self.window, items);
         [
             mouse_area(space().width(Length::Fill).height(Length::Fill))
                 .on_press(Message::CloseMenu)
                 .on_right_press(Message::CloseMenu)
                 .into(),
-            pin(panel).position(position).into(),
+            context_menu::place(panel, placement),
         ]
     }
 

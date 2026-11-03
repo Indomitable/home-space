@@ -94,4 +94,5 @@ Step 4, the device list in the clients:
 
 - Per-device permissions or limits.
 - Pushing changes from one device to a chosen other device. Every device still syncs from the
-  journal.
+  journal. One-off sending of files to a device is planned separately in
+  [send-to-device.md](send-to-device.md).

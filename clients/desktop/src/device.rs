@@ -69,11 +69,35 @@ fn host_name() -> String {
     let from_vars = HOSTNAME_VARS
         .iter()
         .filter_map(|var| std::env::var(var).ok());
-    from_files
+    computer_name()
+        .into_iter()
+        .chain(from_files)
         .chain(from_vars)
         .map(|name| name.trim().to_owned())
         .find(|name| !name.is_empty())
         .unwrap_or_else(|| FALLBACK_NAME.to_owned())
+}
+
+/// The name set in System Settings › General › Sharing, such as "Anna's MacBook": macOS has
+/// no `/etc/hostname`, and its shells do not export `HOSTNAME`.
+#[cfg(target_os = "macos")]
+fn computer_name() -> Option<String> {
+    const SCUTIL: &str = "scutil";
+    const ARGS: [&str; 2] = ["--get", "ComputerName"];
+    let output = std::process::Command::new(SCUTIL)
+        .args(ARGS)
+        .output()
+        .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Other systems name the computer through the host name files and variables.
+#[cfg(not(target_os = "macos"))]
+fn computer_name() -> Option<String> {
+    None
 }
 
 #[cfg(test)]

@@ -13,6 +13,8 @@ pub fn folder(id: NodeId) -> String {
 
 pub const TRASH_PATH: &str = "/trash";
 
+pub const DEVICES_PATH: &str = "/devices";
+
 pub const SEARCH_PATH: &str = "/search";
 pub const SEARCH_PARAM: &str = "q";
 

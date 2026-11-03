@@ -61,6 +61,8 @@ pub enum Icon {
     /// Waiting for the sync.
     Update,
     SignOut,
+    /// The user's devices.
+    Devices,
 }
 
 /// How an icon is tinted.
@@ -108,6 +110,7 @@ impl Icon {
             Self::Web => include_bytes!("../assets/icons/open_in_new.svg"),
             Self::Update => include_bytes!("../assets/icons/update.svg"),
             Self::SignOut => include_bytes!("../assets/icons/logout.svg"),
+            Self::Devices => include_bytes!("../assets/icons/devices.svg"),
         }
     }
 

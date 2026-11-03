@@ -6,7 +6,7 @@ use leptos_router::{
 
 use crate::{
     events,
-    pages::{Browser, Login, OidcCallback, SearchPage, Shell, TrashPage},
+    pages::{Browser, DevicesPage, Login, OidcCallback, SearchPage, Shell, TrashPage},
     session::Auth,
     uploads::{UploadItem, UploadPanel},
 };
@@ -41,6 +41,10 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("/folder/:id") view=move || view! { <Browser auth /> } />
                         <Route path=path!("/search") view=move || view! { <SearchPage auth /> } />
                         <Route path=path!("/trash") view=move || view! { <TrashPage auth /> } />
+                        <Route
+                            path=path!("/devices")
+                            view=move || view! { <DevicesPage auth /> }
+                        />
                     </ParentRoute>
                 </Routes>
             </Show>

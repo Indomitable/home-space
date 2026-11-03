@@ -134,8 +134,14 @@ impl<'a> Tool<'a> {
     }
 }
 
-/// The toolbar, `width` wide. Without a selection it holds the folder commands; with
-/// one it holds the actions on it instead. When the labels do not fit, the buttons
+/// Whether the toolbar swaps the folder commands for the bulk actions: only once several
+/// nodes are selected, since a single node has its own row actions.
+fn shows_bulk_actions(selected: usize) -> bool {
+    selected > 1
+}
+
+/// The toolbar, `width` wide. Normally it holds the folder commands; once several nodes
+/// are selected it holds the actions on them instead. When the labels do not fit, the buttons
 /// show only their icons and the label moves into the tooltip.
 /// `can_add` is false where nothing may be created, such as Lost & Found.
 pub fn view<'a>(
@@ -145,7 +151,7 @@ pub fn view<'a>(
     folder: Option<NodeId>,
     width: f32,
 ) -> Element<'a, Message> {
-    let (lead, leading, trailing) = if selected.is_empty() {
+    let (lead, leading, trailing) = if !shows_bulk_actions(selected.len()) {
         (
             None,
             vec![
@@ -405,6 +411,13 @@ mod tests {
             .into_iter()
             .map(|(action, enabled)| Tool::action(action, enabled))
             .collect()
+    }
+
+    #[test]
+    fn bulk_actions_show_only_for_several_nodes() {
+        assert!(!shows_bulk_actions(0));
+        assert!(!shows_bulk_actions(1));
+        assert!(shows_bulk_actions(2));
     }
 
     #[test]

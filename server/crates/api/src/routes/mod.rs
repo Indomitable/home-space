@@ -3,6 +3,7 @@ mod changes;
 mod nodes;
 mod search;
 mod trash;
+mod uploads;
 mod ws;
 
 use axum::{Json, Router, routing::get};
@@ -17,6 +18,7 @@ pub fn routes() -> Router<AppState> {
         .merge(changes::routes())
         .merge(nodes::routes())
         .merge(trash::routes())
+        .merge(uploads::routes())
         .merge(search::routes())
         .merge(ws::routes())
 }

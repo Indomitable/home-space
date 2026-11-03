@@ -23,6 +23,7 @@ mod refresh_tokens;
 mod search;
 mod sessions;
 mod trash;
+mod uploads;
 mod users;
 mod versions;
 
@@ -38,6 +39,7 @@ pub use protocol::{NodeId, NodeKind, OnConflict, UserId};
 pub use search::{ContentState, RankedNode};
 pub use sqlx::PgPool;
 pub use trash::{LOST_AND_FOUND, SpecialFolders, TrashOutcome, TrashedNode};
+pub use uploads::{NewUpload, Upload};
 
 use sqlx::postgres::PgPoolOptions;
 

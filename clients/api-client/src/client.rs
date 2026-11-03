@@ -65,6 +65,10 @@ impl Client {
         }
     }
 
+    pub(crate) fn http(&self) -> &reqwest::Client {
+        &self.http
+    }
+
     /// Absolute URL for a server path.
     pub fn url(&self, path: &str) -> String {
         format!("{}{path}", self.base_url)
@@ -499,7 +503,7 @@ impl Client {
             .await
     }
 
-    async fn send_json<T, F>(&self, build: F) -> Result<T, ApiError>
+    pub(crate) async fn send_json<T, F>(&self, build: F) -> Result<T, ApiError>
     where
         T: DeserializeOwned,
         F: Fn() -> RequestBuilder,
@@ -507,7 +511,7 @@ impl Client {
         decode(self.send(build).await?).await
     }
 
-    async fn send<F>(&self, build: F) -> Result<Response, ApiError>
+    pub(crate) async fn send<F>(&self, build: F) -> Result<Response, ApiError>
     where
         F: Fn() -> RequestBuilder,
     {
@@ -541,7 +545,7 @@ impl Client {
         }
     }
 
-    fn store(&self, pair: TokenPair) {
+    pub(crate) fn store(&self, pair: TokenPair) {
         let refresh_token = pair.refresh_token.clone();
         *self.session() = Some(pair);
         self.notify(Some(&refresh_token));
@@ -574,7 +578,7 @@ async fn decode<T: DeserializeOwned>(response: Response) -> Result<T, ApiError> 
     }
 }
 
-async fn expect_success(response: Response) -> Result<(), ApiError> {
+pub(crate) async fn expect_success(response: Response) -> Result<(), ApiError> {
     if response.status().is_success() {
         Ok(())
     } else {

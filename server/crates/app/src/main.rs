@@ -107,7 +107,8 @@ async fn serve(db: Db, config: &Config) -> Result<()> {
     }
     let state = AppState {
         auth,
-        files: FileService::new(db.clone(), store, config.max_upload_bytes),
+        files: FileService::new(db.clone(), store, config.max_upload_bytes)
+            .with_chunk_bytes(config.upload_chunk_bytes),
         hub: Hub::new(),
         search: search.clone(),
         db,
@@ -125,6 +126,10 @@ async fn serve(db: Db, config: &Config) -> Result<()> {
     tokio::spawn(prune_changes(
         state.db.clone(),
         time::Duration::days(config.changes_retention_days),
+    ));
+    tokio::spawn(expire_uploads(
+        state.files.clone(),
+        std::time::Duration::from_secs(config.upload_expiry_hours.saturating_mul(3600)),
     ));
     let listener = tokio::net::TcpListener::bind(config.bind)
         .await
@@ -157,6 +162,19 @@ async fn prune_changes(db: Db, retention: time::Duration) {
         }
         if let Err(err) = db.prune_sessions().await {
             tracing::error!(error = %err, "pruning expired sessions failed");
+        }
+    }
+}
+
+/// Ends resumable uploads idle for longer than `expiry`, once at start and then hourly.
+async fn expire_uploads(files: FileService, expiry: std::time::Duration) {
+    let mut hourly = tokio::time::interval(std::time::Duration::from_secs(3600));
+    loop {
+        hourly.tick().await;
+        match files.expire_uploads(expiry).await {
+            Ok(0) => {}
+            Ok(removed) => tracing::info!(removed, "expired unfinished uploads"),
+            Err(err) => tracing::error!(error = %err, "expiring unfinished uploads failed"),
         }
     }
 }

@@ -11,16 +11,21 @@ use db::{
     TrashedNode, UserId,
 };
 
-use crate::{BlobStore, FilesError, store::StagedBlob};
+use crate::{BlobStore, FilesError, store::StagedBlob, uploads::Uploads};
 
 const FALLBACK_MIME: &str = "application/octet-stream";
+/// Default size of one chunk of a resumable upload, well under the 100 MB request limit of
+/// proxies like Cloudflare.
+pub const DEFAULT_CHUNK_BYTES: u64 = 32 * 1024 * 1024;
 
 /// Ownership-scoped operations on a user's folders and files.
 #[derive(Clone, Debug)]
 pub struct FileService {
-    db: Db,
-    store: BlobStore,
-    max_upload_bytes: u64,
+    pub(crate) db: Db,
+    pub(crate) store: BlobStore,
+    pub(crate) max_upload_bytes: u64,
+    pub(crate) chunk_bytes: u64,
+    pub(crate) uploads: Uploads,
 }
 
 impl FileService {
@@ -29,7 +34,21 @@ impl FileService {
             db,
             store,
             max_upload_bytes,
+            chunk_bytes: DEFAULT_CHUNK_BYTES,
+            uploads: Uploads::default(),
         }
+    }
+
+    /// Sets the chunk size resumable uploads ask clients for.
+    #[must_use]
+    pub fn with_chunk_bytes(mut self, chunk_bytes: u64) -> Self {
+        self.chunk_bytes = chunk_bytes.max(1);
+        self
+    }
+
+    /// The chunk size resumable uploads ask clients for.
+    pub fn chunk_bytes(&self) -> u64 {
+        self.chunk_bytes
     }
 
     /// Creates a folder under `parent` (or at the root).
@@ -113,7 +132,7 @@ impl FileService {
         self.finish_store(owner, staged, stored).await
     }
 
-    async fn finish_store(
+    pub(crate) async fn finish_store(
         &self,
         owner: UserId,
         staged: StagedBlob,
@@ -126,21 +145,31 @@ impl FileService {
                 return Err(err.into());
             }
         };
-        match &outcome {
-            StoreOutcome::Unchanged(_) => self.store.discard(staged).await,
+        let committed = match &outcome {
+            StoreOutcome::Unchanged(_) => {
+                self.store.discard(staged).await;
+                return Ok(outcome);
+            }
             StoreOutcome::Created(node) => {
-                if let Err(err) = self.store.commit(staged, owner, node.id).await {
+                let committed = self.store.commit(&staged, owner, node.id).await;
+                if committed.is_err() {
                     self.rollback_node(owner, node.id).await;
-                    return Err(err.into());
                 }
+                committed
             }
             StoreOutcome::Versioned { node, archived } => {
-                self.store.archive(owner, node.id, *archived).await?;
-                self.store.commit(staged, owner, node.id).await?;
+                match self.store.archive(owner, node.id, *archived).await {
+                    Ok(()) => self.store.commit(&staged, owner, node.id).await,
+                    Err(err) => Err(err),
+                }
             }
             StoreOutcome::Archived { archived, .. } => {
-                self.store.commit_version(staged, owner, *archived).await?;
+                self.store.commit_version(&staged, owner, *archived).await
             }
+        };
+        if let Err(err) = committed {
+            self.store.discard(staged).await;
+            return Err(err.into());
         }
         Ok(outcome)
     }
@@ -315,7 +344,7 @@ fn size_as_i64(staged: &StagedBlob) -> i64 {
     i64::try_from(staged.size).unwrap_or(i64::MAX)
 }
 
-fn new_content(
+pub(crate) fn new_content(
     staged: &StagedBlob,
     content_type: Option<&str>,
     name: &str,

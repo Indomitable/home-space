@@ -23,6 +23,8 @@ use notifications::Hub;
 use search::SearchIndex;
 
 pub const PASSWORD: &str = "password-123";
+/// Chunk size of resumable uploads in tests, small so a short text spans several chunks.
+pub const UPLOAD_CHUNK: u64 = 4;
 
 pub struct TestApp {
     pub router: Router,
@@ -72,7 +74,7 @@ pub async fn setup_with(
     };
     let state = AppState {
         auth: configure(AuthService::new(db.clone(), config).expect("auth")),
-        files: FileService::new(db.clone(), store, 1024 * 1024),
+        files: FileService::new(db.clone(), store, 1024 * 1024).with_chunk_bytes(UPLOAD_CHUNK),
         hub: Hub::new(),
         search,
         db,
@@ -93,7 +95,24 @@ impl TestApp {
         body: Body,
         content_type: Option<&str>,
     ) -> Response {
+        self.send_with(method, uri, token, body, content_type, &[])
+            .await
+    }
+
+    /// Like [`Self::send`], with extra request headers.
+    pub async fn send_with(
+        &self,
+        method: Method,
+        uri: &str,
+        token: Option<&str>,
+        body: Body,
+        content_type: Option<&str>,
+        extra_headers: &[(&str, &str)],
+    ) -> Response {
         let mut request = Request::builder().method(method).uri(uri);
+        for (name, value) in extra_headers {
+            request = request.header(*name, *value);
+        }
         if let Some(token) = token {
             request = request.header(AUTHORIZATION, format!("Bearer {token}"));
         }

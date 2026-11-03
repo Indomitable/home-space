@@ -4,7 +4,9 @@
 mod error;
 mod service;
 mod store;
+mod uploads;
 
 pub use error::FilesError;
-pub use service::FileService;
+pub use service::{DEFAULT_CHUNK_BYTES, FileService};
 pub use store::BlobStore;
+pub use uploads::{ChunkOutcome, UploadStatus, UploadTarget};

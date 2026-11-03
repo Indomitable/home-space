@@ -10,6 +10,7 @@ pub mod paths;
 mod search;
 mod ticket;
 mod trash;
+mod upload;
 
 pub use auth::{
     LoginRequest, Me, OidcCallbackQuery, OidcExchangeRequest, OidcProvider, OidcStartQuery,
@@ -26,3 +27,4 @@ pub use node::{
 pub use search::{SearchHit, SearchQuery};
 pub use ticket::{TicketRequest, TicketResponse};
 pub use trash::{RestoreRequest, TrashItem};
+pub use upload::{ChunkResult, CreateUpload, UploadSession};

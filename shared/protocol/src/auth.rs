@@ -1,12 +1,15 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{NodeId, UserId};
+use crate::{DeviceInfo, NodeId, UserId};
 
 /// Credentials submitted to log in.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+    /// The device signing in; older clients leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device: Option<DeviceInfo>,
 }
 
 /// Refresh token submitted to rotate a session or log out.
@@ -70,4 +73,7 @@ pub struct OidcCallbackQuery {
 pub struct OidcExchangeRequest {
     pub code: String,
     pub code_verifier: String,
+    /// The device signing in; older clients leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device: Option<DeviceInfo>,
 }

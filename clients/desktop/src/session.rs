@@ -34,18 +34,23 @@ pub enum Restored {
 }
 
 /// A client for `server` that keeps its refresh token between runs, so the
-/// next start can resume the session; signing out removes it.
+/// next start can resume the session; signing out removes it. It signs in as this
+/// install's [device](crate::device).
 pub fn client(server: &str) -> Client {
     let (sender, receiver) = mpsc::channel::<Option<String>>();
     let server = server.to_owned();
     let base_url = server.clone();
     std::thread::spawn(move || persist(&server, &receiver));
-    Client::with_listener(
+    let client = Client::with_listener(
         base_url,
         Arc::new(move |token: Option<&str>| {
             let _ = sender.send(token.map(str::to_owned));
         }),
-    )
+    );
+    match crate::device::info() {
+        Some(device) => client.with_device(device),
+        None => client,
+    }
 }
 
 /// Resumes the session saved by an earlier run, if any.

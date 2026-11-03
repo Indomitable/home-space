@@ -15,6 +15,8 @@ pub struct Upload {
     pub size: i64,
     pub mime: Option<String>,
     pub modified_at: Option<OffsetDateTime>,
+    /// The device that started it, when the client named one.
+    pub device_id: Option<Uuid>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
 }
@@ -29,11 +31,13 @@ pub struct NewUpload {
     pub size: i64,
     pub mime: Option<String>,
     pub modified_at: Option<OffsetDateTime>,
+    pub device_id: Option<Uuid>,
 }
 
 macro_rules! upload_columns {
     () => {
-        "id, owner_id, parent_id, node_id, name, size, mime, modified_at, created_at, updated_at"
+        "id, owner_id, parent_id, node_id, name, size, mime, modified_at, device_id, created_at, \
+         updated_at"
     };
 }
 
@@ -41,8 +45,9 @@ impl Db {
     /// Records a new upload.
     pub async fn create_upload(&self, owner: UserId, new: NewUpload) -> Result<Upload, DbError> {
         let upload = sqlx::query_as::<_, Upload>(concat!(
-            "INSERT INTO uploads (id, owner_id, parent_id, node_id, name, size, mime, modified_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING ",
+            "INSERT INTO uploads \
+             (id, owner_id, parent_id, node_id, name, size, mime, modified_at, device_id) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING ",
             upload_columns!()
         ))
         .bind(new.id)
@@ -53,6 +58,7 @@ impl Db {
         .bind(new.size)
         .bind(new.mime)
         .bind(new.modified_at)
+        .bind(new.device_id)
         .fetch_one(self.pool())
         .await?;
         Ok(upload)
@@ -70,6 +76,25 @@ impl Db {
         .fetch_one(self.pool())
         .await?;
         Ok(upload)
+    }
+
+    /// The uploads of `owner`, only those of `device` when given, the oldest first.
+    pub async fn uploads(
+        &self,
+        owner: UserId,
+        device: Option<Uuid>,
+    ) -> Result<Vec<Upload>, DbError> {
+        let uploads = sqlx::query_as::<_, Upload>(concat!(
+            "SELECT ",
+            upload_columns!(),
+            " FROM uploads WHERE owner_id = $1 AND ($2::uuid IS NULL OR device_id = $2) \
+             ORDER BY created_at, id"
+        ))
+        .bind(owner)
+        .bind(device)
+        .fetch_all(self.pool())
+        .await?;
+        Ok(uploads)
     }
 
     /// Marks an upload as active now, postponing its expiry.
@@ -122,6 +147,7 @@ mod tests {
             size: 10,
             mime: None,
             modified_at: None,
+            device_id: None,
         }
     }
 
@@ -139,6 +165,41 @@ mod tests {
             db.get_upload(bob, upload.id).await,
             Err(DbError::NotFound)
         ));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn uploads_can_be_listed_by_device(pool: sqlx::PgPool) {
+        let db = Db::from_pool(pool);
+        let alice = db.create_user("alice", "x").await.expect("alice").id;
+        let bob = db.create_user("bob", "x").await.expect("bob").id;
+        let laptop = Uuid::now_v7();
+        let from_laptop = db
+            .create_upload(
+                alice,
+                NewUpload {
+                    device_id: Some(laptop),
+                    ..new_upload("a.bin")
+                },
+            )
+            .await
+            .expect("laptop");
+        let unnamed = db
+            .create_upload(alice, new_upload("b.bin"))
+            .await
+            .expect("unnamed");
+        db.create_upload(bob, new_upload("c.bin"))
+            .await
+            .expect("bob");
+
+        let ids = |uploads: Vec<Upload>| uploads.into_iter().map(|u| u.id).collect::<Vec<_>>();
+        assert_eq!(
+            ids(db.uploads(alice, None).await.expect("all")),
+            [from_laptop.id, unnamed.id]
+        );
+        assert_eq!(
+            ids(db.uploads(alice, Some(laptop)).await.expect("laptop")),
+            [from_laptop.id]
+        );
     }
 
     #[sqlx::test(migrations = "../../migrations")]

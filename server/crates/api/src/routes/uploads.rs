@@ -5,19 +5,21 @@ use std::{fmt, io};
 use axum::{
     Json, Router,
     body::Body,
-    extract::{DefaultBodyLimit, Path, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::{
         HeaderMap, HeaderName, HeaderValue, StatusCode,
         header::{CACHE_CONTROL, CONTENT_LENGTH},
     },
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::get,
 };
 use futures_util::StreamExt;
 use uuid::Uuid;
 
 use files::{ChunkOutcome, FilesError, UploadStatus, UploadTarget};
-use protocol::{ChunkResult, CreateUpload, UploadSession, paths::UPLOAD_OFFSET};
+use protocol::{
+    ChunkResult, CreateUpload, UploadInfo, UploadSession, UploadsQuery, paths::UPLOAD_OFFSET,
+};
 
 use crate::{
     ApiError, AppState,
@@ -26,13 +28,15 @@ use crate::{
 };
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/uploads", post(create)).route(
-        "/uploads/{id}",
-        get(status)
-            .patch(append)
-            .delete(cancel)
-            .layer(DefaultBodyLimit::disable()),
-    )
+    Router::new()
+        .route("/uploads", get(list).post(create))
+        .route(
+            "/uploads/{id}",
+            get(status)
+                .patch(append)
+                .delete(cancel)
+                .layer(DefaultBodyLimit::disable()),
+        )
 }
 
 fn offset_header() -> HeaderName {
@@ -57,6 +61,33 @@ fn session(status: UploadStatus, chunk_size: u64) -> UploadSession {
     }
 }
 
+/// The user's unfinished uploads, or only this device's. A session without a device has none
+/// of its own.
+async fn list(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Query(query): Query<UploadsQuery>,
+) -> Result<Json<Vec<UploadInfo>>, ApiError> {
+    let uploads = match (query.this_device, user.device_id) {
+        (false, _) => state.files.uploads(user.id, None).await?,
+        (true, Some(device)) => state.files.uploads(user.id, Some(device)).await?,
+        (true, None) => Vec::new(),
+    };
+    Ok(Json(uploads.into_iter().map(upload_info).collect()))
+}
+
+fn upload_info(upload: db::Upload) -> UploadInfo {
+    UploadInfo {
+        id: upload.id,
+        parent_id: upload.parent_id,
+        node_id: upload.node_id,
+        name: upload.name,
+        size: u64::try_from(upload.size).unwrap_or_default(),
+        device_id: upload.device_id,
+        updated_at: upload.updated_at,
+    }
+}
+
 async fn create(
     State(state): State<AppState>,
     user: AuthUser,
@@ -73,6 +104,7 @@ async fn create(
         .files
         .create_upload(
             user.id,
+            user.device_id,
             target,
             request.size,
             request.mime.as_deref(),

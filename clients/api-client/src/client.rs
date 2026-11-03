@@ -5,9 +5,9 @@ use serde::de::DeserializeOwned;
 use tokio::sync::Mutex as AsyncMutex;
 
 use protocol::{
-    ChangesQuery, ChangesResponse, CreateFolderRequest, ErrorBody, FileVersion, ListQuery,
-    LoginRequest, Me, MoveRequest, MoveResponse, Node, NodeId, OidcExchangeRequest, OnConflict,
-    Providers, RefreshRequest, RestoreRequest, SearchHit, SearchQuery, TicketRequest,
+    ChangesQuery, ChangesResponse, CreateFolderRequest, DeviceInfo, ErrorBody, FileVersion,
+    ListQuery, LoginRequest, Me, MoveRequest, MoveResponse, Node, NodeId, OidcExchangeRequest,
+    OnConflict, Providers, RefreshRequest, RestoreRequest, SearchHit, SearchQuery, TicketRequest,
     TicketResponse, TokenPair, TrashItem, UpdateRequest, paths,
 };
 #[cfg(not(target_arch = "wasm32"))]
@@ -32,6 +32,7 @@ pub struct Client {
     http: reqwest::Client,
     base_url: String,
     shared: Arc<Shared>,
+    device: Option<DeviceInfo>,
 }
 
 impl std::fmt::Debug for Client {
@@ -68,7 +69,15 @@ impl Client {
                 refresh_gate: AsyncMutex::new(()),
                 listener,
             }),
+            device: None,
         }
+    }
+
+    /// The client signing in as `device`, which the server then lists among the user's
+    /// devices and tags its sessions and uploads with.
+    pub fn with_device(mut self, device: DeviceInfo) -> Self {
+        self.device = Some(device);
+        self
     }
 
     pub(crate) fn http(&self) -> &reqwest::Client {
@@ -131,6 +140,7 @@ impl Client {
         let request = LoginRequest {
             username: username.to_owned(),
             password: password.to_owned(),
+            device: self.device.clone(),
         };
         let response = self
             .http
@@ -169,6 +179,7 @@ impl Client {
         let request = OidcExchangeRequest {
             code: code.to_owned(),
             code_verifier: pkce.verifier().to_owned(),
+            device: self.device.clone(),
         };
         let response = self
             .http

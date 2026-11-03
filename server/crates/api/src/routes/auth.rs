@@ -68,7 +68,11 @@ async fn oidc_exchange(
     Ok(Json(
         state
             .auth
-            .oidc_exchange(&request.code, &request.code_verifier)
+            .oidc_exchange(
+                &request.code,
+                &request.code_verifier,
+                request.device.as_ref(),
+            )
             .await?,
     ))
 }
@@ -80,7 +84,11 @@ async fn login(
     Ok(Json(
         state
             .auth
-            .login(&request.username, &request.password)
+            .login(
+                &request.username,
+                &request.password,
+                request.device.as_ref(),
+            )
             .await?,
     ))
 }

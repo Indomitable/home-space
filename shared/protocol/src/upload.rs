@@ -58,6 +58,31 @@ pub struct ChunkResult {
     pub node: Option<Node>,
 }
 
+/// Query of `GET /uploads`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UploadsQuery {
+    /// Only the uploads started from the device that asks.
+    #[serde(default)]
+    pub this_device: bool,
+}
+
+/// An unfinished upload, from `GET /uploads`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UploadInfo {
+    pub id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<NodeId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_id: Option<NodeId>,
+    pub name: String,
+    pub size: u64,
+    /// The device that started it; `None` for one started before devices were known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -3,28 +3,41 @@ use uuid::Uuid;
 
 use crate::{Db, DbError, UserId};
 
+/// A session that has not ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LiveSession {
+    /// The device it was started on; `None` when the client did not name one.
+    pub device_id: Option<Uuid>,
+}
+
 impl Db {
-    /// Starts a session with its first refresh token.
+    /// Starts a session with its first refresh token, on `device_id` when the client named a
+    /// device, which must be registered first.
     pub async fn start_session(
         &self,
         session_id: Uuid,
         user_id: UserId,
+        device_id: Option<Uuid>,
         token_hash: &[u8],
         expires_at: OffsetDateTime,
     ) -> Result<(), DbError> {
         let mut tx = self.pool().begin().await?;
-        sqlx::query("INSERT INTO sessions (id, user_id, expires_at) VALUES ($1, $2, $3)")
-            .bind(session_id)
-            .bind(user_id)
-            .bind(expires_at)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "INSERT INTO sessions (id, user_id, device_id, expires_at) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(session_id)
+        .bind(user_id)
+        .bind(device_id)
+        .bind(expires_at)
+        .execute(&mut *tx)
+        .await?;
         insert_token(&mut tx, session_id, user_id, token_hash, expires_at).await?;
         tx.commit().await?;
         Ok(())
     }
 
-    /// Stores the next refresh token of a session and extends the session to match.
+    /// Stores the next refresh token of a session and extends the session to match. Its device
+    /// counts as seen, updated at most hourly.
     ///
     /// Returns `false` when the session has ended in the meantime.
     pub async fn continue_session(
@@ -47,25 +60,33 @@ impl Db {
             return Ok(false);
         }
         insert_token(&mut tx, session_id, user_id, token_hash, expires_at).await?;
+        sqlx::query(
+            "UPDATE devices d SET last_seen_at = now() FROM sessions s \
+             WHERE s.id = $1 AND d.user_id = s.user_id AND d.id = s.device_id \
+             AND d.last_seen_at < now() - interval '1 hour'",
+        )
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(true)
     }
 
-    /// Whether `session_id` is an unexpired session of `user_id`.
-    pub async fn session_is_live(
+    /// `session_id` if it is an unexpired session of `user_id`.
+    pub async fn live_session(
         &self,
         session_id: Uuid,
         user_id: UserId,
-    ) -> Result<bool, DbError> {
-        let live = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS (SELECT 1 FROM sessions \
-             WHERE id = $1 AND user_id = $2 AND expires_at > now())",
+    ) -> Result<Option<LiveSession>, DbError> {
+        let device = sqlx::query_scalar::<_, Option<Uuid>>(
+            "SELECT device_id FROM sessions \
+             WHERE id = $1 AND user_id = $2 AND expires_at > now()",
         )
         .bind(session_id)
         .bind(user_id)
-        .fetch_one(self.pool())
+        .fetch_optional(self.pool())
         .await?;
-        Ok(live)
+        Ok(device.map(|device_id| LiveSession { device_id }))
     }
 
     /// Ends a session and, with it, its refresh tokens.
@@ -185,12 +206,11 @@ mod tests {
             .await
             .expect("count");
         assert_eq!(tokens, 2);
-        let db = Db::from_pool(pool);
-        assert!(
-            db.session_is_live(live, UserId::from(user))
-                .await
-                .expect("live")
-        );
+        let unexpired: bool = sqlx::query_scalar("SELECT expires_at > now() FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .expect("expiry");
+        assert!(unexpired);
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -204,7 +224,7 @@ mod tests {
         let db = Db::from_pool(pool.clone());
         let session = Uuid::now_v7();
         let expires = OffsetDateTime::now_utc() + time::Duration::days(1);
-        db.start_session(session, UserId::from(user), b"one", expires)
+        db.start_session(session, UserId::from(user), None, b"one", expires)
             .await
             .expect("start");
         assert!(

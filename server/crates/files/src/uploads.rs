@@ -97,10 +97,11 @@ impl Uploads {
 }
 
 impl FileService {
-    /// Starts a resumable upload of `size` bytes.
+    /// Starts a resumable upload of `size` bytes from `device`, when the client named one.
     pub async fn create_upload(
         &self,
         owner: UserId,
+        device: Option<Uuid>,
         target: UploadTarget,
         size: u64,
         content_type: Option<&str>,
@@ -135,6 +136,7 @@ impl FileService {
             size: i64::try_from(size).unwrap_or(i64::MAX),
             mime: content_type.map(str::to_owned),
             modified_at,
+            device_id: device,
         };
         self.db.create_upload(owner, new).await?;
         if let Err(err) = self.store.create_partial(id).await {
@@ -228,6 +230,31 @@ impl FileService {
         let _guard = slot.lock().await;
         self.forget_upload(id).await;
         Ok(())
+    }
+
+    /// The unfinished uploads of `owner`, only those of `device` when given.
+    pub async fn uploads(
+        &self,
+        owner: UserId,
+        device: Option<Uuid>,
+    ) -> Result<Vec<Upload>, FilesError> {
+        Ok(self.db.uploads(owner, device).await?)
+    }
+
+    /// Cancels every unfinished upload `device` started; returns how many there were.
+    pub async fn cancel_device_uploads(
+        &self,
+        owner: UserId,
+        device: Uuid,
+    ) -> Result<usize, FilesError> {
+        let uploads = self.db.uploads(owner, Some(device)).await?;
+        for upload in &uploads {
+            match self.cancel_upload(owner, upload.id).await {
+                Ok(()) | Err(FilesError::NotFound) => {}
+                Err(err) => return Err(err),
+            }
+        }
+        Ok(uploads.len())
     }
 
     /// Ends the uploads untouched for `older_than` and removes upload leftovers on disk.
@@ -352,7 +379,7 @@ mod tests {
 
     async fn start(fx: &Fixture, size: u64) -> Uuid {
         fx.files
-            .create_upload(fx.alice, new_file("a.txt"), size, None, None)
+            .create_upload(fx.alice, None, new_file("a.txt"), size, None, None)
             .await
             .expect("create")
             .id
@@ -441,7 +468,7 @@ mod tests {
         let fx = fixture(pool).await;
         let result = fx
             .files
-            .create_upload(fx.alice, new_file("a.txt"), 1025, None, None)
+            .create_upload(fx.alice, None, new_file("a.txt"), 1025, None, None)
             .await;
         assert!(matches!(result, Err(FilesError::TooLarge { limit: 1024 })));
         let id = start(&fx, 2).await;
@@ -478,7 +505,14 @@ mod tests {
             .into_node();
         let id = fx
             .files
-            .create_upload(fx.alice, UploadTarget::Replace(file.id), 5, None, None)
+            .create_upload(
+                fx.alice,
+                None,
+                UploadTarget::Replace(file.id),
+                5,
+                None,
+                None,
+            )
             .await
             .expect("create")
             .id;
@@ -493,9 +527,35 @@ mod tests {
         let fx = fixture(pool).await;
         let result = fx
             .files
-            .create_upload(fx.alice, new_file("a/b"), 1, None, None)
+            .create_upload(fx.alice, None, new_file("a/b"), 1, None, None)
             .await;
         assert!(matches!(result, Err(FilesError::InvalidName)));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn cancelling_a_devices_uploads_leaves_the_others(pool: PgPool) {
+        let fx = fixture(pool).await;
+        let laptop = Uuid::now_v7();
+        let from_laptop = fx
+            .files
+            .create_upload(fx.alice, Some(laptop), new_file("a.txt"), 4, None, None)
+            .await
+            .expect("laptop")
+            .id;
+        let unnamed = start(&fx, 4).await;
+
+        let cancelled = fx
+            .files
+            .cancel_device_uploads(fx.alice, laptop)
+            .await
+            .expect("cancel");
+
+        assert_eq!(cancelled, 1);
+        assert!(matches!(
+            fx.files.upload_status(fx.alice, from_laptop).await,
+            Err(FilesError::NotFound)
+        ));
+        assert!(fx.files.upload_status(fx.alice, unnamed).await.is_ok());
     }
 
     #[sqlx::test(migrations = "../../migrations")]

@@ -17,6 +17,8 @@ pub struct AuthUser {
     pub id: UserId,
     /// The session the token belongs to.
     pub session_id: Uuid,
+    /// The device of that session, when the client named one at sign-in.
+    pub device_id: Option<Uuid>,
     /// Unix timestamp at which the access token expires.
     pub token_exp: i64,
 }
@@ -35,15 +37,16 @@ impl AuthUser {
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.strip_prefix(BEARER_PREFIX))
             .ok_or(ApiError::Unauthorized)?;
-        let claims = state
+        let access = state
             .auth
             .verify_access(token)
             .await
             .map_err(|_| ApiError::Unauthorized)?;
         Ok(Self {
-            id: claims.sub,
-            session_id: claims.sid,
-            token_exp: claims.exp,
+            id: access.claims.sub,
+            session_id: access.claims.sid,
+            device_id: access.device_id,
+            token_exp: access.claims.exp,
         })
     }
 }

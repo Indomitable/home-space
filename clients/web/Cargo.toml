@@ -39,6 +39,7 @@ features = [
     "HtmlInputElement",
     "Location",
     "MessageEvent",
+    "Navigator",
     "ProgressEvent",
     "Storage",
     "WebSocket",

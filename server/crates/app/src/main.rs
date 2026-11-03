@@ -123,9 +123,9 @@ async fn serve(db: Db, config: &Config) -> Result<()> {
             Err(err) => tracing::error!(error = %err, "search index catch-up failed"),
         }
     });
-    tokio::spawn(prune_changes(
+    tokio::spawn(prune(
         state.db.clone(),
-        time::Duration::days(config.changes_retention_days),
+        config.changes_retention_days.map(time::Duration::days),
     ));
     tokio::spawn(expire_uploads(
         state.files.clone(),
@@ -145,17 +145,24 @@ async fn serve(db: Db, config: &Config) -> Result<()> {
         .context("serving")
 }
 
-/// Drops change journal entries older than `retention`, once at start and then daily.
-async fn prune_changes(db: Db, retention: time::Duration) {
+/// Compacts the change journal, drops its entries older than `retention` when there is one,
+/// and removes expired sign-in state; once at start and then daily.
+async fn prune(db: Db, retention: Option<time::Duration>) {
     let mut daily = tokio::time::interval(std::time::Duration::from_secs(24 * 3600));
     loop {
         daily.tick().await;
-        match db
-            .prune_changes(time::OffsetDateTime::now_utc() - retention)
-            .await
-        {
-            Ok(pruned) => tracing::info!(pruned, "change journal pruned"),
-            Err(err) => tracing::error!(error = %err, "pruning the change journal failed"),
+        match db.compact_changes().await {
+            Ok(compacted) => tracing::info!(compacted, "change journal compacted"),
+            Err(err) => tracing::error!(error = %err, "compacting the change journal failed"),
+        }
+        if let Some(retention) = retention {
+            match db
+                .prune_changes(time::OffsetDateTime::now_utc() - retention)
+                .await
+            {
+                Ok(pruned) => tracing::info!(pruned, "change journal pruned"),
+                Err(err) => tracing::error!(error = %err, "pruning the change journal failed"),
+            }
         }
         if let Err(err) = db.prune_oidc().await {
             tracing::error!(error = %err, "pruning single sign-on state failed");

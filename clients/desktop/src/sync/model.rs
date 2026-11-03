@@ -4,6 +4,7 @@ use std::{
 };
 
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 use protocol::{Node, NodeId, NodeKind};
 
@@ -94,6 +95,33 @@ impl Base {
             size: local.size,
             mtime: local.mtime,
         }
+    }
+}
+
+/// A chunked upload under way, saved so that it continues after a restart. The bytes the
+/// server holds are only worth keeping while the file is still the one described here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavedUpload {
+    pub path: PathBuf,
+    /// The server's upload session.
+    pub id: Uuid,
+    /// The file it replaces; `None` for a new file named `name` in `parent`.
+    pub node: Option<NodeId>,
+    pub parent: Option<NodeId>,
+    pub name: String,
+    pub size: u64,
+    pub mtime: i64,
+    pub sha256: String,
+}
+
+impl SavedUpload {
+    /// Whether this upload sends the same content to the same place as `other`.
+    pub fn is_same(&self, other: &Self) -> bool {
+        *self
+            == Self {
+                id: self.id,
+                ..other.clone()
+            }
     }
 }
 

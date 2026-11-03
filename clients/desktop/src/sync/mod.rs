@@ -9,6 +9,10 @@
 //! server cannot be reached at all, such as behind a gateway answering 502, the failures
 //! are not the paths' fault: after a few in a row the pass stops starting transfers and the
 //! sync reports one [`Outage`], trying again with a growing delay.
+//!
+//! A chunked upload's session is saved in the [`store`], so that after a restart it
+//! continues from what the server already has, as long as the file is unchanged. Sessions of
+//! files changed, deleted or no longer to be uploaded are cancelled on the server.
 
 mod apply;
 #[cfg(test)]
@@ -23,7 +27,7 @@ mod status;
 mod store;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
     sync::{
@@ -302,7 +306,7 @@ struct Problem {
 
 struct Engine {
     client: Client,
-    store: Store,
+    store: Arc<Store>,
     mirror: Mirror,
     mappings: Vec<Mapping>,
     /// Set when the mapped folders must be read from scratch.
@@ -345,7 +349,7 @@ impl Engine {
             mappings: store.mappings()?,
             reload: mirror.cursor.is_none(),
             mirror,
-            store,
+            store: Arc::new(store),
             problems: HashMap::new(),
             outage: None,
             unreadable: Vec::new(),
@@ -477,6 +481,7 @@ impl Engine {
         self.unreadable = self.faults_of(&scan.unreadable);
         let now = Instant::now();
         let planned = plan::plan(&layout, &scan, &bases);
+        self.discard_uploads(&planned).await;
         // A path with nothing left to do was resolved meanwhile, perhaps by the user.
         self.problems.retain(|path, _| {
             planned
@@ -547,6 +552,26 @@ impl Engine {
         }
     }
 
+    /// Cancels the saved chunked uploads of paths with no upload planned any more, such as
+    /// files deleted, or synced some other way, since the upload began.
+    async fn discard_uploads(&self, planned: &[Action]) {
+        let uploading: HashSet<&Path> = planned
+            .iter()
+            .filter_map(|action| match action {
+                Action::Upload { path, .. } => Some(path.as_path()),
+                _ => None,
+            })
+            .collect();
+        let saved = self.store.saved_uploads().unwrap_or_default();
+        for upload in saved
+            .iter()
+            .filter(|upload| !uploading.contains(upload.path.as_path()))
+        {
+            // One the server cannot be asked about now stays saved for a later pass.
+            let _ = apply::discard(&self.client, &self.store, upload).await;
+        }
+    }
+
     /// The faults of the paths the scan could not read, keeping when each was first seen.
     fn faults_of(&self, unreadable: &[(PathBuf, String)]) -> Vec<(PathBuf, Fault)> {
         let seen: HashMap<&Path, &Fault> = self
@@ -599,10 +624,12 @@ impl Engine {
             if phase == Phase::Transfer {
                 let snapshot = folders.clone();
                 let client = self.client.clone();
+                let store = Arc::clone(&self.store);
                 let progress = Arc::clone(&self.progress);
                 let halt = Arc::clone(&breaker.halt);
-                let mut outcomes =
-                    apply::execute_all(&client, &snapshot, &progress, &halt, now, TRANSFERS);
+                let mut outcomes = apply::execute_all(
+                    &client, &store, &snapshot, &progress, &halt, now, TRANSFERS,
+                );
                 let mut tick = tokio::time::interval(PROGRESS);
                 loop {
                     // A large file reports on the tick, between the ends of transfers.
@@ -627,9 +654,14 @@ impl Engine {
                     if breaker.is_tripped() {
                         break;
                     }
-                    let outcome =
-                        apply::execute(&self.client, &folders, &self.progress, action.clone())
-                            .await;
+                    let outcome = apply::execute(
+                        &self.client,
+                        &self.store,
+                        &folders,
+                        &self.progress,
+                        action.clone(),
+                    )
+                    .await;
                     finish(&mut unfinished, &action);
                     self.settle(&mut folders, &mut breaker, action, outcome)?;
                 }

@@ -74,15 +74,20 @@ impl Client {
         P: Fn(u64),
     {
         let session = self.create_upload(request).await?;
-        let result = self.feed(session, request.size, read, progress).await;
+        let result = self
+            .continue_upload(session, request.size, read, progress)
+            .await;
         if result.is_err() {
             let _ = self.cancel_upload(session.id).await;
         }
         result
     }
 
+    /// Sends the rest of the `size` bytes of `session`, from its offset, retrying each chunk
+    /// like [`Client::upload_resumable`], and returns the stored file. A failed upload is not
+    /// cancelled, so it can be continued later from [`Client::upload_status`].
     #[cfg(not(target_arch = "wasm32"))]
-    async fn feed<R, Fut, P>(
+    pub async fn continue_upload<R, Fut, P>(
         &self,
         session: UploadSession,
         size: u64,
@@ -260,6 +265,53 @@ mod tests {
 
         assert_eq!(node.size, 10);
         assert_eq!(*received.lock().expect("lock"), content);
+    }
+
+    #[tokio::test]
+    async fn a_continued_upload_sends_only_what_the_server_lacks() {
+        let server = MockServer::start().await;
+        let sent = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = sent.clone();
+        Mock::given(method("PATCH"))
+            .and(path(format!("{}/{ID}", paths::UPLOADS)))
+            .respond_with(move |request: &Request| {
+                let offset: u64 = request.headers["upload-offset"]
+                    .to_str()
+                    .expect("header")
+                    .parse()
+                    .expect("offset");
+                seen.lock().expect("lock").push(offset);
+                let offset = offset + request.body.len() as u64;
+                let node = (offset == 10).then(|| node_json(10));
+                ResponseTemplate::new(200).set_body_json(json!({ "offset": offset, "node": node }))
+            })
+            .mount(&server)
+            .await;
+        let client = Client::new(server.uri());
+        client.store(TokenPair {
+            access_token: "token".to_owned(),
+            refresh_token: "refresh".to_owned(),
+            expires_in: 900,
+        });
+        let session = UploadSession {
+            id: ID.parse().expect("id"),
+            offset: 6,
+            size: 10,
+            chunk_size: 4,
+        };
+
+        let node = client
+            .continue_upload(
+                session,
+                10,
+                |_, len| async move { Ok(vec![0; len]) },
+                |_| (),
+            )
+            .await
+            .expect("upload");
+
+        assert_eq!(node.size, 10);
+        assert_eq!(*sent.lock().expect("lock"), [6]);
     }
 
     #[test]

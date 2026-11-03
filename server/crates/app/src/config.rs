@@ -96,8 +96,9 @@ pub struct Config {
     pub password_login: bool,
 
     /// How long the change journal keeps entries; clients offline for longer resync fully.
-    #[arg(long, env = "HOMESPACE_CHANGES_RETENTION_DAYS", default_value_t = 30)]
-    pub changes_retention_days: i64,
+    /// Unset, the journal is only compacted to the latest entry of each node and kept for good.
+    #[arg(long, env = "HOMESPACE_CHANGES_RETENTION_DAYS")]
+    pub changes_retention_days: Option<i64>,
 }
 
 impl Config {

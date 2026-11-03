@@ -1,6 +1,7 @@
 //! Wire types shared by the home-space server and its clients.
 
 mod auth;
+mod capabilities;
 mod change;
 mod device;
 mod error;
@@ -17,6 +18,7 @@ pub use auth::{
     LoginRequest, Me, OidcCallbackQuery, OidcExchangeRequest, OidcProvider, OidcStartQuery,
     Providers, RefreshRequest, TokenPair,
 };
+pub use capabilities::Capabilities;
 pub use change::{Change, ChangesQuery, ChangesResponse};
 pub use device::{
     Device, DeviceInfo, PLATFORM_ANDROID, PLATFORM_LINUX, PLATFORM_MACOS, PLATFORM_WEB,

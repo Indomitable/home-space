@@ -14,7 +14,7 @@ use iced::{
 use tokio::{fs, io::AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 
-use api_client::{ApiError, Client, RESUMABLE_THRESHOLD};
+use api_client::{ApiError, Client};
 use client_core::listing::{Sort, sort_nodes};
 use protocol::{CreateUpload, ErrorCode, Node, NodeId, NodeKind};
 
@@ -572,7 +572,7 @@ async fn upload_file(
     output: &mpsc::Sender<Message>,
 ) -> Result<(), String> {
     let name = display_name(&file.path);
-    let stored = if file.size > RESUMABLE_THRESHOLD {
+    let stored = if file.size > client.upload_chunk_bytes() {
         let request = CreateUpload {
             parent_id: parent,
             name,

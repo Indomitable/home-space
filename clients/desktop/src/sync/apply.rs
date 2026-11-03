@@ -15,7 +15,7 @@ use tokio::{fs, io::AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
-use api_client::{ApiError, Client, RESUMABLE_THRESHOLD};
+use api_client::{ApiError, Client};
 use protocol::{CreateUpload, ErrorCode, NodeId, NodeKind, UploadSession};
 
 use super::{
@@ -266,7 +266,7 @@ async fn upload(
     };
     let modified = Some(datetime(local.mtime));
     let saved = store.saved_upload(&path)?;
-    let stored = if local.size > RESUMABLE_THRESHOLD {
+    let stored = if local.size > client.upload_chunk_bytes() {
         let (parent, name) = match node {
             Some(_) => (None, String::new()),
             None => place(folders, &path)?,
@@ -525,7 +525,7 @@ mod tests {
 
     const SESSION: &str = "0193a4a0-0000-7000-8000-000000000001";
     const NEWER: &str = "0193a4a0-0000-7000-8000-000000000002";
-    const SIZE: u64 = RESUMABLE_THRESHOLD + 10;
+    const SIZE: u64 = api_client::FALLBACK_UPLOAD_CHUNK_BYTES + 10;
 
     fn temp(name: &str) -> PathBuf {
         let path =

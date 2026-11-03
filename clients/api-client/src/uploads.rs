@@ -8,12 +8,6 @@ use protocol::{ChunkResult, Node};
 
 use crate::{ApiError, Client, client::expect_success};
 
-/// Files larger than this are uploaded in chunks; smaller ones in a single request.
-///
-/// Matches the server's default chunk size and stays well below the 100 MB request limit of
-/// proxies like Cloudflare.
-pub const RESUMABLE_THRESHOLD: u64 = 32 * 1024 * 1024;
-
 /// How often one chunk is retried before the upload gives up.
 #[cfg(not(target_arch = "wasm32"))]
 const CHUNK_RETRIES: u32 = 5;
@@ -99,7 +93,7 @@ impl Client {
         Fut: Future<Output = std::io::Result<Vec<u8>>>,
         P: Fn(u64),
     {
-        let chunk_size = session.chunk_size.max(1);
+        let chunk_size = session.chunk_size.min(self.upload_chunk_bytes()).max(1);
         let mut offset = session.offset;
         let mut failures = 0;
         loop {
@@ -312,6 +306,54 @@ mod tests {
 
         assert_eq!(node.size, 10);
         assert_eq!(*sent.lock().expect("lock"), [6]);
+    }
+
+    #[tokio::test]
+    async fn chunks_stay_within_the_clients_upload_chunk_size() {
+        const SIZE: u64 = crate::FALLBACK_UPLOAD_CHUNK_BYTES + 10;
+        let server = MockServer::start().await;
+        let lengths = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = lengths.clone();
+        Mock::given(method("PATCH"))
+            .and(path(format!("{}/{ID}", paths::UPLOADS)))
+            .respond_with(move |request: &Request| {
+                let offset: u64 = request.headers["upload-offset"]
+                    .to_str()
+                    .expect("header")
+                    .parse()
+                    .expect("offset");
+                seen.lock().expect("lock").push(request.body.len());
+                let offset = offset + request.body.len() as u64;
+                let node = (offset == SIZE).then(|| node_json(SIZE));
+                ResponseTemplate::new(200).set_body_json(json!({ "offset": offset, "node": node }))
+            })
+            .mount(&server)
+            .await;
+        let client = Client::new(server.uri());
+        client.store(TokenPair {
+            access_token: "token".to_owned(),
+            refresh_token: "refresh".to_owned(),
+            expires_in: 900,
+        });
+        let session = UploadSession {
+            id: ID.parse().expect("id"),
+            offset: 0,
+            size: SIZE,
+            chunk_size: SIZE,
+        };
+
+        client
+            .continue_upload(
+                session,
+                SIZE,
+                |_, len| async move { Ok(vec![0; len]) },
+                |_| (),
+            )
+            .await
+            .expect("upload");
+
+        let fallback = usize::try_from(crate::FALLBACK_UPLOAD_CHUNK_BYTES).expect("fits");
+        assert_eq!(*lengths.lock().expect("lock"), [fallback, 10]);
     }
 
     #[test]

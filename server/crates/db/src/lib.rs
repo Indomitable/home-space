@@ -15,6 +15,7 @@ macro_rules! visible {
 }
 
 mod changes;
+mod devices;
 mod error;
 mod models;
 mod nodes;
@@ -28,6 +29,7 @@ mod users;
 mod versions;
 
 pub use changes::{ChangeBatch, NodeChange};
+pub use devices::{Device, NewDevice};
 pub use error::DbError;
 pub use models::{FileVersion, Node, RefreshToken, User};
 pub use nodes::{
@@ -37,6 +39,7 @@ pub use nodes::{
 pub use oidc::{OidcCode, OidcPending};
 pub use protocol::{NodeId, NodeKind, OnConflict, UserId};
 pub use search::{ContentState, RankedNode};
+pub use sessions::LiveSession;
 pub use sqlx::PgPool;
 pub use trash::{LOST_AND_FOUND, SpecialFolders, TrashOutcome, TrashedNode};
 pub use uploads::{NewUpload, Upload};

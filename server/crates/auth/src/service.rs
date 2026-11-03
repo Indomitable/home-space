@@ -2,8 +2,10 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use db::{Db, DbError, OidcPending, User, UserId};
-use protocol::{NodeId, OidcProvider, Providers, TicketRequest, TicketResponse, TokenPair};
+use db::{Db, DbError, LiveSession, NewDevice, OidcPending, User, UserId};
+use protocol::{
+    DeviceInfo, NodeId, OidcProvider, Providers, TicketRequest, TicketResponse, TokenPair,
+};
 
 use crate::{
     AuthError, Claims, OidcService,
@@ -26,6 +28,8 @@ const OIDC_CODE_TTL: Duration = Duration::seconds(60);
 const OIDC_TOKEN_BYTES: usize = 32;
 const USERNAME_ATTEMPTS: u32 = 20;
 const FALLBACK_USERNAME: &str = "user";
+const MAX_DEVICE_NAME_CHARS: usize = 100;
+const MAX_PLATFORM_CHARS: usize = 32;
 
 /// Token settings.
 #[derive(Clone, Debug)]
@@ -35,6 +39,14 @@ pub struct AuthConfig {
     pub previous_jwt_secrets: Vec<Vec<u8>>,
     pub access_ttl: Duration,
     pub refresh_ttl: Duration,
+}
+
+/// A valid access token: its claims and the device of its session.
+#[derive(Clone, Copy, Debug)]
+pub struct Access {
+    pub claims: Claims,
+    /// `None` when the client did not name its device at sign-in.
+    pub device_id: Option<Uuid>,
 }
 
 /// Login, refresh, logout and user management.
@@ -116,8 +128,13 @@ impl AuthService {
         }
     }
 
-    /// Verifies credentials and starts a session.
-    pub async fn login(&self, username: &str, password: &str) -> Result<TokenPair, AuthError> {
+    /// Verifies credentials and starts a session on `device`, when the client names one.
+    pub async fn login(
+        &self,
+        username: &str,
+        password: &str,
+        device: Option<&DeviceInfo>,
+    ) -> Result<TokenPair, AuthError> {
         let user = self.db.find_user_by_username(username).await?;
         // Always verify against some hash so the timing does not reveal whether the user exists,
         // has a password, or may use password login at all.
@@ -131,7 +148,7 @@ impl AuthService {
         let verified =
             tokio::task::spawn_blocking(move || password::verify(&candidate, &hash)).await?;
         match user {
-            Some(user) if verified && allowed => self.start_session(user.id).await,
+            Some(user) if verified && allowed => self.start_session(user.id, device).await,
             _ => Err(AuthError::InvalidCredentials),
         }
     }
@@ -172,10 +189,13 @@ impl AuthService {
     }
 
     /// Validates an access token: a good signature is not enough, its session must still exist.
-    pub async fn verify_access(&self, token: &str) -> Result<Claims, AuthError> {
+    pub async fn verify_access(&self, token: &str) -> Result<Access, AuthError> {
         let claims = decode_access(&self.keys, token)?;
-        self.require_session(claims.sid, claims.sub).await?;
-        Ok(claims)
+        let session = self.require_session(claims.sid, claims.sub).await?;
+        Ok(Access {
+            claims,
+            device_id: session.device_id,
+        })
     }
 
     /// Lifetime of access tokens.
@@ -209,12 +229,15 @@ impl AuthService {
         Ok(grant.user_id)
     }
 
-    async fn require_session(&self, session_id: Uuid, user_id: UserId) -> Result<(), AuthError> {
-        if self.db.session_is_live(session_id, user_id).await? {
-            Ok(())
-        } else {
-            Err(AuthError::InvalidCredentials)
-        }
+    async fn require_session(
+        &self,
+        session_id: Uuid,
+        user_id: UserId,
+    ) -> Result<LiveSession, AuthError> {
+        self.db
+            .live_session(session_id, user_id)
+            .await?
+            .ok_or(AuthError::InvalidCredentials)
     }
 
     /// Starts a single sign-on: returns the provider URL to send the user to.
@@ -284,11 +307,13 @@ impl AuthService {
         Ok(append_query(&pending.client_redirect, params))
     }
 
-    /// Exchanges the one-time code from the redirect for a session.
+    /// Exchanges the one-time code from the redirect for a session on `device`, when the
+    /// client names one.
     pub async fn oidc_exchange(
         &self,
         code: &str,
         code_verifier: &str,
+        device: Option<&DeviceInfo>,
     ) -> Result<TokenPair, AuthError> {
         self.oidc()?;
         let stored = self
@@ -297,7 +322,7 @@ impl AuthService {
             .await?
             .ok_or(AuthError::InvalidCredentials)?;
         if verifier_matches(code_verifier, &stored.client_challenge) {
-            self.start_session(stored.user_id).await
+            self.start_session(stored.user_id, device).await
         } else {
             Err(AuthError::InvalidCredentials)
         }
@@ -366,14 +391,23 @@ impl AuthService {
     }
 
     /// Starts a session, which exists only from here: after a verified password or provider
-    /// login. Tokens cannot create one.
-    async fn start_session(&self, user_id: UserId) -> Result<TokenPair, AuthError> {
+    /// login. Tokens cannot create one. A named device is registered to the user first.
+    async fn start_session(
+        &self,
+        user_id: UserId,
+        device: Option<&DeviceInfo>,
+    ) -> Result<TokenPair, AuthError> {
+        let device = device.map(new_device).transpose()?;
+        if let Some(device) = device {
+            self.db.register_device(user_id, device).await?;
+        }
         let session_id = Uuid::now_v7();
         let refresh_token = new_refresh_token();
         self.db
             .start_session(
                 session_id,
                 user_id,
+                device.map(|device| device.id),
                 &hash_refresh_token(&refresh_token),
                 self.refresh_expiry(),
             )
@@ -425,6 +459,34 @@ impl AuthService {
         let password = password.to_owned();
         tokio::task::spawn_blocking(move || password::hash(&password)).await?
     }
+}
+
+/// `device` checked against what the server stores: a name of 1-100 characters, kept without
+/// surrounding blanks, and a platform of 1-32.
+fn new_device(device: &DeviceInfo) -> Result<NewDevice<'_>, AuthError> {
+    let name = device_name(&device.name).ok_or(AuthError::InvalidInput(
+        "device name must be 1-100 characters",
+    ))?;
+    let platform = device.platform.trim();
+    if !(1..=MAX_PLATFORM_CHARS).contains(&platform.chars().count()) {
+        Err(AuthError::InvalidInput(
+            "device platform must be 1-32 characters",
+        ))
+    } else {
+        Ok(NewDevice {
+            id: device.id,
+            name,
+            platform,
+        })
+    }
+}
+
+/// `name` as a device name, or `None` when it is blank or too long.
+pub fn device_name(name: &str) -> Option<&str> {
+    let name = name.trim();
+    (1..=MAX_DEVICE_NAME_CHARS)
+        .contains(&name.chars().count())
+        .then_some(name)
 }
 
 fn random_token() -> String {
@@ -548,21 +610,68 @@ mod tests {
     async fn login_succeeds_with_correct_password(pool: PgPool) {
         let auth = service(pool);
         auth.create_user("alice", "password-1").await.expect("user");
-        let pair = auth.login("alice", "password-1").await.expect("login");
+        let pair = auth
+            .login("alice", "password-1", None)
+            .await
+            .expect("login");
         assert!(auth.verify_access(&pair.access_token).await.is_ok());
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn login_from_a_device_registers_it_and_tags_the_session(pool: PgPool) {
+        let db = Db::from_pool(pool.clone());
+        let auth = service(pool);
+        let user = auth.create_user("alice", "password-1").await.expect("user");
+        let device = DeviceInfo {
+            id: Uuid::now_v7(),
+            name: "  Laptop ".to_owned(),
+            platform: protocol::PLATFORM_LINUX.to_owned(),
+        };
+
+        let pair = auth
+            .login("alice", "password-1", Some(&device))
+            .await
+            .expect("login");
+
+        let access = auth
+            .verify_access(&pair.access_token)
+            .await
+            .expect("access");
+        assert_eq!(access.device_id, Some(device.id));
+        let devices = db.devices(user.id).await.expect("devices");
+        assert_eq!(
+            devices
+                .iter()
+                .map(|d| (d.id, d.name.as_str(), d.signed_in))
+                .collect::<Vec<_>>(),
+            [(device.id, "Laptop", true)]
+        );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_blank_device_name_is_refused(pool: PgPool) {
+        let auth = service(pool);
+        auth.create_user("alice", "password-1").await.expect("user");
+        let device = DeviceInfo {
+            id: Uuid::now_v7(),
+            name: " ".to_owned(),
+            platform: protocol::PLATFORM_WEB.to_owned(),
+        };
+        let result = auth.login("alice", "password-1", Some(&device)).await;
+        assert!(matches!(result, Err(AuthError::InvalidInput(_))));
     }
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn login_fails_with_wrong_password(pool: PgPool) {
         let auth = service(pool);
         auth.create_user("alice", "password-1").await.expect("user");
-        let result = auth.login("alice", "password-2").await;
+        let result = auth.login("alice", "password-2", None).await;
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));
     }
 
     #[sqlx::test(migrations = "../../migrations")]
     async fn login_fails_for_unknown_user(pool: PgPool) {
-        let result = service(pool).login("nobody", "password-1").await;
+        let result = service(pool).login("nobody", "password-1", None).await;
         assert!(matches!(result, Err(AuthError::InvalidCredentials)));
     }
 
@@ -578,7 +687,10 @@ mod tests {
     async fn refresh_rotates_the_token(pool: PgPool) {
         let auth = service(pool);
         auth.create_user("alice", "password-1").await.expect("user");
-        let first = auth.login("alice", "password-1").await.expect("login");
+        let first = auth
+            .login("alice", "password-1", None)
+            .await
+            .expect("login");
         let second = auth.refresh(&first.refresh_token).await.expect("refresh");
         assert_ne!(first.refresh_token, second.refresh_token);
     }
@@ -587,7 +699,10 @@ mod tests {
     async fn reusing_a_refresh_token_revokes_the_family(pool: PgPool) {
         let auth = service(pool);
         auth.create_user("alice", "password-1").await.expect("user");
-        let first = auth.login("alice", "password-1").await.expect("login");
+        let first = auth
+            .login("alice", "password-1", None)
+            .await
+            .expect("login");
         let second = auth.refresh(&first.refresh_token).await.expect("refresh");
         assert!(auth.refresh(&first.refresh_token).await.is_err());
         assert!(auth.refresh(&second.refresh_token).await.is_err());
@@ -597,7 +712,10 @@ mod tests {
     async fn logout_revokes_the_session(pool: PgPool) {
         let auth = service(pool);
         auth.create_user("alice", "password-1").await.expect("user");
-        let pair = auth.login("alice", "password-1").await.expect("login");
+        let pair = auth
+            .login("alice", "password-1", None)
+            .await
+            .expect("login");
         auth.logout(&pair.refresh_token).await.expect("logout");
         assert!(auth.refresh(&pair.refresh_token).await.is_err());
     }

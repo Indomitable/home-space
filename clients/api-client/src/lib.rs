@@ -1,6 +1,7 @@
 //! Typed HTTP client for the home-space API, shared by all Rust clients.
 
 mod client;
+mod devices;
 mod error;
 mod pkce;
 mod uploads;

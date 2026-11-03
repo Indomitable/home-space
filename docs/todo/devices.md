@@ -12,74 +12,65 @@ web client, later the Android app) look the same to it:
 - `sessions` (migration `0007`) is "one signed-in device", but its id changes with every sign-in.
   It cannot name a device over time, and there is no device list for the user.
 
-## Proposal
+## Done
 
-### Identity
+Steps 1 and 2 below (migration `0010_devices.sql`):
 
-- On first run each client generates a UUID and keeps it: in the desktop sync database's `meta`
-  table, in localStorage for the web client, and in DataStore for Android.
-- The client sends it on sign-in: `device_id`, `device_name` (hostname or browser) and `platform`
-  on `POST /auth/login` and in the OIDC exchange.
-- The device id only labels where something came from. Access still rests on the session. The
-  server accepts a device id only together with a verified sign-in, and only for the user signing
-  in.
+- **Identity.**
+  - Each client makes up a UUID once and keeps it: `~/.local/share/home-space/device-id` on the
+    desktop, `homespace.device_id` in localStorage on the web.
+  - The client sends `device: {id, name, platform}` on `POST /auth/login` and
+    `POST /auth/oidc/exchange`. The name is the host name on the desktop and the browser's name
+    on the web. Older clients leave the field out and sign in as before, without a device.
+- **Schema.**
+  - `devices` is keyed by `(user_id, id)`, so several users of one install each get their own
+    row and nobody can claim another user's device. (The first design refused an id already
+    registered to another user with `409`; that would have broken switching users on one desktop.)
+  - `sessions.device_id` references it. `uploads.device_id` has no foreign key: devices are only
+    deleted with their user.
+- **Sign-in.**
+  - The device is registered, or marked as seen. A known device keeps the name the user gave it.
+  - `last_seen_at` is updated on token refresh, at most once an hour.
+  - `AuthUser` carries `device_id`, read from the session row the token check already loads.
+- **Uploads.** `POST /uploads` records the device.
+- **API.**
+  - `GET /devices` lists the user's devices with `signed_in`, `current` and their number of
+    unfinished `uploads`.
+  - `PATCH /devices/{id}` renames one.
+  - `DELETE /devices/{id}` ends its sessions and cancels its unfinished uploads. The row stays, so
+    the device is still named in history.
+  - `GET /uploads?this_device=true` lists the uploads of the calling device, to clean up after
+    its local database is lost.
+- **Signing out.** Signing out on the device itself (`/auth/logout`) does not cancel its
+  uploads. The desktop keeps its saved upload sessions and continues them after signing in again.
+- **API client.** `Client::with_device`, `devices`, `rename_device`, `sign_out_device`, `uploads`.
 
-### Schema
+## Left
+
+### Tagging changes (step 3)
 
 ```sql
-CREATE TABLE devices (
-    id           UUID PRIMARY KEY,
-    user_id      UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    name         TEXT NOT NULL,
-    platform     TEXT NOT NULL,          -- desktop-linux, desktop-macos, web, android, ...
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-ALTER TABLE sessions     ADD COLUMN device_id UUID REFERENCES devices (id) ON DELETE CASCADE;
-ALTER TABLE uploads      ADD COLUMN device_id UUID REFERENCES devices (id) ON DELETE SET NULL;
 ALTER TABLE node_changes ADD COLUMN device_id UUID;   -- no foreign key, like owner_id
 ```
 
-- A device id already registered to another user is refused (`409`), so one user cannot claim
-  another user's device.
-- `last_seen_at` is updated on token refresh, at most once an hour.
-- Access tokens carry the session, and the session carries the device. The `AuthUser` extractor
-  exposes `device_id`.
-
-### Tagging
-
-- **Uploads:** `POST /uploads` and single-request uploads record the device. Signing a device out
-  or deleting it cancels its unfinished uploads straight away.
-- **Changes:** the API runs `SET LOCAL homespace.device_id = '<id>'` in each write transaction.
+- The API runs `SET LOCAL homespace.device_id = '<id>'` in each write transaction.
   `record_node_change()` reads it with `current_setting('homespace.device_id', true)` and stores
   it. Writes without it (CLI, background jobs) record `NULL`.
+  - Every write in `db::nodes` has to take the device, and so do `FileService` methods.
 - **`GET /changes`** returns `device_id` with each entry. With journal compaction, only the latest
   writer of each node is known, which is what echo skipping and "edited on" need.
 
-### API
+### Client features (step 4)
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/devices` | The user's devices: name, platform, last seen, current one marked, unfinished uploads. |
-| PATCH | `/devices/{id}` | Rename. |
-| DELETE | `/devices/{id}` | Sign out: delete its sessions and cancel its uploads. The row stays, so the journal still names it. |
-| GET | `/uploads?device=me` | The unfinished uploads of this device, to clean up after its local database is lost. |
-
-### Clients
-
-- **Desktop:** a Devices section in settings. When catching up, sync skips entries made by this
-  device whose content it already has, by matching `device_id` and the base's hash. Conflict copies
-  are named after the other device ("report (Laptop).docx").
-- **Web:** the same Devices list in the account page.
-- **Android:** registers on first sign-in, so its uploads show as "from Phone".
-
-## Order
-
-1. `devices` table, registration on sign-in, `device_id` on sessions, `GET` and `DELETE /devices`.
-2. Tag uploads, and cancel them when the device is signed out.
-3. Tag changes through the session setting, and return `device_id` from `/changes`.
-4. Client features: echo skipping, "edited on", conflict copy names, the device list in the UI.
+- **Desktop.**
+  - A Devices section in settings: the list, rename, sign out.
+  - When catching up, sync skips entries made by this device whose content it already has, by
+    matching `device_id` and the base's hash.
+  - Conflict copies are named after the other device ("report (Laptop).docx").
+  - On macOS the host name falls back to "Desktop", since neither `/etc/hostname` nor `HOSTNAME`
+    is there. Read the computer name instead.
+- **Web.** The same Devices list, on an account page, which the web client does not have yet.
+- **Android.** Registers on first sign-in, so its uploads show as "from Phone".
 
 ## Not in scope
 

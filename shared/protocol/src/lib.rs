@@ -2,6 +2,7 @@
 
 mod auth;
 mod change;
+mod device;
 mod error;
 mod event;
 mod ids;
@@ -17,6 +18,10 @@ pub use auth::{
     Providers, RefreshRequest, TokenPair,
 };
 pub use change::{Change, ChangesQuery, ChangesResponse};
+pub use device::{
+    Device, DeviceInfo, PLATFORM_ANDROID, PLATFORM_LINUX, PLATFORM_MACOS, PLATFORM_WEB,
+    PLATFORM_WINDOWS, RenameDevice,
+};
 pub use error::{ErrorBody, ErrorCode};
 pub use event::Event;
 pub use ids::{NodeId, UserId};
@@ -27,4 +32,4 @@ pub use node::{
 pub use search::{SearchHit, SearchQuery};
 pub use ticket::{TicketRequest, TicketResponse};
 pub use trash::{RestoreRequest, TrashItem};
-pub use upload::{ChunkResult, CreateUpload, UploadSession};
+pub use upload::{ChunkResult, CreateUpload, UploadInfo, UploadSession, UploadsQuery};

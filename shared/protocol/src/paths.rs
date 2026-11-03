@@ -26,12 +26,17 @@ pub const TICKETS: &str = "/api/v1/tickets";
 pub const WS: &str = "/api/v1/ws";
 pub const TICKET_PARAM: &str = "ticket";
 pub const UPLOADS: &str = "/api/v1/uploads";
+pub const DEVICES: &str = "/api/v1/devices";
 /// Header of `PATCH /uploads/{id}` naming where the chunk starts, and of upload responses
 /// naming how many bytes the server has.
 pub const UPLOAD_OFFSET: &str = "Upload-Offset";
 
 pub fn upload(id: uuid::Uuid) -> String {
     format!("{UPLOADS}/{id}")
+}
+
+pub fn device(id: uuid::Uuid) -> String {
+    format!("{DEVICES}/{id}")
 }
 
 pub fn node(id: NodeId) -> String {

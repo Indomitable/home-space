@@ -3,9 +3,21 @@ use std::sync::Arc;
 use leptos::{prelude::*, task::spawn_local};
 
 use api_client::{ApiError, Client, Pkce, VERIFIER_BYTES};
-use protocol::Me;
+use protocol::{DeviceInfo, Me, PLATFORM_WEB};
+use uuid::Uuid;
 
 const REFRESH_TOKEN_KEY: &str = "homespace.refresh_token";
+const DEVICE_ID_KEY: &str = "homespace.device_id";
+/// Browsers by a token of their user agent, the more specific first: Edge and Opera also
+/// claim to be Chrome, and Chrome claims to be Safari.
+const BROWSERS: [(&str, &str); 5] = [
+    ("Edg/", "Edge"),
+    ("OPR/", "Opera"),
+    ("Firefox/", "Firefox"),
+    ("Chrome/", "Chrome"),
+    ("Safari/", "Safari"),
+];
+const FALLBACK_BROWSER: &str = "Web browser";
 const INVALID_LOGIN_MESSAGE: &str = "Invalid username or password";
 const OIDC_VERIFIER_KEY: &str = "homespace.oidc_verifier";
 const OIDC_CALLBACK_PATH: &str = "/login/callback";
@@ -24,7 +36,51 @@ fn build_client() -> Client {
     let origin = web_sys::window()
         .and_then(|window| window.location().origin().ok())
         .unwrap_or_default();
-    Client::with_listener(origin, Arc::new(persist_refresh_token))
+    let client = Client::with_listener(origin, Arc::new(persist_refresh_token));
+    match device() {
+        Some(device) => client.with_device(device),
+        None => client,
+    }
+}
+
+/// This browser as one of the user's devices, its id kept in local storage; `None` when
+/// there is no storage to keep it in.
+fn device() -> Option<DeviceInfo> {
+    let storage = storage()?;
+    let saved = storage
+        .get_item(DEVICE_ID_KEY)
+        .ok()
+        .flatten()
+        .and_then(|id| id.parse::<Uuid>().ok());
+    let id = match saved {
+        Some(id) => id,
+        None => {
+            let id = web_sys::window()?
+                .crypto()
+                .ok()?
+                .random_uuid()
+                .parse::<Uuid>()
+                .ok()?;
+            storage.set_item(DEVICE_ID_KEY, &id.to_string()).ok()?;
+            id
+        }
+    };
+    let agent = web_sys::window()
+        .and_then(|window| window.navigator().user_agent().ok())
+        .unwrap_or_default();
+    Some(DeviceInfo {
+        id,
+        name: browser_name(&agent).to_owned(),
+        platform: PLATFORM_WEB.to_owned(),
+    })
+}
+
+/// The browser's name from its user agent.
+fn browser_name(agent: &str) -> &'static str {
+    BROWSERS
+        .iter()
+        .find(|(token, _)| agent.contains(token))
+        .map_or(FALLBACK_BROWSER, |(_, name)| name)
 }
 
 pub(crate) fn storage() -> Option<web_sys::Storage> {
@@ -151,4 +207,22 @@ pub fn take_oidc_verifier() -> Option<String> {
     let verifier = storage.get_item(OIDC_VERIFIER_KEY).ok().flatten();
     let _ = storage.remove_item(OIDC_VERIFIER_KEY);
     verifier
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn browsers_that_claim_to_be_others_are_named_for_themselves() {
+        let edge =
+            "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/130.0 Safari/537.36 Edg/130.0";
+        let chrome =
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36";
+        let firefox = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0";
+        assert_eq!(browser_name(edge), "Edge");
+        assert_eq!(browser_name(chrome), "Chrome");
+        assert_eq!(browser_name(firefox), "Firefox");
+        assert_eq!(browser_name(""), FALLBACK_BROWSER);
+    }
 }

@@ -80,21 +80,24 @@ device through `GET /devices`.
 
 ### Uploads
 
-Files up to 32 MiB go up in one request. Clients send larger files in chunks (`/uploads`), so no
-request exceeds a proxy's body limit, and an interrupted upload continues from the bytes the
-server already has. Unfinished uploads are kept under `<storage>/uploads/`. See
+After signing in, clients read `HOMESPACE_UPLOAD_CHUNK_BYTES` from `GET /capabilities` as
+`upload_chunk_bytes`. Files up to that size go up in one request; larger ones in chunks of that
+size (`/uploads`), so no request exceeds a proxy's body limit, and an interrupted upload continues
+from the bytes the server already has. A client that cannot read the capabilities uses 512 KiB,
+which stays below nginx's default limit of 1 MiB. Unfinished uploads are kept under `<storage>/uploads/`. See
 [`docs/chunked-upload.md`](docs/chunked-upload.md).
 
 | Variable | Default | |
 |---|---|---|
 | `HOMESPACE_MAX_UPLOAD_BYTES` | 10737418240 (10 GiB) | Largest file accepted, however it is uploaded. |
-| `HOMESPACE_UPLOAD_CHUNK_BYTES` | 33554432 (32 MiB) | Largest request of a chunked upload. Keep it below the proxy's limit (Cloudflare: 100 MB). It does not limit the file size. |
+| `HOMESPACE_UPLOAD_CHUNK_BYTES` | 33554432 (32 MiB) | Largest request of any upload, single or chunked. Keep it below the proxy's limit (Cloudflare: 100 MB). It does not limit the file size. |
 | `HOMESPACE_UPLOAD_EXPIRY_HOURS` | 24 | Unfinished uploads idle this long are deleted. |
 
-A reverse proxy still needs a body limit of `HOMESPACE_MAX_UPLOAD_BYTES` on `/api/v1/files`
-for single-request uploads and replacements made through the API, and one above the chunk size on
-`/api/v1/uploads`. With nginx, a regex location for `/api/v1/files/{id}/content` (such as one that
-turns off buffering for downloads) takes over replacements too, so give it the same limit. See [`docs/nginx/example.domain.com.conf`](docs/nginx/example.domain.com.conf).
+A reverse proxy needs a body limit above `HOMESPACE_UPLOAD_CHUNK_BYTES` on `/api/v1/files` (for
+single-request uploads and replacements) and on `/api/v1/uploads`. Larger single requests (from a
+script, say) are then refused by the proxy and have to go through `/uploads`. With nginx, a regex
+location for `/api/v1/files/{id}/content` (such as one that turns off buffering for downloads)
+takes over replacements too, so give it the same limit. See [`docs/nginx/example.domain.com.conf`](docs/nginx/example.domain.com.conf).
 
 Sync clients catch up through a journal of changes (`GET /changes?since=<cursor>`). Every day the
 server compacts it to the latest entry of each file and folder, which is all a client reads, so a
@@ -114,6 +117,7 @@ one.
 | GET | `/auth/providers` | how users can sign in: `{password, oidc: {name}?}` |
 | GET / GET / POST | `/auth/oidc/start`, `/auth/oidc/callback`, `/auth/oidc/exchange` | single sign-on, see [Single sign-on](#single-sign-on) |
 | GET | `/me` | current user: `{id, username, lost_and_found_id}` |
+| GET | `/capabilities` | what the server supports: `{upload_chunk_bytes}`, the largest request body of an upload |
 | GET | `/nodes?parent_id=` | list folder (root when omitted) |
 | GET / PATCH / DELETE | `/nodes/{id}` | metadata / rename or move / delete (to the recycle bin; 409 for Lost & Found) |
 | POST | `/nodes/move` | `{ids, parent_id, on_conflict?}` → `{moved, skipped, conflicts, target}`; `on_conflict` is `abort` (default: report clashes, change nothing), `override` (merge) or `skip` (destination untouched, clashing files go to the recycle bin) |

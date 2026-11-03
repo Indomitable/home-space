@@ -6,7 +6,7 @@ use tokio::sync::oneshot;
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use web_sys::{Blob, File, ProgressEvent, XmlHttpRequest};
 
-use api_client::{ApiError, Client, RESUMABLE_THRESHOLD};
+use api_client::{ApiError, Client};
 use protocol::{ChunkResult, CreateUpload, ErrorBody, ErrorCode, Node, NodeId, paths};
 
 use crate::session::storage;
@@ -61,7 +61,7 @@ pub async fn upload(
     parent: Option<NodeId>,
     on_progress: &OnProgress,
 ) -> Result<Node, ApiError> {
-    if file_size(file) > RESUMABLE_THRESHOLD {
+    if file_size(file) > client.upload_chunk_bytes() {
         return upload_chunked(client, file, parent, on_progress).await;
     }
     let name = String::from(js_sys::encode_uri_component(&file.name()));
@@ -106,7 +106,7 @@ async fn upload_chunked(
         }
     };
     let url = client.url(&paths::upload(session.id));
-    let chunk_size = session.chunk_size.max(1);
+    let chunk_size = session.chunk_size.min(client.upload_chunk_bytes()).max(1);
     let fraction = move |done: u64| done as f64 / size as f64;
     let mut offset = session.offset;
     let mut failures = 0;

@@ -1,12 +1,20 @@
 # Resumable chunked upload
 
-Files larger than 32 MiB (`api_client::RESUMABLE_THRESHOLD`) are uploaded in chunks, so no
-single request exceeds a proxy's body limit. Cloudflare, including Tunnel, allows 100 MB per
+Files larger than the server's chunk size are uploaded in chunks, so no single request exceeds a
+proxy's body limit. Cloudflare, including Tunnel, allows 100 MB per
 request on the free plan. Chunks also let an upload resume after a dropped connection.
 Smaller files still go up as one streamed request (`POST /api/v1/files` or
 `PUT /api/v1/files/{id}/content`).
 
 ## Protocol
+
+After signing in, a client reads `GET /api/v1/capabilities`, which returns
+`{upload_chunk_bytes}` (`HOMESPACE_UPLOAD_CHUNK_BYTES`). It is the largest body the client sends
+in any upload: files up to that size go up in one request, larger ones in chunks of at most that
+size. A client that cannot read it (an older server, or an error) uses
+`api_client::FALLBACK_UPLOAD_CHUNK_BYTES`, 512 KiB, below nginx's default body limit of 1 MiB.
+Chunks are never larger than the session's `chunk_size` either, and the server accepts smaller
+ones.
 
 | Request | Purpose |
 |---|---|
@@ -37,7 +45,7 @@ Settings:
 | Variable | Default | |
 |---|---|---|
 | `HOMESPACE_MAX_UPLOAD_BYTES` | 10737418240 (10 GiB) | Largest file, checked against `size` when an upload starts. |
-| `HOMESPACE_UPLOAD_CHUNK_BYTES` | 33554432 (32 MiB) | Largest chunk. Keep it below the proxy's request limit; it does not limit the file size. |
+| `HOMESPACE_UPLOAD_CHUNK_BYTES` | 33554432 (32 MiB) | Largest request of an upload, reported by `/capabilities`. Keep it below the proxy's request limit; it does not limit the file size. |
 | `HOMESPACE_UPLOAD_EXPIRY_HOURS` | 24 | Idle time after which an unfinished upload is deleted. |
 
 ## Clients
@@ -52,8 +60,8 @@ Settings:
 
 ## Reverse proxy
 
-nginx needs a body limit on `/api/v1/uploads` above the chunk size, plus the usual streaming
-settings. See [`nginx/example.domain.com.conf`](nginx/example.domain.com.conf). Behind
+nginx needs a body limit above the chunk size on `/api/v1/uploads` and on `/api/v1/files`
+(including its `/content` regex location), plus the usual streaming settings. See [`nginx/example.domain.com.conf`](nginx/example.domain.com.conf). Behind
 Cloudflare, nothing needs to change as long as `HOMESPACE_UPLOAD_CHUNK_BYTES` stays below
 100 MB.
 

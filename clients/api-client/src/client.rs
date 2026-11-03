@@ -1,14 +1,14 @@
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use reqwest::{RequestBuilder, Response, StatusCode};
 use serde::de::DeserializeOwned;
 use tokio::sync::Mutex as AsyncMutex;
 
 use protocol::{
-    ChangesQuery, ChangesResponse, CreateFolderRequest, DeviceInfo, ErrorBody, FileVersion,
-    ListQuery, LoginRequest, Me, MoveRequest, MoveResponse, Node, NodeId, OidcExchangeRequest,
-    OnConflict, Providers, RefreshRequest, RestoreRequest, SearchHit, SearchQuery, TicketRequest,
-    TicketResponse, TokenPair, TrashItem, UpdateRequest, paths,
+    Capabilities, ChangesQuery, ChangesResponse, CreateFolderRequest, DeviceInfo, ErrorBody,
+    FileVersion, ListQuery, LoginRequest, Me, MoveRequest, MoveResponse, Node, NodeId,
+    OidcExchangeRequest, OnConflict, Providers, RefreshRequest, RestoreRequest, SearchHit,
+    SearchQuery, TicketRequest, TicketResponse, TokenPair, TrashItem, UpdateRequest, paths,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use protocol::{ContentQuery, UploadQuery};
@@ -45,6 +45,7 @@ impl std::fmt::Debug for Client {
 
 struct Shared {
     session: Mutex<Option<TokenPair>>,
+    capabilities: Mutex<Option<Capabilities>>,
     refresh_gate: AsyncMutex<()>,
     listener: Option<TokenListener>,
 }
@@ -66,6 +67,7 @@ impl Client {
             base_url,
             shared: Arc::new(Shared {
                 session: Mutex::new(None),
+                capabilities: Mutex::new(None),
                 refresh_gate: AsyncMutex::new(()),
                 listener,
             }),
@@ -118,16 +120,14 @@ impl Client {
 
     /// Current access token, if signed in.
     pub fn access_token(&self) -> Option<String> {
-        self.session()
-            .as_ref()
-            .map(|session| session.access_token.clone())
+        self.session().map(|session| session.access_token)
     }
 
     /// Exchanges the refresh token for a new session unless another caller already did
     /// since `stale_access_token` was read.
     pub async fn refresh_session(&self, stale_access_token: &str) -> Result<(), ApiError> {
         let _gate = self.shared.refresh_gate.lock().await;
-        let current = self.session().clone().ok_or(ApiError::Unauthorized)?;
+        let current = self.session().ok_or(ApiError::Unauthorized)?;
         if current.access_token == stale_access_token {
             self.rotate(&current.refresh_token).await
         } else {
@@ -150,7 +150,7 @@ impl Client {
             .await?;
         let pair: TokenPair = decode(response).await?;
         self.store(pair);
-        self.me().await
+        self.signed_in().await
     }
 
     /// How this server lets users sign in; needs no session.
@@ -189,7 +189,7 @@ impl Client {
             .await?;
         let pair: TokenPair = decode(response).await?;
         self.store(pair);
-        self.me().await
+        self.signed_in().await
     }
 
     /// Resumes a session from a saved refresh token.
@@ -198,12 +198,12 @@ impl Client {
             let _gate = self.shared.refresh_gate.lock().await;
             self.rotate(refresh_token).await?;
         }
-        self.me().await
+        self.signed_in().await
     }
 
     /// Ends the session and revokes its refresh token.
     pub async fn logout(&self) -> Result<(), ApiError> {
-        let session = self.session().clone();
+        let session = self.session();
         self.clear();
         if let Some(session) = session {
             let request = RefreshRequest {
@@ -564,12 +564,13 @@ impl Client {
 
     pub(crate) fn store(&self, pair: TokenPair) {
         let refresh_token = pair.refresh_token.clone();
-        *self.session() = Some(pair);
+        self.set_session(Some(pair));
         self.notify(Some(&refresh_token));
     }
 
     fn clear(&self) {
-        *self.session() = None;
+        self.set_session(None);
+        self.set_capabilities(None);
         self.notify(None);
     }
 
@@ -579,11 +580,38 @@ impl Client {
         }
     }
 
-    fn session(&self) -> MutexGuard<'_, Option<TokenPair>> {
+    fn session(&self) -> Option<TokenPair> {
         self.shared
             .session
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    fn set_session(&self, session: Option<TokenPair>) {
+        let mut current = self
+            .shared
+            .session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        *current = session;
+    }
+
+    pub(crate) fn capabilities(&self) -> Option<Capabilities> {
+        *self
+            .shared
+            .capabilities
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn set_capabilities(&self, capabilities: Option<Capabilities>) {
+        let mut current = self
+            .shared
+            .capabilities
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        *current = capabilities;
     }
 }
 

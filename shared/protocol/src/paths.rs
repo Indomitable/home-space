@@ -27,6 +27,7 @@ pub const WS: &str = "/api/v1/ws";
 pub const TICKET_PARAM: &str = "ticket";
 pub const UPLOADS: &str = "/api/v1/uploads";
 pub const DEVICES: &str = "/api/v1/devices";
+pub const CAPABILITIES: &str = "/api/v1/capabilities";
 /// Header of `PATCH /uploads/{id}` naming where the chunk starts, and of upload responses
 /// naming how many bytes the server has.
 pub const UPLOAD_OFFSET: &str = "Upload-Offset";

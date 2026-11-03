@@ -15,10 +15,21 @@ use super::model::{Base, LocalEntry, nanos};
 const HASH_BUFFER: usize = 64 * 1024;
 /// The most files hashed at once.
 const HASHERS: usize = 8;
-/// Names the sync never uploads: system clutter, editor locks and our own partial downloads.
-const IGNORED_NAMES: &[&str] = &[".DS_Store", "Thumbs.db", "desktop.ini", ".localized"];
+/// Names the sync never uploads: system clutter, editor locks, other sync clients' state and
+/// our own partial downloads.
+const IGNORED_NAMES: &[&str] = &[
+    ".DS_Store",
+    "Thumbs.db",
+    "desktop.ini",
+    ".localized",
+    ".nextcloudsync.log",
+    ".owncloudsync.log",
+];
 const IGNORED_PREFIXES: &[&str] = &["~$", ".~lock.", "._"];
 const IGNORED_SUFFIXES: &[&str] = &[".part", ".tmp", ".swp"];
+/// The Nextcloud and ownCloud clients' journal: `.sync_<id>.db` and its SQLite companions.
+const JOURNAL_PREFIX: &str = ".sync_";
+const JOURNAL_SUFFIXES: &[&str] = &[".db", ".db-wal", ".db-shm", ".db-journal"];
 
 /// What a scan found under the mapped folders.
 #[derive(Debug, Clone, Default)]
@@ -45,6 +56,8 @@ pub fn is_ignored(name: &str) -> bool {
             .iter()
             .any(|prefix| name.starts_with(prefix))
         || IGNORED_SUFFIXES.iter().any(|suffix| name.ends_with(suffix))
+        || (name.starts_with(JOURNAL_PREFIX)
+            && JOURNAL_SUFFIXES.iter().any(|suffix| name.ends_with(suffix)))
 }
 
 /// Lists everything under `roots` except the `skipped` paths.
@@ -422,5 +435,21 @@ mod tests {
         assert!(is_ignored("~$report.docx"));
         assert!(is_ignored("a.pdf.part"));
         assert!(!is_ignored("report.docx"));
+    }
+
+    #[test]
+    fn nextcloud_journal_files_are_ignored() {
+        for name in [
+            ".sync_4e7c4ad26ee7.db",
+            ".sync_4e7c4ad26ee7.db-wal",
+            ".sync_4e7c4ad26ee7.db-shm",
+            ".sync_journal.db-journal",
+            ".nextcloudsync.log",
+            ".owncloudsync.log",
+        ] {
+            assert!(is_ignored(name), "{name}");
+        }
+        assert!(!is_ignored(".sync_notes.txt"));
+        assert!(!is_ignored("photos.db"));
     }
 }

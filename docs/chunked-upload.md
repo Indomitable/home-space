@@ -27,7 +27,7 @@ Error responses:
 
 - An upload is a row in the `uploads` table plus a file at `<storage_root>/uploads/<id>`.
 - The length of that file is the offset, so chunks only touch the row's `updated_at`.
-- Bytes received before a dropped connection are kept, and the client continues from them.
+- Bytes received before a dropped connection are kept, and the client continues from them. The cut-off request is answered `400` and logged as a warning, not as a server error.
 - The SHA-256 is computed as bytes arrive, so finishing a large upload does not reread it. After a server restart or a failed write, the hash is rebuilt from the file when the upload completes.
 - Completing an upload goes through the same `BlobStore` rename path and `FileService::finish_store` as a single-request upload. Versioning, search indexing and change events therefore behave the same.
 - Every hour, the server removes uploads that have received nothing for `HOMESPACE_UPLOAD_EXPIRY_HOURS` (24 by default). It also removes leftover staged files of interrupted single-request uploads.
@@ -45,6 +45,9 @@ Settings:
 - **Web** (`clients/web/src/upload.rs`) slices the `File` and sends each chunk with the same XHR code, so progress keeps working. The upload id is saved in localStorage under the folder, name, size and `lastModified`, so dropping the same file again continues from the server's offset, even after a page reload.
 - **Desktop**, for both manual uploads and sync, uses `Client::upload_resumable`. It reads each chunk from disk and, after an error, continues from the server's offset. An unfinished upload is cancelled when the client gives up; there is no resume across app restarts.
 - Both retry a chunk up to 5 times with exponential backoff. They retry on network errors, proxy errors and `409`.
+- The desktop HTTP client gives up on a connection after 15 seconds of connecting, or 60 seconds without receiving bytes. Neither limit caps a long transfer that keeps moving.
+- A proxy's error page (a non-JSON body, such as Cloudflare's 502 or 522) is reported by status, e.g. `server unreachable (502 Bad Gateway)`, not as a decoding error.
+- During sync, three transfers in a row failing because the server is unreachable (a lost connection, or a gateway's 502–504 or 520–527) count as an outage. No new transfers start, the failures are not reported per file, and the next attempt waits 30 seconds, doubling up to 5 minutes. A single failing file waits 30 seconds, doubling up to 10 minutes. The sync panel and queue offer Retry and Retry all to try at once.
 
 ## Reverse proxy
 

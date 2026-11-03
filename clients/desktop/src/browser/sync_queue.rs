@@ -1,8 +1,10 @@
 //! The sync queue: what the sync still has to do, with the progress of the transfers.
 
+use std::path::Path;
+
 use iced::{
     Alignment, Element, Length, Padding,
-    widget::{column, container, progress_bar, row, scrollable, text},
+    widget::{button, column, container, progress_bar, row, scrollable, space, text, tooltip},
 };
 
 use client_core::format::human_size;
@@ -12,12 +14,14 @@ use super::{
     grid::{
         CELL_SPACING, EMPTY_PADDING, HEADER_SIZE, ROW_GAP, ROW_PADDING, ROW_SIZE, SCROLLBAR_GUTTER,
     },
-    syncing::display_path,
+    syncing::{self, display_path},
+    toolbar::tip,
 };
 use crate::{
     ellipsis::ellipsized,
     icons::{ICON_SIZE, Icon, Tint},
-    sync::{Activity, Item, ItemState, Operation, Status, Summary},
+    locale::short_date,
+    sync::{Activity, Fault, Item, ItemState, Operation, Status, Summary},
     theme,
 };
 
@@ -29,6 +33,12 @@ const PATH_SIZE: f32 = 12.0;
 const PROGRESS_WIDTH: f32 = 220.0;
 const PROGRESS_GIRTH: f32 = 6.0;
 const STATE_WIDTH: f32 = 80.0;
+const REASON_WIDTH: f32 = 280.0;
+const TIP_PADDING: f32 = 6.0;
+const TIP_SIZE: f32 = 12.0;
+const FAILED_TITLE: &str = "Could not sync";
+const RETRY: &str = "Retry";
+pub const RETRY_ALL: &str = "Retry all";
 
 /// A titled group of the queue and which states belong to it.
 type Section = (&'static str, fn(&ItemState) -> bool);
@@ -62,9 +72,7 @@ pub fn view(status: &Status) -> Element<'_, Message> {
     let sections: [Section; 3] = [
         ("Syncing now", |state| *state == ItemState::Active),
         ("Waiting", |state| *state == ItemState::Queued),
-        ("Could not sync", |state| {
-            matches!(state, ItemState::Failed(_))
-        }),
+        (FAILED_TITLE, |state| matches!(state, ItemState::Failed(_))),
     ];
     for (title, wanted) in sections {
         let items: Vec<&Item> = status
@@ -75,17 +83,27 @@ pub fn view(status: &Status) -> Element<'_, Message> {
         if items.is_empty() {
             continue;
         }
-        rows = rows.push(
-            text(format!("{title} ({})", items.len()))
-                .size(HEADER_SIZE)
-                .font(iced::Font {
-                    weight: iced::font::Weight::Bold,
-                    ..iced::Font::DEFAULT
-                }),
-        );
+        let heading = text(format!("{title} ({})", items.len()))
+            .size(HEADER_SIZE)
+            .font(iced::Font {
+                weight: iced::font::Weight::Bold,
+                ..iced::Font::DEFAULT
+            });
+        rows = if title == FAILED_TITLE {
+            rows.push(
+                row![heading, space::horizontal(), retry_all()]
+                    .spacing(CELL_SPACING)
+                    .align_y(Alignment::Center),
+            )
+        } else {
+            rows.push(heading)
+        };
         for item in items.into_iter().take(MAX_ROWS.saturating_sub(shown)) {
             shown += 1;
-            rows = rows.push(item_row(item));
+            rows = rows.push(match &item.state {
+                ItemState::Failed(fault) => problem_row(&item.path, fault),
+                ItemState::Queued | ItemState::Active => item_row(item),
+            });
         }
     }
     let hidden = status.queue.len().saturating_sub(shown);
@@ -116,6 +134,68 @@ fn summary_line(summary: Summary) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
+/// The button that tries every failed path again.
+pub fn retry_all<'a>() -> Element<'a, Message> {
+    button(
+        row![Icon::Refresh.view(ICON_SIZE, Tint::Text), text(RETRY_ALL)]
+            .spacing(SPACING)
+            .align_y(Alignment::Center),
+    )
+    .style(theme::tool)
+    .on_press(Message::Sync(syncing::Message::Retry(None)))
+    .into()
+}
+
+/// A path that could not be synced: an error icon whose tooltip holds the code and time,
+/// the name and folder, why, and a button that tries it again.
+pub fn problem_row<'a>(path: &'a Path, fault: &'a Fault) -> Element<'a, Message> {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let folder = path.parent().map(display_path).unwrap_or_default();
+    let icon = tooltip(
+        Icon::SyncProblem.view(ICON_SIZE, Tint::Danger),
+        container(text(fault_hint(fault)).size(TIP_SIZE))
+            .padding(TIP_PADDING)
+            .style(theme::panel),
+        tooltip::Position::Right,
+    );
+    let name = column![
+        ellipsized(name, ROW_SIZE, Alignment::Start).width(Length::Fill),
+        container(ellipsized(folder, PATH_SIZE, Alignment::Start).width(Length::Fill))
+            .style(theme::muted),
+    ]
+    .width(Length::Fill);
+    let reason = container(
+        ellipsized(fault.reason.as_str(), PATH_SIZE, Alignment::Start).width(Length::Fill),
+    )
+    .width(REASON_WIDTH)
+    .style(theme::muted);
+    let retry = button(Icon::Refresh.view(ICON_SIZE, Tint::Text))
+        .style(theme::tool)
+        .on_press(Message::Sync(syncing::Message::Retry(Some(vec![
+            path.to_path_buf(),
+        ]))));
+    let cells = row![icon, name, reason, tip(retry.into(), RETRY, "")]
+        .spacing(CELL_SPACING)
+        .align_y(Alignment::Center);
+    container(cells)
+        .padding(ROW_PADDING)
+        .width(Length::Fill)
+        .into()
+}
+
+/// "Error 502 · 2026-11-03 03:05" over the full reason.
+fn fault_hint(fault: &Fault) -> String {
+    format!(
+        "Error {} · {}\n{}",
+        fault.code,
+        short_date(fault.at),
+        fault.reason
+    )
+}
+
 fn item_row(item: &Item) -> Element<'_, Message> {
     let (icon, tint) = match (&item.state, item.operation) {
         (ItemState::Failed(_), _) => (Icon::SyncProblem, Tint::Danger),
@@ -129,7 +209,7 @@ fn item_row(item: &Item) -> Element<'_, Message> {
         (_, Operation::Blocked) => (Icon::SyncProblem, Tint::Danger),
     };
     let note = match &item.state {
-        ItemState::Failed(reason) => reason.clone(),
+        ItemState::Failed(fault) => fault.reason.clone(),
         _ => display_path(&item.path),
     };
     let name = column![
@@ -228,7 +308,7 @@ mod tests {
                 Operation::Upload,
                 1,
                 0,
-                ItemState::Failed("boom".to_owned()),
+                ItemState::Failed(Fault::now("502", "boom")),
             ),
         ]);
         let mut ui = simulator(view(&status));
@@ -237,6 +317,31 @@ mod tests {
         assert!(ui.find("Could not sync (1)").is_ok());
         assert!(ui.find("12.0 MB of 80.0 MB").is_ok());
         assert!(ui.find("boom").is_ok());
+    }
+
+    #[test]
+    fn a_failed_path_can_be_retried_alone_or_with_all_the_others() {
+        let status = status(vec![item(
+            "bad.txt",
+            Operation::Upload,
+            1,
+            0,
+            ItemState::Failed(Fault::now("502", "boom")),
+        )]);
+        let mut ui = simulator(view(&status));
+        ui.click(RETRY_ALL).expect("retry all is shown");
+        let messages: Vec<Message> = ui.into_messages().collect();
+        assert!(matches!(
+            messages.as_slice(),
+            [Message::Sync(syncing::Message::Retry(None))]
+        ));
+    }
+
+    #[test]
+    fn the_hint_names_the_code_and_the_reason() {
+        let hint = fault_hint(&Fault::now("502", "server unreachable (502 Bad Gateway)"));
+        assert!(hint.starts_with("Error 502 · "));
+        assert!(hint.ends_with("\nserver unreachable (502 Bad Gateway)"));
     }
 
     #[test]

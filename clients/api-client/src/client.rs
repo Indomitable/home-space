@@ -17,6 +17,12 @@ use time::OffsetDateTime;
 
 use crate::{ApiError, Pkce};
 
+#[cfg(not(target_arch = "wasm32"))]
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+/// The longest wait for the next bytes of a response, so a stalled connection fails.
+#[cfg(not(target_arch = "wasm32"))]
+const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// Called with the new refresh token after every rotation, or `None` once the session ends.
 pub type TokenListener = Arc<dyn Fn(Option<&str>) + Send + Sync>;
 
@@ -55,7 +61,7 @@ impl Client {
 
     fn build(base_url: String, listener: Option<TokenListener>) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            http: http_client(),
             base_url,
             shared: Arc::new(Shared {
                 session: Mutex::new(None),
@@ -578,6 +584,25 @@ async fn decode<T: DeserializeOwned>(response: Response) -> Result<T, ApiError> 
     }
 }
 
+/// The HTTP client, which gives up on a connection that cannot be made or stops sending.
+/// Neither limit caps a long transfer that keeps moving.
+#[cfg(not(target_arch = "wasm32"))]
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
+        .build()
+        // Building only fails when the TLS backend cannot start; the default client then
+        // fails each request with the same cause.
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+/// The browser handles timeouts itself.
+#[cfg(target_arch = "wasm32")]
+fn http_client() -> reqwest::Client {
+    reqwest::Client::new()
+}
+
 pub(crate) async fn expect_success(response: Response) -> Result<(), ApiError> {
     if response.status().is_success() {
         Ok(())
@@ -589,12 +614,14 @@ pub(crate) async fn expect_success(response: Response) -> Result<(), ApiError> {
 async fn error_from(response: Response) -> ApiError {
     let status = response.status();
     match response.json::<ErrorBody>().await {
-        Ok(_) if status == StatusCode::UNAUTHORIZED => ApiError::Unauthorized,
+        _ if status == StatusCode::UNAUTHORIZED => ApiError::Unauthorized,
         Ok(body) => ApiError::Api {
             code: body.error,
             message: body.message,
         },
-        Err(_) if status == StatusCode::UNAUTHORIZED => ApiError::Unauthorized,
-        Err(err) => ApiError::Decode(format!("{status}: {err}")),
+        Err(_) => ApiError::Status {
+            status: status.as_u16(),
+            reason: status.canonical_reason().unwrap_or_default().to_owned(),
+        },
     }
 }

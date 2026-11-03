@@ -20,7 +20,12 @@ pub fn Login(auth: Auth) -> impl IntoView {
     spawn_local(async move {
         match client().providers().await {
             Ok(found) => providers.set(Some(found)),
-            Err(ApiError::Unauthorized | ApiError::Api { .. } | ApiError::Decode(_)) => {}
+            Err(
+                ApiError::Unauthorized
+                | ApiError::Api { .. }
+                | ApiError::Status { .. }
+                | ApiError::Decode(_),
+            ) => {}
             Err(err) => error.set(Some(err.to_string())),
         }
     });

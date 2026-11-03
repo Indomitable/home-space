@@ -12,10 +12,15 @@ use iced::{
 use client_core::labels::HOME;
 use protocol::{Node, NodeId, NodeKind};
 
-use super::{Message as BrowserMessage, context_menu::Entry};
+use super::{
+    Message as BrowserMessage,
+    context_menu::Entry,
+    sync_queue::{problem_row, retry_all},
+};
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},
-    sync::{self, Activity, Badge, Command, Commands, Mapping, Status},
+    locale::short_date,
+    sync::{self, Activity, Badge, Command, Commands, Mapping, Outage, Status},
     theme,
 };
 
@@ -26,6 +31,8 @@ const TITLE_SIZE: f32 = 18.0;
 const NOTE_SIZE: f32 = 13.0;
 const PROBLEMS_HEIGHT: f32 = 160.0;
 const SHOWN_PROBLEMS: usize = 50;
+const SHOW_ALL: &str = "Show all";
+const RETRY_NOW: &str = "Retry now";
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -41,6 +48,8 @@ pub enum Message {
     Unmap(Option<NodeId>),
     OpenLocal(PathBuf),
     Settings(bool),
+    /// Tries the failed paths again now: these ones, or all of them with `None`.
+    Retry(Option<Vec<PathBuf>>),
 }
 
 /// What the browser has to do after a sync update.
@@ -133,6 +142,7 @@ impl Syncing {
                 }
             }
             Message::Settings(open) => self.settings = open,
+            Message::Retry(paths) => self.send(Command::Retry(paths)),
         }
         Outcome::Task(Task::none())
     }
@@ -239,6 +249,11 @@ pub fn indicator(status: &Status) -> Element<'_, BrowserMessage> {
             Tint::Accent,
             format!("Syncing {}", status.pending),
         ),
+        Some(Badge::Problem | Badge::Disabled) if status.outage.is_some() => (
+            Icon::SyncProblem,
+            Tint::Danger,
+            "Server unreachable".to_owned(),
+        ),
         Some(Badge::Problem | Badge::Disabled) => {
             (Icon::SyncProblem, Tint::Danger, "Sync problem".to_owned())
         }
@@ -316,6 +331,21 @@ pub fn settings<'a>(status: &'a Status, notice: Option<&'a str>) -> Element<'a, 
     for error in status.error.as_deref().into_iter().chain(notice) {
         panel = panel.push(container(text(error)).style(theme::error));
     }
+    if let Some(outage) = &status.outage {
+        let retry = tool(
+            Icon::Refresh,
+            RETRY_NOW,
+            BrowserMessage::Sync(Message::Retry(None)),
+        );
+        panel = panel.push(
+            container(
+                row![text(outage_text(outage)).width(Length::Fill), retry]
+                    .spacing(SPACING)
+                    .align_y(Alignment::Center),
+            )
+            .style(theme::error),
+        );
+    }
     if status.mapping(None).is_none() {
         panel = panel.push(mapping_row(HOME.to_owned(), None, None));
     }
@@ -336,17 +366,21 @@ pub fn settings<'a>(status: &'a Status, notice: Option<&'a str>) -> Element<'a, 
             .problems
             .iter()
             .take(SHOWN_PROBLEMS)
-            .map(|(path, reason)| {
-                text(format!("{}: {reason}", path.display()))
-                    .size(NOTE_SIZE)
-                    .into()
-            });
-        panel = panel
-            .push(text(format!(
+            .map(|(path, fault)| problem_row(path, fault));
+        let heading = row![
+            text(format!(
                 "{} could not be synced",
                 plural(status.problems.len())
-            )))
-            .push(scrollable(column(problems).spacing(SPACING / 2.0)).height(PROBLEMS_HEIGHT));
+            ))
+            .width(Length::Fill),
+            retry_all(),
+            tool(Icon::Info, SHOW_ALL, BrowserMessage::OpenSyncQueue),
+        ]
+        .spacing(SPACING / 2.0)
+        .align_y(Alignment::Center);
+        panel = panel
+            .push(heading)
+            .push(scrollable(column(problems)).height(PROBLEMS_HEIGHT));
     }
     container(panel)
         .padding(PANEL_PADDING)
@@ -408,6 +442,16 @@ fn tool(icon: Icon, label: &str, message: BrowserMessage) -> Element<'_, Browser
     .style(theme::tool)
     .on_press(message)
     .into()
+}
+
+/// "Cannot reach the server since …: why. Trying again at …".
+fn outage_text(outage: &Outage) -> String {
+    format!(
+        "Cannot reach the server since {}: {}. Trying again at {}.",
+        short_date(outage.since),
+        outage.reason,
+        short_date(outage.retry_at)
+    )
 }
 
 fn folder_name(status: &Status, id: NodeId) -> String {
@@ -587,7 +631,7 @@ mod tests {
         assert_eq!(status.overall(), Some(Badge::Synced));
         status.pending = 2;
         assert_eq!(status.overall(), Some(Badge::Pending));
-        status.problems = vec![(PathBuf::from("/sync/a"), "boom".to_owned())];
+        status.problems = vec![(PathBuf::from("/sync/a"), sync::Fault::now("local", "boom"))];
         assert_eq!(status.overall(), Some(Badge::Problem));
     }
 

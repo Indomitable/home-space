@@ -237,7 +237,14 @@ fn failure(outcome: &Outcome) -> ApiError {
                 code: body.error,
                 message: body.message,
             },
-            Err(_) => ApiError::Transport(format!("upload failed with status {}", outcome.status)),
+            // Status 0 is a request that got no response at all.
+            Err(_) if outcome.status == 0 => {
+                ApiError::Transport("the upload got no response".to_owned())
+            }
+            Err(_) => ApiError::Status {
+                status: outcome.status,
+                reason: String::new(),
+            },
         }
     }
 }

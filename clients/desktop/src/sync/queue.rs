@@ -6,6 +6,8 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
+use time::OffsetDateTime;
+
 use protocol::NodeId;
 
 use super::{apply::Folders, plan::Action};
@@ -73,7 +75,27 @@ pub enum Operation {
 pub enum ItemState {
     Queued,
     Active,
-    Failed(String),
+    Failed(Fault),
+}
+
+/// Why a path could not be synced, and when.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fault {
+    pub reason: String,
+    /// A short code such as `502`, `conflict` or `local`.
+    pub code: String,
+    pub at: OffsetDateTime,
+}
+
+impl Fault {
+    /// A fault that happens now.
+    pub fn now(code: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+            code: code.into(),
+            at: OffsetDateTime::now_utc(),
+        }
+    }
 }
 
 /// One path with work ahead, or one that failed.
@@ -131,9 +153,9 @@ impl QueueItem {
     }
 
     /// A path that cannot be synced, with why.
-    pub fn blocked(path: &Path, reason: String) -> Self {
+    pub fn blocked(path: &Path, fault: Fault) -> Self {
         Self {
-            state: ItemState::Failed(reason),
+            state: ItemState::Failed(fault),
             ..Self::new(path, Operation::Blocked, &Folders::new())
         }
     }
@@ -171,9 +193,9 @@ impl QueueItem {
         })
     }
 
-    /// The item as a failure with `reason`.
-    pub fn failed(mut self, reason: String) -> Self {
-        self.state = ItemState::Failed(reason);
+    /// The item as a failure with `fault`.
+    pub fn failed(mut self, fault: Fault) -> Self {
+        self.state = ItemState::Failed(fault);
         self
     }
 
@@ -374,7 +396,10 @@ mod tests {
             &folders,
         );
         items[0].done = 4;
-        items.push(QueueItem::blocked(Path::new("/sync/c"), "no".to_owned()));
+        items.push(QueueItem::blocked(
+            Path::new("/sync/c"),
+            Fault::now("blocked", "no"),
+        ));
         assert_eq!(
             summarize(&items),
             Summary {

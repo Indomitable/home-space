@@ -395,6 +395,7 @@ impl State {
         self.details = None;
         self.menu = None;
         self.folder.selection.clear();
+        self.syncing.settings = false;
         self.page = Page::SyncQueue;
         Task::none()
     }

@@ -177,6 +177,33 @@ async fn error_bodies_are_decoded_into_codes() {
 }
 
 #[tokio::test]
+async fn a_proxy_error_page_is_a_status_error() {
+    let server = MockServer::start().await;
+    let client = Client::new(server.uri());
+    logged_in(&server, &client).await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/folders"))
+        .respond_with(ResponseTemplate::new(502).set_body_string("<html>Bad Gateway</html>"))
+        .mount(&server)
+        .await;
+
+    let err = client
+        .create_folder(None, "docs")
+        .await
+        .expect_err("bad gateway");
+
+    assert_eq!(
+        err,
+        ApiError::Status {
+            status: 502,
+            reason: "Bad Gateway".to_owned()
+        }
+    );
+    assert!(err.is_unreachable());
+    assert_eq!(err.to_string(), "server unreachable (502 Bad Gateway)");
+}
+
+#[tokio::test]
 async fn calls_without_a_session_are_unauthorized() {
     let server = MockServer::start().await;
     let client = Client::new(server.uri());

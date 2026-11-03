@@ -33,6 +33,8 @@ const PROBLEMS_HEIGHT: f32 = 160.0;
 const SHOWN_PROBLEMS: usize = 50;
 const SHOW_ALL: &str = "Show all";
 const RETRY_NOW: &str = "Retry now";
+const VERIFY: &str = "Verify";
+const VERIFYING: &str = "Verifying…";
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -50,6 +52,8 @@ pub enum Message {
     Settings(bool),
     /// Tries the failed paths again now: these ones, or all of them with `None`.
     Retry(Option<Vec<PathBuf>>),
+    /// Reads a synced folder (`None` for Home) from scratch on both sides.
+    Verify(Option<NodeId>),
 }
 
 /// What the browser has to do after a sync update.
@@ -143,6 +147,7 @@ impl Syncing {
             }
             Message::Settings(open) => self.settings = open,
             Message::Retry(paths) => self.send(Command::Retry(paths)),
+            Message::Verify(remote) => self.send(Command::Verify(remote)),
         }
         Outcome::Task(Task::none())
     }
@@ -347,7 +352,7 @@ pub fn settings<'a>(status: &'a Status, notice: Option<&'a str>) -> Element<'a, 
         );
     }
     if status.mapping(None).is_none() {
-        panel = panel.push(mapping_row(HOME.to_owned(), None, None));
+        panel = panel.push(mapping_row(HOME.to_owned(), None, None, false));
     }
     let mut mappings: Vec<&Mapping> = status.mappings.iter().collect();
     mappings.sort_by_key(|mapping| mapping.remote.map(|id| folder_name(status, id)));
@@ -355,7 +360,8 @@ pub fn settings<'a>(status: &'a Status, notice: Option<&'a str>) -> Element<'a, 
         let name = mapping
             .remote
             .map_or_else(|| HOME.to_owned(), |id| folder_name(status, id));
-        panel = panel.push(mapping_row(name, Some(mapping), mapping.remote));
+        let verifying = status.is_verifying(mapping.remote);
+        panel = panel.push(mapping_row(name, Some(mapping), mapping.remote, verifying));
     }
     panel = panel.push(
         text("Right-click a folder to sync it to a location of its own, or to leave it out.")
@@ -394,6 +400,7 @@ fn mapping_row(
     name: String,
     mapping: Option<&Mapping>,
     remote: Option<NodeId>,
+    verifying: bool,
 ) -> Element<'_, BrowserMessage> {
     let target = match mapping.map(|mapping| mapping.local.as_deref()) {
         None => "Not synced".to_owned(),
@@ -416,6 +423,7 @@ fn mapping_row(
                     "Open",
                     BrowserMessage::Sync(Message::OpenLocal(local.clone())),
                 ));
+                actions = actions.push(verify_tool(remote, verifying));
             }
             actions = actions.push(tool(
                 Icon::Close,
@@ -441,6 +449,19 @@ fn tool(icon: Icon, label: &str, message: BrowserMessage) -> Element<'_, Browser
     )
     .style(theme::tool)
     .on_press(message)
+    .into()
+}
+
+/// Verifies the synced folder `remote`; inactive while it is being verified.
+fn verify_tool<'a>(remote: Option<NodeId>, verifying: bool) -> Element<'a, BrowserMessage> {
+    let label = if verifying { VERIFYING } else { VERIFY };
+    button(
+        row![Icon::Synced.view(ICON_SIZE, Tint::Text), text(label)]
+            .spacing(SPACING / 2.0)
+            .align_y(Alignment::Center),
+    )
+    .style(theme::tool)
+    .on_press_maybe((!verifying).then_some(BrowserMessage::Sync(Message::Verify(remote))))
     .into()
 }
 

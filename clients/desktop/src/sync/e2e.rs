@@ -285,3 +285,47 @@ async fn a_subfolder_mapped_elsewhere_syncs_only_there() {
     assert_eq!(read(&elsewhere.join("p.jpg")), "pixels");
     assert!(!s.local.join("Photos").exists());
 }
+
+#[tokio::test]
+#[ignore = "needs a running server, see the module docs"]
+async fn verify_uploads_a_change_that_kept_size_and_modification_time() {
+    let mut s = setup("verify-hash").await;
+    let file = s.upload(s.remote, "d.txt", "aaaa").await;
+    s.sync().await;
+    let path = s.local.join("d.txt");
+    let mtime = fs::metadata(&path)
+        .and_then(|meta| meta.modified())
+        .expect("mtime");
+    fs::write(&path, "bbbb").expect("write");
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .and_then(|file| file.set_modified(mtime))
+        .expect("restore mtime");
+    s.sync().await;
+    assert_eq!(s.content(file.id).await, "aaaa");
+
+    s.engine
+        .handle(Command::Verify(Some(s.remote)), &mut s.output)
+        .await;
+    s.sync().await;
+
+    assert_eq!(s.content(file.id).await, "bbbb");
+}
+
+#[tokio::test]
+#[ignore = "needs a running server, see the module docs"]
+async fn verify_restores_a_mirror_that_lost_a_node() {
+    let mut s = setup("verify-mirror").await;
+    let file = s.upload(s.remote, "e.txt", "kept").await;
+    s.sync().await;
+    s.engine.mirror.nodes.remove(&file.id);
+
+    s.engine
+        .handle(Command::Verify(Some(s.remote)), &mut s.output)
+        .await;
+    s.sync().await;
+
+    assert_eq!(read(&s.local.join("e.txt")), "kept");
+    assert_eq!(s.content(file.id).await, "kept");
+}

@@ -301,6 +301,10 @@ impl State {
                         Page::Trash(trash),
                         protocol::Event::TrashChanged | protocol::Event::Resync,
                     ) => trash.load(&self.client).map(Message::Trash),
+                    (
+                        Page::Devices(devices),
+                        protocol::Event::DevicesChanged | protocol::Event::Resync,
+                    ) => devices.load(&self.client).map(Message::Devices),
                     _ => Task::none(),
                 };
                 Task::batch([details, listing, trash])

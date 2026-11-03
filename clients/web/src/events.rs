@@ -130,6 +130,7 @@ struct Open {
     closed: oneshot::Receiver<()>,
     _on_message: Closure<dyn FnMut(MessageEvent)>,
     _on_close: Closure<dyn FnMut()>,
+    _on_open: Closure<dyn FnMut()>,
 }
 
 /// Keeps a websocket to the server open, reconnecting with backoff, and passes every
@@ -156,7 +157,8 @@ async fn run(stopped: Rc<Cell<bool>>, socket: Rc<RefCell<Option<WebSocket>>>, ha
     while !stopped.get() {
         match client.ticket(&TicketRequest::Events).await {
             Ok(ticket) => {
-                if let Some(open) = open(&client.events_url(&ticket.ticket), &handler, &socket) {
+                let url = client.events_url(&ticket.ticket);
+                if let Some(open) = open(&url, client.hello(), &handler, &socket) {
                     if reconnecting {
                         handler(Event::Resync);
                     }
@@ -176,8 +178,19 @@ async fn run(stopped: Rc<Cell<bool>>, socket: Rc<RefCell<Option<WebSocket>>>, ha
     }
 }
 
-fn open(url: &str, handler: &Handler, socket: &Rc<RefCell<Option<WebSocket>>>) -> Option<Open> {
+fn open(
+    url: &str,
+    hello: Option<String>,
+    handler: &Handler,
+    socket: &Rc<RefCell<Option<WebSocket>>>,
+) -> Option<Open> {
     let ws = WebSocket::new(url).ok()?;
+    let greeter = ws.clone();
+    let on_open = Closure::<dyn FnMut()>::new(move || {
+        if let Some(hello) = &hello {
+            let _ = greeter.send_with_str(hello);
+        }
+    });
     let (closed_tx, closed) = oneshot::channel();
     let closed_tx = RefCell::new(Some(closed_tx));
     let handler = Rc::clone(handler);
@@ -195,10 +208,12 @@ fn open(url: &str, handler: &Handler, socket: &Rc<RefCell<Option<WebSocket>>>) -
     });
     ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
     ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+    ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
     *socket.borrow_mut() = Some(ws);
     Some(Open {
         closed,
         _on_message: on_message,
         _on_close: on_close,
+        _on_open: on_open,
     })
 }

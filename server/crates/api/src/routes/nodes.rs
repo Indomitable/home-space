@@ -201,6 +201,7 @@ async fn download(
                 .auth
                 .verify_ticket(&ticket, &TicketRequest::Download { node_id: id })
                 .await?
+                .user_id
         }
         None => AuthUser::from_headers(&headers, &state).await?.id,
     };
@@ -226,6 +227,7 @@ async fn download_version(
                     },
                 )
                 .await?
+                .user_id
         }
         None => AuthUser::from_headers(&headers, &state).await?.id,
     };

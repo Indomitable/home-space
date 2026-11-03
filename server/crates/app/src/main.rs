@@ -126,6 +126,7 @@ async fn serve(db: Db, config: &Config) -> Result<()> {
     tokio::spawn(prune(
         state.db.clone(),
         config.changes_retention_days.map(time::Duration::days),
+        state.auth.refresh_ttl(),
     ));
     tokio::spawn(expire_uploads(
         state.files.clone(),
@@ -146,8 +147,9 @@ async fn serve(db: Db, config: &Config) -> Result<()> {
 }
 
 /// Compacts the change journal, drops its entries older than `retention` when there is one,
-/// and removes expired sign-in state; once at start and then daily.
-async fn prune(db: Db, retention: Option<time::Duration>) {
+/// removes expired sign-in state, and forgets devices signed out for longer than
+/// `device_retention`; once at start and then daily.
+async fn prune(db: Db, retention: Option<time::Duration>, device_retention: time::Duration) {
     let mut daily = tokio::time::interval(std::time::Duration::from_secs(24 * 3600));
     loop {
         daily.tick().await;
@@ -169,6 +171,14 @@ async fn prune(db: Db, retention: Option<time::Duration>) {
         }
         if let Err(err) = db.prune_sessions().await {
             tracing::error!(error = %err, "pruning expired sessions failed");
+        }
+        match db
+            .prune_devices(time::OffsetDateTime::now_utc() - device_retention)
+            .await
+        {
+            Ok(0) => {}
+            Ok(pruned) => tracing::info!(pruned, "forgot signed-out devices"),
+            Err(err) => tracing::error!(error = %err, "pruning signed-out devices failed"),
         }
     }
 }

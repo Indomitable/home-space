@@ -1,19 +1,110 @@
 mod common;
 
-use futures_util::StreamExt;
+use std::{future::Future, net::SocketAddr, time::Duration};
+
+use axum::http::{Method, StatusCode};
+use futures_util::{SinkExt, StreamExt};
+use serde_json::{Value, json};
 use sqlx::PgPool;
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tokio::net::TcpListener;
 use tokio_tungstenite::{
-    connect_async,
+    MaybeTlsStream, WebSocketStream, connect_async,
     tungstenite::{Message, client::IntoClientRequest},
 };
+use uuid::Uuid;
 
-use common::{SHORT_WAIT, setup};
+use common::{PASSWORD, SHORT_WAIT, TestApp, setup};
 
-async fn connect(
-    addr: std::net::SocketAddr,
-    token: &str,
-) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
+const DEVICES: &str = "/api/v1/devices";
+const POLL: Duration = Duration::from_millis(20);
+const POLLS: usize = 100;
+
+type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+
+async fn serve(app: &TestApp) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(axum::serve(listener, app.router.clone()).into_future());
+    addr
+}
+
+async fn sign_in_from(app: &TestApp, username: &str, device: Uuid) -> String {
+    app.state.auth.create_user(username, PASSWORD).await.ok();
+    let response = app
+        .json(
+            Method::POST,
+            "/api/v1/auth/login",
+            None,
+            json!({
+                "username": username,
+                "password": PASSWORD,
+                "device": { "id": device, "name": "Laptop", "platform": "desktop-linux" },
+            }),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK);
+    response.json()["access_token"]
+        .as_str()
+        .expect("access")
+        .to_owned()
+}
+
+async fn hello(socket: &mut Socket, device: Uuid) {
+    let hello = json!({
+        "type": "hello",
+        "device": { "id": device, "name": "Laptop", "platform": "desktop-linux" },
+    });
+    socket
+        .send(Message::text(hello.to_string()))
+        .await
+        .expect("hello");
+}
+
+async fn devices(app: &TestApp, token: &str) -> Vec<Value> {
+    let response = app.get(DEVICES, token).await;
+    assert_eq!(response.status, StatusCode::OK);
+    response.json().as_array().expect("devices").clone()
+}
+
+async fn online(app: &TestApp, token: &str, device: Uuid) -> Option<bool> {
+    devices(app, token)
+        .await
+        .iter()
+        .find(|listed| listed["id"] == json!(device))
+        .and_then(|listed| listed["online"].as_bool())
+}
+
+async fn last_seen(app: &TestApp, token: &str) -> OffsetDateTime {
+    let listed = devices(app, token).await;
+    let seen = listed[0]["last_seen_at"].as_str().expect("last seen");
+    OffsetDateTime::parse(seen, &Rfc3339).expect("rfc3339")
+}
+
+/// Waits for `check` to hold, since the server handles a socket's open and close on its own.
+async fn eventually<F: Future<Output = bool>>(mut check: impl FnMut() -> F) -> bool {
+    for _ in 0..POLLS {
+        if check().await {
+            return true;
+        }
+        tokio::time::sleep(POLL).await;
+    }
+    false
+}
+
+async fn next_text(socket: &mut Socket) -> Value {
+    let message = tokio::time::timeout(SHORT_WAIT * 10, socket.next())
+        .await
+        .expect("a message")
+        .expect("stream open")
+        .expect("message");
+    let Message::Text(text) = message else {
+        panic!("expected text message, got {message:?}");
+    };
+    serde_json::from_str(text.as_str()).expect("json")
+}
+
+async fn connect(addr: SocketAddr, token: &str) -> Socket {
     let mut request = format!("ws://{addr}/api/v1/ws")
         .into_client_request()
         .expect("request");
@@ -68,4 +159,83 @@ async fn websocket_requires_authentication(pool: PgPool) {
         .expect("request");
 
     assert!(connect_async(request).await.is_err());
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn a_session_without_a_device_registers_the_one_its_hello_names(pool: PgPool) {
+    let app = setup(pool).await;
+    let token = app.user_token("alice").await;
+    let addr = serve(&app).await;
+    let device = Uuid::now_v7();
+
+    let mut socket = connect(addr, &token).await;
+    hello(&mut socket, device).await;
+
+    assert!(eventually(|| async { online(&app, &token, device).await == Some(true) }).await);
+    let created = app.upload(&token, "name=a.txt", "hello").await;
+    assert_eq!(created.json()["edited_on"], json!(device));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn closing_the_socket_takes_the_device_offline(pool: PgPool) {
+    let app = setup(pool).await;
+    let device = Uuid::now_v7();
+    let token = sign_in_from(&app, "alice", device).await;
+    let addr = serve(&app).await;
+    let mut socket = connect(addr, &token).await;
+    assert!(eventually(|| async { online(&app, &token, device).await == Some(true) }).await);
+    let seen_online = last_seen(&app, &token).await;
+
+    socket.close(None).await.expect("close");
+
+    assert!(eventually(|| async { online(&app, &token, device).await == Some(false) }).await);
+    assert!(last_seen(&app, &token).await > seen_online);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn a_device_stays_online_until_its_last_socket_closes(pool: PgPool) {
+    let app = setup(pool).await;
+    let device = Uuid::now_v7();
+    let token = sign_in_from(&app, "alice", device).await;
+    let addr = serve(&app).await;
+    let mut first = connect(addr, &token).await;
+    let mut second = connect(addr, &token).await;
+    assert!(eventually(|| async { online(&app, &token, device).await == Some(true) }).await);
+
+    first.close(None).await.expect("close");
+    tokio::time::sleep(SHORT_WAIT).await;
+    assert_eq!(online(&app, &token, device).await, Some(true));
+
+    second.close(None).await.expect("close");
+    assert!(eventually(|| async { online(&app, &token, device).await == Some(false) }).await);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn a_session_with_a_device_ignores_the_hello(pool: PgPool) {
+    let app = setup(pool).await;
+    let device = Uuid::now_v7();
+    let token = sign_in_from(&app, "alice", device).await;
+    let addr = serve(&app).await;
+
+    let mut socket = connect(addr, &token).await;
+    hello(&mut socket, Uuid::now_v7()).await;
+    tokio::time::sleep(SHORT_WAIT).await;
+
+    let listed = devices(&app, &token).await;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0]["id"], json!(device));
+    assert_eq!(listed[0]["online"], json!(true));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn other_sockets_of_the_user_hear_a_device_come_online(pool: PgPool) {
+    let app = setup(pool).await;
+    let token = app.user_token("alice").await;
+    let addr = serve(&app).await;
+    let mut browser = connect(addr, &token).await;
+
+    let mut laptop = connect(addr, &token).await;
+    hello(&mut laptop, Uuid::now_v7()).await;
+
+    assert_eq!(next_text(&mut browser).await["type"], "devices_changed");
 }

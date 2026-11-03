@@ -1869,6 +1869,7 @@ dependencies = [
  "db",
  "protocol",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

@@ -329,6 +329,7 @@ mod tests {
             created_at: OffsetDateTime::UNIX_EPOCH,
             last_seen_at: OffsetDateTime::UNIX_EPOCH,
             signed_in: true,
+            online: false,
             current: false,
             uploads: 0,
         }

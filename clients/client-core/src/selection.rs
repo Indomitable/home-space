@@ -29,6 +29,12 @@ pub fn coverage(
     }
 }
 
+/// Whether the toolbar swaps its usual commands for the bulk actions: only once several
+/// nodes are selected, since a single node has its own row actions.
+pub fn shows_bulk_actions(selected: usize) -> bool {
+    selected > 1
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -74,5 +80,12 @@ mod tests {
     fn selection_outside_the_listing_is_ignored() {
         let selected = HashSet::from([NodeId::from(Uuid::from_u128(99))]);
         assert_eq!(of(&ids(3), &selected), Coverage::None);
+    }
+
+    #[test]
+    fn bulk_actions_show_only_for_several_nodes() {
+        assert!(!shows_bulk_actions(0));
+        assert!(!shows_bulk_actions(1));
+        assert!(shows_bulk_actions(2));
     }
 }

@@ -73,6 +73,23 @@ the selection (folders merge and never clash):
 Previous versions live in `file_versions`; their blobs are under `<storage>/versions/`.
 Folders have the MIME type `inode/directory`.
 
+### Uploads
+
+Files up to 32 MiB go up in one request. Clients send larger files in chunks (`/uploads`), so no
+request exceeds a proxy's body limit, and an interrupted upload continues from the bytes the
+server already has. Unfinished uploads are kept under `<storage>/uploads/`. See
+[`docs/chunked-upload.md`](docs/chunked-upload.md).
+
+| Variable | Default | |
+|---|---|---|
+| `HOMESPACE_MAX_UPLOAD_BYTES` | 10737418240 (10 GiB) | Largest file accepted, however it is uploaded. |
+| `HOMESPACE_UPLOAD_CHUNK_BYTES` | 33554432 (32 MiB) | Largest request of a chunked upload. Keep it below the proxy's limit (Cloudflare: 100 MB). It does not limit the file size. |
+| `HOMESPACE_UPLOAD_EXPIRY_HOURS` | 24 | Unfinished uploads idle this long are deleted. |
+
+A reverse proxy still needs a body limit of `HOMESPACE_MAX_UPLOAD_BYTES` on `/api/v1/files`
+for single-request uploads and replacements made through the API, and one above the chunk size on
+`/api/v1/uploads`. See [`docs/nginx/example.domain.com.conf`](docs/nginx/example.domain.com.conf).
+
 ### API (`/api/v1`)
 
 | Method | Path | Purpose |
@@ -87,6 +104,9 @@ Folders have the MIME type `inode/directory`.
 | POST | `/folders` | `{parent_id?, name}` |
 | POST | `/files?name=&parent_id=` | raw-body streaming upload (201 new, 200 unchanged or new version) |
 | GET / PUT | `/files/{id}/content` | download / replace content |
+| POST | `/uploads` | `{name, parent_id?, size, modified_at?, mime?, node_id?}` → 201 `{id, offset, size, chunk_size}`; starts a resumable upload (`node_id` replaces that file's content) |
+| PATCH | `/uploads/{id}` | raw-body chunk with `Upload-Offset: N` → `{offset, node?}`; 409 with the right offset on a mismatch, `node` once complete |
+| GET / HEAD / DELETE | `/uploads/{id}` | current offset (also in `Upload-Offset`) / cancel |
 | GET | `/nodes/{id}/versions` | previous versions of a file, newest first |
 | DELETE | `/nodes/{id}/versions/{version}` | delete a previous version |
 | GET | `/files/{id}/versions/{version}/content` | download a previous version |

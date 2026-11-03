@@ -36,8 +36,9 @@ Settings:
 
 | Variable | Default | |
 |---|---|---|
-| `HOMESPACE_UPLOAD_CHUNK_BYTES` | 33554432 (32 MiB) | Keep below the proxy's request limit. |
-| `HOMESPACE_UPLOAD_EXPIRY_HOURS` | 24 | |
+| `HOMESPACE_MAX_UPLOAD_BYTES` | 10737418240 (10 GiB) | Largest file, checked against `size` when an upload starts. |
+| `HOMESPACE_UPLOAD_CHUNK_BYTES` | 33554432 (32 MiB) | Largest chunk. Keep it below the proxy's request limit; it does not limit the file size. |
+| `HOMESPACE_UPLOAD_EXPIRY_HOURS` | 24 | Idle time after which an unfinished upload is deleted. |
 
 ## Clients
 

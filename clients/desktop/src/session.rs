@@ -28,7 +28,6 @@ pub fn data_dir() -> Option<PathBuf> {
 /// The result of resuming the saved session at startup.
 #[derive(Debug, Clone)]
 pub enum Restored {
-    Nothing,
     SignedIn { client: Client, me: Me },
     Failed { server: String, error: ApiError },
 }
@@ -53,20 +52,20 @@ pub fn client(server: &str) -> Client {
     }
 }
 
-/// Resumes the session saved by an earlier run, if any.
-pub async fn restore() -> Restored {
-    match tokio::task::spawn_blocking(load).await.ok().flatten() {
-        None => Restored::Nothing,
-        Some(saved) => {
-            let client = client(&saved.server);
-            match client.restore(&saved.refresh_token).await {
-                Ok(me) => Restored::SignedIn { client, me },
-                Err(error) => Restored::Failed {
-                    server: saved.server,
-                    error,
-                },
-            }
-        }
+/// The session saved by an earlier run, if any.
+pub async fn load_saved() -> Option<Saved> {
+    tokio::task::spawn_blocking(load).await.ok().flatten()
+}
+
+/// Resumes a session saved by an earlier run.
+pub async fn resume(saved: Saved) -> Restored {
+    let client = client(&saved.server);
+    match client.restore(&saved.refresh_token).await {
+        Ok(me) => Restored::SignedIn { client, me },
+        Err(error) => Restored::Failed {
+            server: saved.server,
+            error,
+        },
     }
 }
 

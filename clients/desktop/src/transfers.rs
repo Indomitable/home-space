@@ -14,9 +14,9 @@ use iced::{
 use tokio::{fs, io::AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 
-use api_client::{ApiError, Client};
+use api_client::{ApiError, Client, RESUMABLE_THRESHOLD};
 use client_core::listing::{Sort, sort_nodes};
-use protocol::{ErrorCode, Node, NodeId, NodeKind};
+use protocol::{CreateUpload, ErrorCode, Node, NodeId, NodeKind};
 
 use crate::{
     icons::{Icon, Tint},
@@ -572,13 +572,53 @@ async fn upload_file(
     output: &mpsc::Sender<Message>,
 ) -> Result<(), String> {
     let name = display_name(&file.path);
-    client
-        .upload(parent, &name, || {
-            upload_body(&file.path, id, output.clone())
-        })
-        .await
-        .map(drop)
-        .map_err(|err| err.to_string())
+    let stored = if file.size > RESUMABLE_THRESHOLD {
+        let request = CreateUpload {
+            parent_id: parent,
+            name,
+            size: file.size,
+            modified_at: None,
+            mime: None,
+            node_id: None,
+        };
+        client
+            .upload_resumable(
+                &request,
+                |offset, len| read_range(&file.path, offset, len),
+                |done| {
+                    let _ = output.clone().try_send(Message::Progress(id, done));
+                },
+            )
+            .await
+    } else {
+        client
+            .upload(parent, &name, || {
+                upload_body(&file.path, id, output.clone())
+            })
+            .await
+    };
+    stored.map(drop).map_err(|err| err.to_string())
+}
+
+/// Reads `len` bytes of the file at `path` starting at `offset`, for one chunk of a
+/// resumable upload.
+pub(crate) async fn read_range(path: &Path, offset: u64, len: usize) -> io::Result<Vec<u8>> {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
+    let mut file = fs::File::open(path).await?;
+    file.seek(io::SeekFrom::Start(offset)).await?;
+    let mut chunk = Vec::with_capacity(len);
+    file.take(u64::try_from(len).unwrap_or(u64::MAX))
+        .read_to_end(&mut chunk)
+        .await?;
+    if chunk.len() == len {
+        Ok(chunk)
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "the file got shorter during the upload",
+        ))
+    }
 }
 
 fn upload_body(path: &Path, id: TransferId, mut output: mpsc::Sender<Message>) -> reqwest::Body {

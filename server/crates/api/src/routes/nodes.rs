@@ -54,11 +54,13 @@ pub fn routes() -> Router<AppState> {
         )
 }
 
-fn body_stream(body: Body) -> impl futures_util::Stream<Item = io::Result<axum::body::Bytes>> {
+pub(crate) fn body_stream(
+    body: Body,
+) -> impl futures_util::Stream<Item = io::Result<axum::body::Bytes>> {
     body.into_data_stream().map_err(io::Error::other)
 }
 
-fn declared_type(headers: &HeaderMap) -> Option<&str> {
+pub(crate) fn declared_type(headers: &HeaderMap) -> Option<&str> {
     headers
         .get(CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
@@ -150,7 +152,7 @@ async fn replace_content(
     Ok(Json(node))
 }
 
-async fn publish_stored(
+pub(crate) async fn publish_stored(
     state: &AppState,
     owner: db::UserId,
     outcome: StoreOutcome,

@@ -24,6 +24,9 @@ pub enum FilesError {
     /// The upload exceeded the configured size limit.
     #[error("upload exceeds the maximum size of {limit} bytes")]
     TooLarge { limit: u64 },
+    /// A chunk of a resumable upload does not start where the received bytes end.
+    #[error("upload has {current} bytes; the chunk must start there")]
+    OffsetMismatch { current: u64 },
     #[error("storage error: {0}")]
     Io(#[from] std::io::Error),
     #[error(transparent)]

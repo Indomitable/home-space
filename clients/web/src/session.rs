@@ -27,7 +27,7 @@ fn build_client() -> Client {
     Client::with_listener(origin, Arc::new(persist_refresh_token))
 }
 
-fn storage() -> Option<web_sys::Storage> {
+pub(crate) fn storage() -> Option<web_sys::Storage> {
     web_sys::window()?.local_storage().ok().flatten()
 }
 

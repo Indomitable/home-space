@@ -11,8 +11,8 @@ use sha2::{Digest, Sha256};
 use tokio::{fs, io::AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 
-use api_client::{ApiError, Client};
-use protocol::{ErrorCode, NodeId, NodeKind};
+use api_client::{ApiError, Client, RESUMABLE_THRESHOLD};
+use protocol::{CreateUpload, ErrorCode, NodeId, NodeKind};
 
 use super::{
     model::{Base, LocalEntry, RemoteNode, datetime, nanos},
@@ -20,7 +20,7 @@ use super::{
     queue::{self, Active, Progress},
     scan::is_ignored,
 };
-use crate::transfers::part_path;
+use crate::transfers::{part_path, read_range};
 
 /// What a finished action changed, for the engine to record.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -209,14 +209,36 @@ async fn upload(
     let _active = Active::start(progress, &path);
     unchanged(&path, Some(&local)).await?;
     let modified = Some(datetime(local.mtime));
-    let body = || file_body(&path, progress);
-    let stored = match node {
-        Some(id) => client.replace_content(id, modified, body).await?,
-        None => {
-            let (parent, name) = place(folders, &path)?;
-            client
-                .upload_modified(parent, &name, modified, body)
-                .await?
+    let stored = if local.size > RESUMABLE_THRESHOLD {
+        let mut request = CreateUpload {
+            parent_id: None,
+            name: String::new(),
+            size: local.size,
+            modified_at: modified,
+            mime: None,
+            node_id: node,
+        };
+        if node.is_none() {
+            (request.parent_id, request.name) = place(folders, &path)?;
+        }
+        queue::set(progress, &path, 0);
+        client
+            .upload_resumable(
+                &request,
+                |offset, len| read_range(&path, offset, len),
+                |done| queue::set(progress, &path, done),
+            )
+            .await?
+    } else {
+        let body = || file_body(&path, progress);
+        match node {
+            Some(id) => client.replace_content(id, modified, body).await?,
+            None => {
+                let (parent, name) = place(folders, &path)?;
+                client
+                    .upload_modified(parent, &name, modified, body)
+                    .await?
+            }
         }
     };
     let stored = RemoteNode::from(stored);

@@ -1,12 +1,17 @@
 use std::{
+    collections::HashSet,
     io,
     path::{Path, PathBuf},
+    time::{Duration, SystemTime},
 };
 
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 use sha2::{Digest, Sha256};
-use tokio::{fs, io::AsyncWriteExt};
+use tokio::{
+    fs,
+    io::{AsyncReadExt, AsyncWriteExt},
+};
 
 use uuid::Uuid;
 
@@ -17,6 +22,8 @@ use crate::FilesError;
 const BLOBS_DIR: &str = "blobs";
 const VERSIONS_DIR: &str = "versions";
 const TMP_DIR: &str = "tmp";
+const UPLOADS_DIR: &str = "uploads";
+const HASH_BUFFER: usize = 1024 * 1024;
 
 /// A fully received upload waiting to be committed into the store.
 #[derive(Debug)]
@@ -28,7 +35,9 @@ pub struct StagedBlob {
 
 /// Blob storage on the local file system.
 ///
-/// Layout: `<root>/blobs/<user_id>/<node_id>` and `<root>/versions/<user_id>/<version_id>`; uploads are staged in `<root>/tmp`.
+/// Layout: `<root>/blobs/<user_id>/<node_id>` and `<root>/versions/<user_id>/<version_id>`;
+/// single-request uploads are staged in `<root>/tmp` and resumable ones grow in
+/// `<root>/uploads/<upload_id>`.
 #[derive(Clone, Debug)]
 pub struct BlobStore {
     root: PathBuf,
@@ -41,6 +50,7 @@ impl BlobStore {
         fs::create_dir_all(root.join(BLOBS_DIR)).await?;
         fs::create_dir_all(root.join(VERSIONS_DIR)).await?;
         fs::create_dir_all(root.join(TMP_DIR)).await?;
+        fs::create_dir_all(root.join(UPLOADS_DIR)).await?;
         Ok(Self { root })
     }
 
@@ -61,7 +71,8 @@ impl BlobStore {
     }
 
     /// Moves a staged blob into its final place, replacing any previous content.
-    pub async fn commit(&self, staged: StagedBlob, owner: UserId, node: NodeId) -> io::Result<()> {
+    /// On error the staged blob is left in place for [`Self::discard`].
+    pub async fn commit(&self, staged: &StagedBlob, owner: UserId, node: NodeId) -> io::Result<()> {
         let target = self.blob_path(owner, node);
         if let Some(dir) = target.parent() {
             fs::create_dir_all(dir).await?;
@@ -72,7 +83,7 @@ impl BlobStore {
     /// Moves a staged blob into place as the stored content of a version.
     pub async fn commit_version(
         &self,
-        staged: StagedBlob,
+        staged: &StagedBlob,
         owner: UserId,
         version: Uuid,
     ) -> io::Result<()> {
@@ -126,6 +137,143 @@ impl BlobStore {
             Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
             _ => Ok(()),
         }
+    }
+
+    /// Creates the empty file a resumable upload grows in.
+    pub async fn create_partial(&self, upload: Uuid) -> io::Result<()> {
+        fs::File::create(self.partial_path(upload)).await.map(drop)
+    }
+
+    /// How many bytes of a resumable upload have arrived.
+    pub async fn partial_len(&self, upload: Uuid) -> Result<u64, FilesError> {
+        match fs::metadata(self.partial_path(upload)).await {
+            Ok(meta) => Ok(meta.len()),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Err(FilesError::NotFound),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// Appends `body` to a resumable upload that currently holds exactly `offset` bytes and
+    /// may grow to at most `size`, passing every piece to `on_written` once it is written.
+    ///
+    /// Returns the new length. On error, the pieces written before it stay in the file.
+    pub async fn append<S>(
+        &self,
+        upload: Uuid,
+        offset: u64,
+        size: u64,
+        body: S,
+        mut on_written: impl FnMut(&[u8]),
+    ) -> Result<u64, FilesError>
+    where
+        S: Stream<Item = io::Result<Bytes>>,
+    {
+        let mut file = match fs::OpenOptions::new()
+            .append(true)
+            .open(self.partial_path(upload))
+            .await
+        {
+            Ok(file) => file,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Err(FilesError::NotFound),
+            Err(err) => return Err(err.into()),
+        };
+        let current = file.metadata().await?.len();
+        if current != offset {
+            return Err(FilesError::OffsetMismatch { current });
+        }
+        futures_util::pin_mut!(body);
+        let mut len = offset;
+        let written = async {
+            while let Some(chunk) = body.next().await {
+                let chunk = chunk?;
+                if len + chunk.len() as u64 > size {
+                    return Err(FilesError::TooLarge { limit: size });
+                }
+                file.write_all(&chunk).await?;
+                len += chunk.len() as u64;
+                on_written(&chunk);
+            }
+            Ok(())
+        }
+        .await;
+        let flushed = file.flush().await;
+        written?;
+        flushed?;
+        file.sync_all().await?;
+        Ok(len)
+    }
+
+    /// Hashes everything a resumable upload has received.
+    pub async fn hash_partial(&self, upload: Uuid) -> io::Result<Sha256> {
+        let mut file = fs::File::open(self.partial_path(upload)).await?;
+        let mut hasher = Sha256::new();
+        let mut buffer = vec![0; HASH_BUFFER];
+        loop {
+            let read = file.read(&mut buffer).await?;
+            if read == 0 {
+                return Ok(hasher);
+            }
+            hasher.update(&buffer[..read]);
+        }
+    }
+
+    /// Turns a completed resumable upload into a staged blob ready to commit.
+    pub fn adopt_partial(&self, upload: Uuid, size: u64, sha256: Vec<u8>) -> StagedBlob {
+        StagedBlob {
+            path: self.partial_path(upload),
+            size,
+            sha256,
+        }
+    }
+
+    /// Removes a resumable upload's file; a missing one is not an error.
+    pub async fn remove_partial(&self, upload: Uuid) -> io::Result<()> {
+        match fs::remove_file(self.partial_path(upload)).await {
+            Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
+            _ => Ok(()),
+        }
+    }
+
+    /// Removes leftovers untouched for `older_than`: staged files of interrupted
+    /// single-request uploads, and upload files whose id is not in `live`.
+    ///
+    /// Returns how many files were removed.
+    pub async fn sweep(&self, live: &HashSet<Uuid>, older_than: Duration) -> io::Result<usize> {
+        let cutoff = SystemTime::now()
+            .checked_sub(older_than)
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        let staged = Self::sweep_dir(&self.root.join(TMP_DIR), cutoff, |_| true).await?;
+        let orphans = Self::sweep_dir(&self.root.join(UPLOADS_DIR), cutoff, |name| {
+            name.parse::<Uuid>().map_or(true, |id| !live.contains(&id))
+        })
+        .await?;
+        Ok(staged + orphans)
+    }
+
+    async fn sweep_dir(
+        dir: &Path,
+        cutoff: SystemTime,
+        removable: impl Fn(&str) -> bool,
+    ) -> io::Result<usize> {
+        let mut removed = 0;
+        let mut entries = fs::read_dir(dir).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let meta = entry.metadata().await?;
+            let stale = meta.modified().is_ok_and(|at| at < cutoff);
+            let name = entry.file_name();
+            if meta.is_file() && stale && removable(&name.to_string_lossy()) {
+                match fs::remove_file(entry.path()).await {
+                    Ok(()) => removed += 1,
+                    Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+                    Err(err) => return Err(err),
+                }
+            }
+        }
+        Ok(removed)
+    }
+
+    fn partial_path(&self, upload: Uuid) -> PathBuf {
+        self.root.join(UPLOADS_DIR).join(upload.to_string())
     }
 
     fn version_path(&self, owner: UserId, version: Uuid) -> PathBuf {
@@ -210,9 +358,83 @@ mod tests {
         let store = BlobStore::open(dir.path()).await.expect("open");
         let (owner, node) = (UserId::new(), NodeId::new());
         let staged = store.stage(body(&["data"]), 100).await.expect("stage");
-        store.commit(staged, owner, node).await.expect("commit");
+        store.commit(&staged, owner, node).await.expect("commit");
         assert!(store.open_blob(owner, node).await.is_ok());
         store.remove(owner, node).await.expect("remove");
         assert!(store.open_blob(owner, node).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn appended_chunks_hash_like_a_single_stage() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = BlobStore::open(dir.path()).await.expect("open");
+        let id = Uuid::now_v7();
+        store.create_partial(id).await.expect("create");
+        let mut hasher = Sha256::new();
+        let len = store
+            .append(id, 0, 5, body(&["he", "l"]), |piece| hasher.update(piece))
+            .await
+            .expect("first");
+        assert_eq!(len, 3);
+        let len = store
+            .append(id, 3, 5, body(&["lo"]), |piece| hasher.update(piece))
+            .await
+            .expect("second");
+        assert_eq!(len, 5);
+        let digest = Sha256::digest(b"hello").to_vec();
+        assert_eq!(hasher.finalize().to_vec(), digest);
+        let rehashed = store.hash_partial(id).await.expect("hash");
+        assert_eq!(rehashed.finalize().to_vec(), digest);
+    }
+
+    #[tokio::test]
+    async fn append_at_the_wrong_offset_reports_the_current_one() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = BlobStore::open(dir.path()).await.expect("open");
+        let id = Uuid::now_v7();
+        store.create_partial(id).await.expect("create");
+        store
+            .append(id, 0, 10, body(&["abc"]), |_| ())
+            .await
+            .expect("append");
+        let result = store.append(id, 1, 10, body(&["x"]), |_| ()).await;
+        assert!(matches!(
+            result,
+            Err(FilesError::OffsetMismatch { current: 3 })
+        ));
+    }
+
+    #[tokio::test]
+    async fn append_past_the_declared_size_is_rejected() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = BlobStore::open(dir.path()).await.expect("open");
+        let id = Uuid::now_v7();
+        store.create_partial(id).await.expect("create");
+        let result = store.append(id, 0, 4, body(&["abc", "de"]), |_| ()).await;
+        assert!(matches!(result, Err(FilesError::TooLarge { limit: 4 })));
+        assert_eq!(store.partial_len(id).await.expect("len"), 3);
+    }
+
+    #[tokio::test]
+    async fn sweep_removes_only_stale_orphans() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = BlobStore::open(dir.path()).await.expect("open");
+        let (live, orphan) = (Uuid::now_v7(), Uuid::now_v7());
+        store.create_partial(live).await.expect("live");
+        store.create_partial(orphan).await.expect("orphan");
+        let known = HashSet::from([live]);
+        assert_eq!(
+            store
+                .sweep(&known, Duration::from_secs(3600))
+                .await
+                .expect("fresh"),
+            0
+        );
+        assert_eq!(store.sweep(&known, Duration::ZERO).await.expect("stale"), 1);
+        assert_eq!(store.partial_len(live).await.expect("live"), 0);
+        assert!(matches!(
+            store.partial_len(orphan).await,
+            Err(FilesError::NotFound)
+        ));
     }
 }

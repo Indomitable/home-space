@@ -18,6 +18,8 @@ pub enum ApiError {
     NotFound,
     #[error("no longer available")]
     Gone,
+    #[error("{0}")]
+    BadRequest(String),
     #[error(transparent)]
     Auth(#[from] AuthError),
     #[error(transparent)]
@@ -41,10 +43,11 @@ impl ApiError {
             Self::NotFound
             | Self::Auth(AuthError::OidcDisabled)
             | Self::Files(FilesError::NotFound) => (StatusCode::NOT_FOUND, ErrorCode::NotFound),
-            Self::Files(FilesError::Conflict | FilesError::LostAndFound) => {
-                (StatusCode::CONFLICT, ErrorCode::Conflict)
-            }
-            Self::Files(FilesError::InvalidName | FilesError::Cycle | FilesError::NotAFile) => {
+            Self::Files(
+                FilesError::Conflict | FilesError::LostAndFound | FilesError::OffsetMismatch { .. },
+            ) => (StatusCode::CONFLICT, ErrorCode::Conflict),
+            Self::BadRequest(_)
+            | Self::Files(FilesError::InvalidName | FilesError::Cycle | FilesError::NotAFile) => {
                 (StatusCode::BAD_REQUEST, ErrorCode::BadRequest)
             }
             Self::Gone => (StatusCode::GONE, ErrorCode::Gone),

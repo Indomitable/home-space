@@ -6387,6 +6387,7 @@ dependencies = [
  "leptos",
  "leptos_router",
  "protocol",
+ "serde",
  "serde_json",
  "time",
  "tokio",

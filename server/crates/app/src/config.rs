@@ -36,6 +36,15 @@ pub struct Config {
     #[arg(long, env = "HOMESPACE_MAX_UPLOAD_BYTES", default_value_t = 10 * 1024 * 1024 * 1024)]
     pub max_upload_bytes: u64,
 
+    /// Size of one chunk of a resumable upload. Keep it below the request body limit of any
+    /// proxy in front of the server (Cloudflare allows 100 MB).
+    #[arg(long, env = "HOMESPACE_UPLOAD_CHUNK_BYTES", default_value_t = files::DEFAULT_CHUNK_BYTES)]
+    pub upload_chunk_bytes: u64,
+
+    /// How long an unfinished resumable upload is kept without receiving a chunk.
+    #[arg(long, env = "HOMESPACE_UPLOAD_EXPIRY_HOURS", default_value_t = 24)]
+    pub upload_expiry_hours: u64,
+
     #[arg(long, env = "HOMESPACE_ACCESS_TTL_SECS", default_value_t = 900)]
     pub access_ttl_secs: i64,
 

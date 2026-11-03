@@ -12,7 +12,7 @@ use iced::{
 use protocol::{Me, Providers};
 
 use crate::{
-    session::{self, Restored},
+    session::{self, Restored, Saved},
     sso,
 };
 
@@ -45,6 +45,8 @@ pub enum Message {
     FocusNext,
     FocusPrevious,
     Finished(Result<(Client, Me), String>),
+    /// The session saved by an earlier run has been read, before it is resumed.
+    SavedLoaded(Option<Saved>),
     Restored(Restored),
 }
 
@@ -58,6 +60,8 @@ pub struct State {
     username: String,
     password: String,
     busy: bool,
+    /// The session saved by an earlier run is being resumed.
+    restoring: bool,
     error: Option<String>,
     /// How the server lets users sign in, once known.
     providers: Option<Providers>,
@@ -77,6 +81,7 @@ impl Default for State {
             username: String::new(),
             password: String::new(),
             busy: false,
+            restoring: false,
             error: None,
             providers: None,
             first_probe_pending: true,
@@ -91,9 +96,13 @@ impl State {
     pub fn restoring() -> (Self, Task<Message>) {
         let state = Self {
             busy: true,
+            restoring: true,
             ..Self::default()
         };
-        (state, Task::perform(session::restore(), Message::Restored))
+        (
+            state,
+            Task::perform(session::load_saved(), Message::SavedLoaded),
+        )
     }
 
     /// The login screen after signing out.
@@ -105,6 +114,7 @@ impl State {
 
     pub fn update(&mut self, message: Message) -> Update {
         match message {
+            Message::ServerChanged(_) if self.restoring => Update::Task(Task::none()),
             Message::ServerChanged(value) => {
                 self.server = value;
                 Update::Task(self.schedule_probe())
@@ -176,12 +186,18 @@ impl State {
                 self.error = Some(err);
                 Update::Task(Task::none())
             }
-            Message::Restored(Restored::Nothing) => {
+            Message::SavedLoaded(Some(saved)) => {
+                self.server.clone_from(&saved.server);
+                Update::Task(Task::perform(session::resume(saved), Message::Restored))
+            }
+            Message::SavedLoaded(None) => {
                 self.busy = false;
+                self.restoring = false;
                 Update::Task(self.schedule_probe())
             }
             Message::Restored(Restored::Failed { server, error }) => {
                 self.busy = false;
+                self.restoring = false;
                 self.server = server;
                 self.error = match error {
                     ApiError::Unauthorized => None,
@@ -189,6 +205,17 @@ impl State {
                 };
                 Update::Task(self.schedule_probe())
             }
+        }
+    }
+
+    /// What the screen is waiting for while it has no buttons to offer.
+    fn status(&self) -> Option<&'static str> {
+        if self.restoring {
+            Some("Resuming your session…")
+        } else if self.first_probe_pending && self.providers.is_none() {
+            Some("Contacting the server…")
+        } else {
+            None
         }
     }
 
@@ -221,10 +248,18 @@ impl State {
                 .width(Length::Fill),
             text_input("Server", &self.server)
                 .padding(INPUT_PADDING)
-                .on_input(Message::ServerChanged),
+                .on_input_maybe((!self.restoring).then_some(Message::ServerChanged)),
         ]
         .spacing(FORM_SPACING)
         .width(FORM_WIDTH);
+        if let Some(status) = self.status() {
+            form = form.push(
+                container(text(status))
+                    .style(crate::theme::muted)
+                    .align_x(Alignment::Center)
+                    .width(Length::Fill),
+            );
+        }
         let provider = self
             .providers
             .as_ref()
@@ -429,6 +464,48 @@ mod tests {
         let _ = state.update(Message::ServerChanged("http://other.local".to_owned()));
 
         assert_eq!(state.providers, None);
+    }
+
+    #[test]
+    fn a_saved_session_shows_its_server_while_it_resumes() {
+        let (mut state, _task) = State::restoring();
+
+        let _ = state.update(Message::SavedLoaded(Some(Saved {
+            server: SAVED_SERVER.to_owned(),
+            refresh_token: "token".to_owned(),
+        })));
+
+        assert_eq!(
+            (state.server.as_str(), state.restoring),
+            (SAVED_SERVER, true)
+        );
+    }
+
+    #[test]
+    fn the_server_field_is_editable_once_resuming_fails() {
+        let (mut state, _task) = State::restoring();
+        let _ = state.update(Message::ServerChanged("http://typed.local".to_owned()));
+        assert_eq!(state.server, DEFAULT_SERVER);
+
+        let _ = state.update(Message::Restored(Restored::Failed {
+            server: SAVED_SERVER.to_owned(),
+            error: ApiError::Unauthorized,
+        }));
+        let _ = state.update(Message::ServerChanged("http://typed.local".to_owned()));
+
+        assert_eq!(state.server, "http://typed.local");
+    }
+
+    #[test]
+    fn resuming_a_session_says_so_until_it_finishes() {
+        let (mut state, _task) = State::restoring();
+        assert_eq!(state.status(), Some("Resuming your session…"));
+
+        let _ = state.update(Message::SavedLoaded(None));
+
+        assert_eq!(state.status(), Some("Contacting the server…"));
+        let _ = state.update(Message::ProvidersLoaded(state.probe, Ok(providers(false))));
+        assert_eq!(state.status(), None);
     }
 
     #[test]

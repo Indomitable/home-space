@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use api_client::{ApiError, Client};
-use protocol::{Change, ErrorCode, NodeId, NodeKind};
+use protocol::{Change, ErrorCode, Event, NodeId, NodeKind};
 
 use super::model::{Mapping, RemoteNode};
 
@@ -117,6 +117,21 @@ impl Mirror {
         Ok(delta)
     }
 
+    /// Whether `event` tells nothing new: the node is already held as it is now, as with the
+    /// engine's own changes coming back, or the event is about the recycle bin, which sync
+    /// does not follow.
+    pub fn already_has(&self, event: &Event) -> bool {
+        match event {
+            Event::NodeCreated { node } | Event::NodeUpdated { node } => self
+                .nodes
+                .get(&node.id)
+                .is_some_and(|held| *held == RemoteNode::from(node.clone())),
+            Event::NodeDeleted { id, .. } => !self.nodes.contains_key(id),
+            Event::TrashChanged => true,
+            Event::Resync => false,
+        }
+    }
+
     /// Removes `id` and everything under it; returns what was removed.
     fn remove(&mut self, id: NodeId) -> Vec<NodeId> {
         let mut removed = Vec::new();
@@ -159,4 +174,72 @@ async fn walk(
         }
     }
     Ok(found)
+}
+
+#[cfg(test)]
+mod tests {
+    use time::OffsetDateTime;
+    use uuid::Uuid;
+
+    use protocol::Node;
+
+    use super::*;
+
+    fn file(name: &str) -> Node {
+        Node {
+            id: NodeId::from(Uuid::from_u128(1)),
+            parent_id: None,
+            kind: NodeKind::File,
+            name: name.to_owned(),
+            size: 3,
+            sha256: Some("abc".to_owned()),
+            mime: "text/plain".to_owned(),
+            version: 1,
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    fn holding(node: &Node) -> Mirror {
+        Mirror {
+            nodes: HashMap::from([(node.id, RemoteNode::from(node.clone()))]),
+            cursor: Some(1),
+        }
+    }
+
+    #[test]
+    fn a_change_already_applied_is_not_news() {
+        let node = file("a.txt");
+
+        assert!(holding(&node).already_has(&Event::NodeUpdated { node }));
+    }
+
+    #[test]
+    fn a_change_to_a_held_node_is_news() {
+        let mirror = holding(&file("a.txt"));
+
+        assert!(!mirror.already_has(&Event::NodeUpdated {
+            node: file("b.txt")
+        }));
+    }
+
+    #[test]
+    fn deleting_a_node_no_longer_held_is_not_news() {
+        let node = file("a.txt");
+        let mirror = Mirror::default();
+
+        assert!(mirror.already_has(&Event::NodeDeleted {
+            id: node.id,
+            parent_id: None,
+        }));
+        assert!(!holding(&node).already_has(&Event::NodeDeleted {
+            id: node.id,
+            parent_id: None,
+        }));
+    }
+
+    #[test]
+    fn a_resync_is_always_news() {
+        assert!(!Mirror::default().already_has(&Event::Resync));
+    }
 }

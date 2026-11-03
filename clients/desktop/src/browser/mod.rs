@@ -280,7 +280,8 @@ impl State {
                 }
             }
             Message::Server(event) => {
-                self.syncing.send(sync::Command::RemoteChanged);
+                self.syncing
+                    .send(sync::Command::RemoteChanged(event.clone()));
                 let details = self.sync_details(&event);
                 let listing = if self.folder.apply(&event) {
                     self.folder.load(&self.client)

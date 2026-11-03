@@ -168,6 +168,31 @@ async fn files_sync_both_ways() {
     assert_eq!(s.content(uploaded.id).await, "here");
 }
 
+#[tokio::test]
+#[ignore = "needs a running server, see the module docs"]
+async fn a_folder_moved_here_is_moved_on_the_server_not_uploaded_again() {
+    let mut s = setup("folder-move").await;
+    let folder = s
+        .other
+        .create_folder(Some(s.remote), "old")
+        .await
+        .expect("folder");
+    let file = s.upload(folder.id, "a.txt", "content").await;
+    s.sync().await;
+
+    fs::rename(s.local.join("old"), s.local.join("new")).expect("rename");
+    s.sync().await;
+
+    let moved = s.other.get(folder.id).await.expect("folder kept");
+    assert_eq!(moved.name, "new");
+    let inside = s.other.list(Some(folder.id)).await.expect("list");
+    assert_eq!(
+        inside.iter().map(|node| node.id).collect::<Vec<_>>(),
+        [file.id]
+    );
+    assert_eq!(s.content(file.id).await, "content");
+}
+
 /// Scenario 1: the same new file on both sides; the later one is current, the other a
 /// version.
 #[tokio::test]

@@ -40,6 +40,7 @@ mod tests {
                 version: 1,
                 created_at: OffsetDateTime::UNIX_EPOCH,
                 updated_at: OffsetDateTime::UNIX_EPOCH,
+                edited_on: None,
             },
             location: vec!["docs".to_owned(), "2024".to_owned()],
         };

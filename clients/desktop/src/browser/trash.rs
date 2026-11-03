@@ -37,7 +37,7 @@ pub enum Message {
     Toggle(NodeId),
     ToggleAll,
     Restore,
-    Restored(Result<MoveResponse, ApiError>),
+    Restored(Result<Box<MoveResponse>, ApiError>),
     Empty,
     OpenLostAndFound(NodeId),
 }
@@ -136,14 +136,19 @@ impl State {
                 self.restoring.clone_from(&ids);
                 let client = client.clone();
                 Outcome::Task(Task::perform(
-                    async move { client.restore_trashed(&ids, OnConflict::Abort).await },
+                    async move {
+                        client
+                            .restore_trashed(&ids, OnConflict::Abort)
+                            .await
+                            .map(Box::new)
+                    },
                     Message::Restored,
                 ))
             }
             Message::Restored(Ok(response)) if !response.conflicts.is_empty() => {
                 Outcome::Conflicts {
                     ids: std::mem::take(&mut self.restoring),
-                    response: Box::new(response),
+                    response,
                 }
             }
             Message::Restored(Ok(response)) => {
@@ -350,6 +355,7 @@ mod tests {
                 version: 1,
                 created_at: OffsetDateTime::UNIX_EPOCH,
                 updated_at: OffsetDateTime::UNIX_EPOCH,
+                edited_on: None,
             },
             original_path: format!("/Photos/{name}"),
             deleted_at: OffsetDateTime::UNIX_EPOCH,
@@ -440,7 +446,7 @@ mod tests {
             ..MoveResponse::default()
         };
 
-        let outcome = press(&mut state, Message::Restored(Ok(response)));
+        let outcome = press(&mut state, Message::Restored(Ok(Box::new(response))));
 
         let Outcome::Conflicts { ids, response } = outcome else {
             panic!("expected the conflicts");
@@ -459,7 +465,7 @@ mod tests {
             ..MoveResponse::default()
         };
 
-        let _ = press(&mut state, Message::Restored(Ok(response)));
+        let _ = press(&mut state, Message::Restored(Ok(Box::new(response))));
         let mut ui = simulator(state.view());
 
         assert!(state.selected_ids().is_empty());

@@ -71,11 +71,21 @@ Step 4, the device list in the clients:
 - **macOS name.** The desktop names itself after `scutil --get ComputerName`, since macOS has
   no `/etc/hostname` and does not export `HOSTNAME`.
 
+"Edited on" (migration `0012_edited_on.sql`):
+
+- **Schema.** `nodes.edited_on` and `file_versions.edited_on` hold the device that wrote the
+  content. A `BEFORE INSERT OR UPDATE OF sha256` trigger sets it on the node from the
+  transaction's `homespace.device_id` when the node is created or its content changes, so
+  renames, moves and trashing keep it. Archiving copies it to the version; content kept as a
+  version because it was older than the current one is stamped with the sending device.
+- **API.** `Node` and `FileVersion` carry `edited_on` (left out when unknown, so older clients
+  are unaffected).
+- **Clients.** The details panel shows "Edited on Laptop" ("Created on" for folders, "this
+  device" for the current one) and the device after each previous version. Names come from
+  `GET /devices`, loaded with the panel, so a rename shows everywhere.
+
 ## Left
 
-- **"Edited on Laptop".** The change journal knows the device of each node's latest change, but
-  nodes do not carry it. Showing it in the details panel needs the device on `Node` (or a lookup
-  of the journal), and the device names.
 - **Android.** Registers on first sign-in, so its uploads show as "from Phone".
 - Conflict copies named after the other device do not apply: sync keeps no conflict copies,
   the server keeps the losing content as a version.

@@ -79,7 +79,7 @@ impl Db {
         let ids = latest.iter().map(|(id, _, _)| *id).collect::<Vec<_>>();
         let mut nodes = sqlx::query_as::<_, Node>(concat!(
             "SELECT id, owner_id, parent_id, kind, name, size, sha256, mime, version, \
-             created_at, updated_at FROM nodes \
+             created_at, updated_at, edited_on FROM nodes \
              WHERE owner_id = $1 AND id = ANY($2) AND ",
             visible!("nodes")
         ))

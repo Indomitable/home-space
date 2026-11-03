@@ -4,7 +4,7 @@ use crate::{Db, DbError, FileVersion, NodeId, UserId};
 
 macro_rules! version_columns {
     () => {
-        "id, node_id, owner_id, version, size, sha256, mime, modified_at, archived_at"
+        "id, node_id, owner_id, version, size, sha256, mime, modified_at, archived_at, edited_on"
     };
 }
 

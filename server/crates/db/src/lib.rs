@@ -49,7 +49,7 @@ use uuid::Uuid;
 
 const MAX_CONNECTIONS: u32 = 10;
 /// The transaction setting the change journal's trigger reads the writing device from.
-const DEVICE_SETTING: &str = "homespace.device_id";
+pub(crate) const DEVICE_SETTING: &str = "homespace.device_id";
 
 /// Handle to the database; cheap to clone.
 #[derive(Clone, Debug)]

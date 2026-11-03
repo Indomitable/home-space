@@ -199,3 +199,31 @@ async fn the_change_feed_names_the_device_a_change_came_from(pool: PgPool) {
     assert_eq!(change["node"]["id"], created.json()["id"]);
     assert_eq!(change["device_id"], json!(laptop));
 }
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn a_node_names_the_device_it_was_made_on(pool: PgPool) {
+    let app = setup(pool).await;
+    let laptop = Uuid::now_v7();
+    let token = sign_in_from(&app, "alice", laptop, "Laptop").await;
+    let created = app
+        .json(
+            Method::POST,
+            "/api/v1/folders",
+            Some(&token),
+            json!({ "name": "docs" }),
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::CREATED);
+    let id = created.json()["id"].clone();
+
+    let node = app
+        .get(
+            &format!("/api/v1/nodes/{}", id.as_str().unwrap_or_default()),
+            &token,
+        )
+        .await
+        .json();
+
+    assert_eq!(created.json()["edited_on"], json!(laptop));
+    assert_eq!(node["edited_on"], json!(laptop));
+}

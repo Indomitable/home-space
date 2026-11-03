@@ -73,6 +73,11 @@ the selection (folders merge and never clash):
 Previous versions live in `file_versions`; their blobs are under `<storage>/versions/`.
 Folders have the MIME type `inode/directory`.
 
+Nodes and versions carry `edited_on`, the id of the registered device that wrote the content
+(or created the folder), for "Edited on Laptop". A trigger sets it from the transaction's device
+when a node is created or its content changes; renames and moves keep it. Clients name the
+device through `GET /devices`.
+
 ### Uploads
 
 Files up to 32 MiB go up in one request. Clients send larger files in chunks (`/uploads`), so no

@@ -2,6 +2,7 @@ use protocol::{
     Device, Node, PLATFORM_ANDROID, PLATFORM_LINUX, PLATFORM_MACOS, PLATFORM_WEB, PLATFORM_WINDOWS,
 };
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 use crate::format::human_size;
 
@@ -44,6 +45,17 @@ pub fn device_state(device: &Device) -> String {
         1 => format!("{state} · 1 unfinished upload"),
         count => format!("{state} · {count} unfinished uploads"),
     }
+}
+
+/// The device behind `edited_on` (a node's or a version's), by name, or `this device`; `None`
+/// when nothing is recorded or the device is not among `devices`.
+pub fn edited_on(edited_on: Option<Uuid>, devices: &[Device]) -> Option<String> {
+    let device = devices.iter().find(|device| Some(device.id) == edited_on)?;
+    Some(if device.current {
+        THIS_DEVICE.to_lowercase()
+    } else {
+        device.name.clone()
+    })
 }
 
 /// The question asked before signing `device` out, saying what it cancels.
@@ -97,7 +109,7 @@ mod tests {
 
     fn device(signed_in: bool, uploads: i64) -> Device {
         Device {
-            id: uuid::Uuid::nil(),
+            id: Uuid::nil(),
             name: "Laptop".to_owned(),
             platform: PLATFORM_LINUX.to_owned(),
             created_at: OffsetDateTime::UNIX_EPOCH,
@@ -125,6 +137,28 @@ mod tests {
             device_state(&device(true, 3)),
             "Signed in · 3 unfinished uploads"
         );
+    }
+
+    #[test]
+    fn an_edit_is_named_after_its_device() {
+        let laptop = device(true, 0);
+        let this = Device {
+            id: Uuid::from_u128(1),
+            current: true,
+            ..device(true, 0)
+        };
+        let devices = [laptop, this];
+
+        assert_eq!(
+            edited_on(Some(Uuid::nil()), &devices).as_deref(),
+            Some("Laptop")
+        );
+        assert_eq!(
+            edited_on(Some(Uuid::from_u128(1)), &devices).as_deref(),
+            Some("this device")
+        );
+        assert_eq!(edited_on(Some(Uuid::from_u128(2)), &devices), None);
+        assert_eq!(edited_on(None, &devices), None);
     }
 
     #[test]

@@ -5,7 +5,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::{
-    Db, DbError, Node, NodeId, NodeKind, OnConflict, UserId,
+    DEVICE_SETTING, Db, DbError, Node, NodeId, NodeKind, OnConflict, UserId,
     trash::{bin_subtree, special_folders},
 };
 
@@ -14,7 +14,8 @@ pub const FOLDER_MIME: &str = "inode/directory";
 
 macro_rules! node_columns {
     () => {
-        "id, owner_id, parent_id, kind, name, size, sha256, mime, version, created_at, updated_at"
+        "id, owner_id, parent_id, kind, name, size, sha256, mime, version, created_at, updated_at, \
+         edited_on"
     };
 }
 
@@ -229,7 +230,7 @@ impl Db {
                  UNION ALL \
                  SELECT ",
             "n.id, n.owner_id, n.parent_id, n.kind, n.name, n.size, n.sha256, n.mime, \
-                 n.version, n.created_at, n.updated_at, c.depth + 1 \
+                 n.version, n.created_at, n.updated_at, n.edited_on, c.depth + 1 \
                  FROM nodes n JOIN chain c ON n.id = c.parent_id AND n.owner_id = $2 \
              ) SELECT ",
             node_columns!(),
@@ -904,8 +905,8 @@ async fn archive_current(conn: &mut PgConnection, node: &Node) -> Result<Uuid, D
     let id = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO file_versions \
-         (id, node_id, owner_id, version, size, sha256, mime, modified_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+         (id, node_id, owner_id, version, size, sha256, mime, modified_at, edited_on) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
     )
     .bind(id)
     .bind(node.id)
@@ -915,6 +916,7 @@ async fn archive_current(conn: &mut PgConnection, node: &Node) -> Result<Uuid, D
     .bind(node.sha256.clone().unwrap_or_default())
     .bind(&node.mime)
     .bind(node.updated_at)
+    .bind(node.edited_on)
     .execute(conn)
     .await?;
     Ok(id)
@@ -969,8 +971,8 @@ async fn archive_older(
     let archived = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO file_versions \
-         (id, node_id, owner_id, version, size, sha256, mime, modified_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+         (id, node_id, owner_id, version, size, sha256, mime, modified_at, edited_on) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF(current_setting($9, true), '')::uuid)",
     )
     .bind(archived)
     .bind(node.id)
@@ -980,6 +982,7 @@ async fn archive_older(
     .bind(content.sha256)
     .bind(content.mime)
     .bind(modified_at)
+    .bind(DEVICE_SETTING)
     .execute(&mut *conn)
     .await?;
     let updated = sqlx::query_as::<_, Node>(concat!(
@@ -1316,5 +1319,93 @@ mod tests {
         let root = move_to(vec![plain.id], None, alice).await.expect("to root");
         assert!(root.target.is_none());
         assert_eq!(root.moved[0].parent_id, None);
+    }
+
+    fn content(byte: u8) -> NewContent {
+        NewContent {
+            size: 1,
+            sha256: vec![byte; 32],
+            mime: "text/plain".to_owned(),
+            modified_at: None,
+        }
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn a_file_names_the_device_that_wrote_it_and_a_rename_keeps_it(pool: PgPool) {
+        let db = Db::from_pool(pool);
+        let alice = db.create_user("alice", "x").await.expect("alice").id;
+        let laptop = Uuid::now_v7();
+        let written = db
+            .on_device(Some(laptop))
+            .store_file(alice, None, "a.txt", content(1))
+            .await
+            .expect("store")
+            .into_node();
+        let update = NodeUpdate {
+            name: Some("b.txt".to_owned()),
+            parent_id: None,
+        };
+
+        let renamed = db
+            .update_node(alice, written.id, update)
+            .await
+            .expect("rename");
+
+        assert_eq!(written.edited_on, Some(laptop));
+        assert_eq!(renamed.node.edited_on, Some(laptop));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn new_content_names_its_device_and_the_version_keeps_the_previous_one(pool: PgPool) {
+        let db = Db::from_pool(pool);
+        let alice = db.create_user("alice", "x").await.expect("alice").id;
+        let (laptop, phone) = (Uuid::now_v7(), Uuid::now_v7());
+        db.on_device(Some(laptop))
+            .store_file(alice, None, "a.txt", content(1))
+            .await
+            .expect("first");
+
+        let node = db
+            .on_device(Some(phone))
+            .store_file(alice, None, "a.txt", content(2))
+            .await
+            .expect("second")
+            .into_node();
+
+        let versions = db.list_versions(alice, node.id).await.expect("versions");
+        assert_eq!(node.edited_on, Some(phone));
+        assert_eq!(
+            versions.iter().map(|v| v.edited_on).collect::<Vec<_>>(),
+            [Some(laptop)]
+        );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn older_content_is_kept_as_a_version_of_the_device_that_sent_it(pool: PgPool) {
+        let db = Db::from_pool(pool);
+        let alice = db.create_user("alice", "x").await.expect("alice").id;
+        let (laptop, phone) = (Uuid::now_v7(), Uuid::now_v7());
+        db.on_device(Some(laptop))
+            .store_file(alice, None, "a.txt", content(1))
+            .await
+            .expect("first");
+        let older = NewContent {
+            modified_at: Some(OffsetDateTime::UNIX_EPOCH),
+            ..content(2)
+        };
+
+        let node = db
+            .on_device(Some(phone))
+            .store_file(alice, None, "a.txt", older)
+            .await
+            .expect("older")
+            .into_node();
+
+        let versions = db.list_versions(alice, node.id).await.expect("versions");
+        assert_eq!(node.edited_on, Some(laptop));
+        assert_eq!(
+            versions.iter().map(|v| v.edited_on).collect::<Vec<_>>(),
+            [Some(phone)]
+        );
     }
 }

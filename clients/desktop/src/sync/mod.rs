@@ -47,7 +47,7 @@ use notify::{RecursiveMode, Watcher};
 use tokio::{sync::mpsc, time::Instant};
 
 use api_client::{ApiError, Client};
-use protocol::{NodeId, UserId};
+use protocol::{Event, NodeId, UserId};
 
 use self::{
     apply::{Effect, Failure, Folders},
@@ -187,7 +187,7 @@ pub enum Command {
     /// Removes the mapping of a remote folder; its local files stay.
     Unmap(Option<NodeId>),
     /// The server reported a change.
-    RemoteChanged,
+    RemoteChanged(Event),
     /// Tries the failed paths again now: these ones, or all of them with `None`.
     Retry(Option<Vec<PathBuf>>),
 }
@@ -266,6 +266,9 @@ fn run(client: Client, user: UserId) -> impl Stream<Item = Update> {
                     }
                 } => {
                     let Some(command) = command else { break };
+                    if engine.is_echo(&command) {
+                        continue;
+                    }
                     if engine.handle(command, &mut output).await {
                         watcher = engine.watch(&changed);
                         engine.activity = Activity::Checking;
@@ -381,7 +384,7 @@ impl Engine {
     /// Applies a command; returns whether the watched folders changed.
     async fn handle(&mut self, command: Command, output: &mut Sender<Update>) -> bool {
         match command {
-            Command::RemoteChanged => false,
+            Command::RemoteChanged(_) => false,
             Command::Retry(paths) => {
                 let now = Instant::now();
                 self.problems
@@ -538,18 +541,30 @@ impl Engine {
             blind: layout.roots.clone(),
             ..Scan::default()
         };
-        tokio::select! {
-            scan = &mut task => Some(scan.unwrap_or_else(|_| blind())),
-            command = commands.recv() => {
-                // The scan gives up at its next folder or file chunk; wait for it to let go.
-                self.stop.store(true, Ordering::Relaxed);
-                let _ = task.await;
-                self.stop.store(false, Ordering::Relaxed);
-                // Without a command the app is going away, which ends the loop.
-                self.interrupted = command;
-                None
+        let command = loop {
+            tokio::select! {
+                scan = &mut task => return Some(scan.unwrap_or_else(|_| blind())),
+                command = commands.recv() => {
+                    if command.as_ref().is_some_and(|command| self.is_echo(command)) {
+                        continue;
+                    }
+                    break command;
+                }
             }
-        }
+        };
+        // The scan gives up at its next folder or file chunk; wait for it to let go.
+        self.stop.store(true, Ordering::Relaxed);
+        let _ = task.await;
+        self.stop.store(false, Ordering::Relaxed);
+        // Without a command the app is going away, which ends the loop.
+        self.interrupted = command;
+        None
+    }
+
+    /// Whether `command` reports a server change the mirror already holds, mostly the
+    /// engine's own changes coming back, which need no pass.
+    fn is_echo(&self, command: &Command) -> bool {
+        matches!(command, Command::RemoteChanged(event) if self.mirror.already_has(event))
     }
 
     /// Cancels the saved chunked uploads of paths with no upload planned any more, such as

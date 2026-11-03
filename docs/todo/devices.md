@@ -58,14 +58,15 @@ ALTER TABLE node_changes ADD COLUMN device_id UUID;   -- no foreign key, like ow
   it. Writes without it (CLI, background jobs) record `NULL`.
   - Every write in `db::nodes` has to take the device, and so do `FileService` methods.
 - **`GET /changes`** returns `device_id` with each entry. With journal compaction, only the latest
-  writer of each node is known, which is what echo skipping and "edited on" need.
+  writer of each node is known, which is what "edited on" needs.
+- Echo skipping does not need it, and is done: sync skips a live event when it already holds
+  the node as the event shows it. Skipping by device would be wrong, since the desktop's file
+  browser also writes as this device, and sync has not applied those writes yet.
 
 ### Client features (step 4)
 
 - **Desktop.**
   - A Devices section in settings: the list, rename, sign out.
-  - When catching up, sync skips entries made by this device whose content it already has, by
-    matching `device_id` and the base's hash.
   - Conflict copies are named after the other device ("report (Laptop).docx").
   - On macOS the host name falls back to "Desktop", since neither `/etc/hostname` nor `HOSTNAME`
     is there. Read the computer name instead.

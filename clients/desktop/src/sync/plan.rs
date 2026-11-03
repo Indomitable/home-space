@@ -151,6 +151,7 @@ pub fn plan(layout: &Layout, scan: &Scan, bases: &[Base]) -> Vec<Action> {
         actions: Vec::new(),
     };
     work.remote_moves();
+    work.local_folder_moves();
     work.local_moves();
     work.compare();
     work.create_missing_parents();
@@ -235,24 +236,118 @@ impl Work<'_> {
         }
     }
 
-    /// A file that vanished from its path while an identical, unknown one appeared elsewhere
-    /// was moved; folders moved locally are uploaded anew instead.
-    fn local_moves(&mut self) {
-        let base_paths: HashSet<PathBuf> =
-            self.bases.values().map(|base| base.path.clone()).collect();
-        let mut candidates: HashMap<(String, u64), Vec<PathBuf>> = HashMap::new();
+    /// A folder that vanished from its path was moved to the one unknown folder holding every
+    /// file recorded in it, by name, with at least one of them unchanged. Its files, changed
+    /// or not, go along; a folder that cannot be matched is uploaded anew.
+    fn local_folder_moves(&mut self) {
+        let unknown = self.unknown_files();
+        for id in self.bases_by_depth() {
+            let Some(base) = self.bases.get(&id) else {
+                continue;
+            };
+            let from = base.path.clone();
+            let unchanged_remote = self
+                .remote
+                .get(&from)
+                .is_some_and(|remote| remote.id == id && remote.kind == NodeKind::Folder);
+            let holds_mapped = self
+                .layout
+                .skipped
+                .iter()
+                .any(|skipped| skipped.starts_with(&from));
+            if base.kind != NodeKind::Folder
+                || self.local.contains_key(&from)
+                || !unchanged_remote
+                || holds_mapped
+                || !self.in_scope(&from)
+            {
+                continue;
+            }
+            let inside: Vec<(PathBuf, &Base)> = self
+                .bases
+                .values()
+                .filter(|inner| inner.kind == NodeKind::File)
+                .filter_map(|inner| Some((inner.path.strip_prefix(&from).ok()?.to_owned(), inner)))
+                .collect();
+            let targets: BTreeSet<PathBuf> = inside
+                .iter()
+                .filter_map(|(rest, inner)| {
+                    Some((rest, unknown.get(&(inner.sha256.clone()?, inner.size))?))
+                })
+                .flat_map(|(rest, found)| {
+                    found
+                        .iter()
+                        .filter(move |path| path.ends_with(rest))
+                        .filter_map(move |path| path.ancestors().nth(rest.components().count()))
+                        .map(Path::to_path_buf)
+                })
+                .filter(|to| self.is_new_folder(to))
+                .filter(|to| {
+                    inside.iter().all(|(rest, _)| {
+                        self.local
+                            .get(&to.join(rest))
+                            .is_some_and(|entry| entry.kind == NodeKind::File)
+                    })
+                })
+                .collect();
+            let Some(to) = targets.first().filter(|_| targets.len() == 1).cloned() else {
+                continue;
+            };
+            self.actions.push(Action::MoveRemote {
+                node: id,
+                from: from.clone(),
+                to: to.clone(),
+            });
+            self.remote = std::mem::take(&mut self.remote)
+                .into_iter()
+                .map(|(path, node)| (rebased(&path, &from, &to).unwrap_or(path), node))
+                .collect();
+            for base in self.bases.values_mut() {
+                if let Some(path) = rebased(&base.path, &from, &to) {
+                    base.path = path;
+                }
+            }
+        }
+    }
+
+    /// A local folder nothing is recorded or on the server for, placed in a synced folder.
+    fn is_new_folder(&self, path: &Path) -> bool {
+        let recorded = self.bases.values().any(|base| base.path == path);
+        self.local
+            .get(path)
+            .is_some_and(|entry| entry.kind == NodeKind::Folder)
+            && !recorded
+            && !self.remote.contains_key(path)
+            && self.in_scope(path)
+            && path
+                .parent()
+                .is_some_and(|parent| self.layout.folders.contains_key(parent))
+    }
+
+    /// Hashed local files nothing is recorded or on the server for, by content and size:
+    /// the places a recorded file may have moved to.
+    fn unknown_files(&self) -> HashMap<(String, u64), Vec<PathBuf>> {
+        let base_paths: HashSet<&PathBuf> = self.bases.values().map(|base| &base.path).collect();
+        let mut found: HashMap<(String, u64), Vec<PathBuf>> = HashMap::new();
         for (path, entry) in &self.local {
             if let Some(sha) = &entry.sha256
                 && !base_paths.contains(path)
                 && !self.remote.contains_key(path)
                 && self.in_scope(path)
             {
-                candidates
+                found
                     .entry((sha.clone(), entry.size))
                     .or_default()
                     .push(path.clone());
             }
         }
+        found
+    }
+
+    /// A file that vanished from its path while an identical, unknown one appeared elsewhere
+    /// was moved.
+    fn local_moves(&mut self) {
+        let mut candidates = self.unknown_files();
         for id in self.bases_by_depth() {
             let base = &self.bases[&id];
             let (Some(sha), NodeKind::File) = (&base.sha256, base.kind) else {
@@ -938,6 +1033,125 @@ mod tests {
                 to: p("b.txt"),
             }]
         );
+    }
+
+    fn folder_with_files() -> (Layout, Vec<Base>) {
+        let layout = home(vec![
+            node(1, None, Folder, "old"),
+            with_sha(node(2, Some(1), File, "a.txt"), "x"),
+            with_sha(node(3, Some(1), File, "b.txt"), "y"),
+        ]);
+        let bases = vec![
+            folder_base(1, "old"),
+            base(2, "old/a.txt", "x"),
+            base(3, "old/b.txt", "y"),
+        ];
+        (layout, bases)
+    }
+
+    fn moves_folder_1(actions: &[Action]) -> bool {
+        actions
+            .iter()
+            .any(|action| matches!(action, Action::MoveRemote { node, .. } if *node == id(1)))
+    }
+
+    #[test]
+    fn a_local_folder_move_moves_the_remote_folder() {
+        let (layout, bases) = folder_with_files();
+        let actions = plan(
+            &layout,
+            &scan(vec![
+                ("new", LocalEntry::folder()),
+                ("new/a.txt", file("x", 0)),
+                ("new/b.txt", file("y", 0)),
+            ]),
+            &bases,
+        );
+        assert_eq!(
+            actions,
+            [Action::MoveRemote {
+                node: id(1),
+                from: p("old"),
+                to: p("new"),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_file_changed_in_a_moved_folder_is_uploaded_after_the_move() {
+        let (layout, bases) = folder_with_files();
+        let actions = plan(
+            &layout,
+            &scan(vec![
+                ("new", LocalEntry::folder()),
+                ("new/a.txt", file("x", 0)),
+                ("new/b.txt", file("z", 5)),
+            ]),
+            &bases,
+        );
+        assert_eq!(
+            actions,
+            [
+                Action::MoveRemote {
+                    node: id(1),
+                    from: p("old"),
+                    to: p("new"),
+                },
+                Action::Upload {
+                    node: Some(id(3)),
+                    path: p("new/b.txt"),
+                    local: file("z", 5),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_folder_missing_a_recorded_file_is_not_taken_for_a_move() {
+        let (layout, bases) = folder_with_files();
+        let actions = plan(
+            &layout,
+            &scan(vec![
+                ("new", LocalEntry::folder()),
+                ("new/a.txt", file("x", 0)),
+            ]),
+            &bases,
+        );
+        assert!(!moves_folder_1(&actions));
+    }
+
+    #[test]
+    fn two_copies_of_a_vanished_folder_are_not_taken_for_a_move() {
+        let (layout, bases) = folder_with_files();
+        let actions = plan(
+            &layout,
+            &scan(vec![
+                ("one", LocalEntry::folder()),
+                ("one/a.txt", file("x", 0)),
+                ("one/b.txt", file("y", 0)),
+                ("two", LocalEntry::folder()),
+                ("two/a.txt", file("x", 0)),
+                ("two/b.txt", file("y", 0)),
+            ]),
+            &bases,
+        );
+        assert!(!moves_folder_1(&actions));
+    }
+
+    #[test]
+    fn a_folder_moved_into_a_new_folder_is_uploaded_anew() {
+        let (layout, bases) = folder_with_files();
+        let actions = plan(
+            &layout,
+            &scan(vec![
+                ("parent", LocalEntry::folder()),
+                ("parent/new", LocalEntry::folder()),
+                ("parent/new/a.txt", file("x", 0)),
+                ("parent/new/b.txt", file("y", 0)),
+            ]),
+            &bases,
+        );
+        assert!(!moves_folder_1(&actions));
     }
 
     #[test]

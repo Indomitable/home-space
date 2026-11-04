@@ -317,19 +317,32 @@ impl AuthService {
     /// Finishes a single sign-on after the provider sent the user back, returning the client URL
     /// to redirect to: it carries a one-time `code` or, if the sign-in failed, an `error`.
     ///
-    /// Fails without a redirect only when `state` is unknown, expired or already used, because
-    /// then there is no client to send the user to.
+    /// When `state` is missing, unknown, expired or already used there is no client to send the
+    /// user to, so the browser goes to the web client with `error=login_expired`. This happens
+    /// when the provider resumes a sign-in that already came back once, for example after a
+    /// wrong password and the browser's back button, and the user should get a page that lets
+    /// them start again rather than a bare API error.
     pub async fn oidc_callback(
         &self,
-        state: &str,
+        state: Option<&str>,
         code: Option<&str>,
     ) -> Result<String, AuthError> {
         let oidc = self.oidc()?;
-        let pending = self
-            .db
-            .take_oidc_pending(&hash_refresh_token(state))
-            .await?
-            .ok_or(AuthError::InvalidCredentials)?;
+        let pending = match state {
+            Some(state) => {
+                self.db
+                    .take_oidc_pending(&hash_refresh_token(state))
+                    .await?
+            }
+            None => None,
+        };
+        let Some(pending) = pending else {
+            tracing::info!("single sign-on came back with an unknown or used state");
+            return Ok(append_query(
+                &oidc.web_redirect(),
+                ("error", "login_expired".to_owned()),
+            ));
+        };
         let outcome = match code {
             Some(code) => self.finish_oidc_login(oidc, code, &pending).await,
             None => Err(AuthError::OidcDenied),

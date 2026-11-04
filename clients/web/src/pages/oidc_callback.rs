@@ -11,6 +11,7 @@ use crate::{
 
 const ACCESS_DENIED_MESSAGE: &str = "You are not allowed to sign in with this account.";
 const FAILED_MESSAGE: &str = "Signing in failed. Please try again.";
+const EXPIRED_MESSAGE: &str = "This sign-in has expired or was already used. Please sign in again.";
 
 /// Where the server sends the browser after single sign-on: trades the one-time `code` in the
 /// query for a session, or explains why there is none.
@@ -30,10 +31,10 @@ pub fn OidcCallback(auth: Auth) -> impl IntoView {
             // The sign-in is over, so the saved verifier is no longer needed.
             let _ = take_oidc_verifier();
             error.set(Some(
-                if reason == "access_denied" {
-                    ACCESS_DENIED_MESSAGE
-                } else {
-                    FAILED_MESSAGE
+                match reason.as_str() {
+                    "access_denied" => ACCESS_DENIED_MESSAGE,
+                    "login_expired" => EXPIRED_MESSAGE,
+                    _ => FAILED_MESSAGE,
                 }
                 .to_owned(),
             ));

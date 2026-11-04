@@ -13,6 +13,9 @@ pub const PROVIDERS: &str = "/api/v1/auth/providers";
 pub const OIDC_START: &str = "/api/v1/auth/oidc/start";
 pub const OIDC_CALLBACK: &str = "/api/v1/auth/oidc/callback";
 pub const OIDC_EXCHANGE: &str = "/api/v1/auth/oidc/exchange";
+/// Where single sign-on sends the browser back to the mobile apps (RFC 8252 private-use scheme).
+/// Not a route on the server: the apps claim this address on the device.
+pub const MOBILE_OIDC_REDIRECT: &str = "app.homespace://oidc/callback";
 pub const ME: &str = "/api/v1/me";
 pub const NODES: &str = "/api/v1/nodes";
 pub const NODES_MOVE: &str = "/api/v1/nodes/move";

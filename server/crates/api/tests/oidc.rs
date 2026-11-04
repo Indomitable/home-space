@@ -235,6 +235,21 @@ async fn desktop_clients_can_use_a_loopback_redirect(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
+async fn mobile_apps_can_use_their_redirect(pool: PgPool) {
+    let idp = FakeIdp::start().await;
+    let app = setup_oidc(pool, &idp, DEFAULTS).await;
+    let response = sign_in(&app, &idp, protocol::paths::MOBILE_OIDC_REDIRECT, |nonce| {
+        IdToken::new("subject-1", nonce)
+    })
+    .await;
+    let (base, params) = client_redirect(&response);
+    assert_eq!(base, protocol::paths::MOBILE_OIDC_REDIRECT);
+
+    let exchanged = exchange(&app, &params["code"], VERIFIER).await;
+    assert_eq!(exchanged.status, StatusCode::OK);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
 async fn callback_keeps_the_code_out_of_caches_and_referrers(pool: PgPool) {
     let idp = FakeIdp::start().await;
     let app = setup_oidc(pool, &idp, DEFAULTS).await;

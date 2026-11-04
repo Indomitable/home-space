@@ -6,6 +6,7 @@ mod change;
 mod device;
 mod error;
 mod event;
+mod health;
 mod ids;
 mod node;
 pub mod paths;
@@ -26,6 +27,7 @@ pub use device::{
 };
 pub use error::{ErrorBody, ErrorCode};
 pub use event::{ClientMessage, Event};
+pub use health::Health;
 pub use ids::{NodeId, UserId};
 pub use node::{
     Conflict, ContentQuery, CreateFolderRequest, FileVersion, ListQuery, MoveRequest, MoveResponse,

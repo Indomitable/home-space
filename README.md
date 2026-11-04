@@ -155,10 +155,12 @@ server and every client. It has no server dependencies and compiles to WebAssemb
 ## Clients
 
 Rust workspace in `clients/`: `api-client` (typed HTTP client with serialized token refresh,
-shared by the Rust clients), `web` (Leptos CSR app) and `desktop` (iced). A CLI is planned.
+shared by every client), `web` (Leptos CSR app), `desktop` (iced) and `mobile-core` (the same
+client for the mobile apps). A CLI is planned.
 
 The mobile clients live in `clients/mobile`: an Android app (Jetpack Compose) and an iOS app
-(SwiftUI) sharing a Kotlin Multiplatform api-client. See
+(SwiftUI), both calling the Rust client through `clients/mobile-core` (UniFFI bindings over
+`api-client` and `client-core`). See
 [`clients/mobile/README.md`](clients/mobile/README.md).
 
 Needs `rustup target add wasm32-unknown-unknown` and `cargo install trunk --locked`.

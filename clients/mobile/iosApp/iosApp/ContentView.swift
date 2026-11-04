@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// Spike: the same server checks as `ServerCheckView`, plus sign-in and browsing, through the
-/// Rust client (`clients/mobile-core`) via UniFFI instead of the Kotlin one.
-struct RustCoreView: View {
+/// Server check, sign-in and folder browsing through the Rust client (`clients/mobile-core`).
+struct ContentView: View {
     @State private var serverUrl = "http://localhost:8080"
     @State private var username = ""
     @State private var password = ""
@@ -39,7 +38,7 @@ struct RustCoreView: View {
                 }
             }
             .disabled(busy)
-            .navigationTitle("Rust core")
+            .navigationTitle("Home Space")
         }
     }
 
@@ -56,9 +55,9 @@ struct RustCoreView: View {
     }
 
     private func check() async throws {
-        // Rust `async fn` is imported as Swift `async throws`, like Kotlin `suspend` is.
+        // Rust `async fn` is imported as Swift `async throws`.
         let health = try await CoreClient(baseUrl: serverUrl).health()
-        status = "Server status: \(health.status) (formatted by Rust: \(humanSize(bytes: 1_572_864)))"
+        status = "Server status: \(health.status)"
     }
 
     private func signIn() async throws {
@@ -111,5 +110,5 @@ private struct FolderView: View {
 }
 
 #Preview {
-    RustCoreView()
+    ContentView()
 }

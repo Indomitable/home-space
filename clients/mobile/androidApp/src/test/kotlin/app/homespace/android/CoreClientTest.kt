@@ -9,7 +9,7 @@ import uniffi.homespace_core.CoreException
 import uniffi.homespace_core.humanSize
 
 /** The generated Kotlin bindings against the host build of the Rust library. */
-class RustCoreTest {
+class CoreClientTest {
     @Test
     fun formatsSizesInRust() {
         assertEquals("1.5 MB", humanSize(1_572_864))

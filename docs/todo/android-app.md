@@ -15,10 +15,11 @@ made on the server back to the phone. It is not a full file browser.
 
 ### Stack
 
-- Kotlin, Jetpack Compose (Material 3), a single-activity app in `clients/android` (Gradle).
-- Ktor client or OkHttp + kotlinx.serialization for the API. The Rust `api-client` is not reused;
-  the wire types in `shared/protocol` are copied into Kotlin data classes by hand. Generating them
-  from an OpenAPI spec can come later.
+- Kotlin, Jetpack Compose (Material 3), a single-activity app in `clients/mobile/androidApp`
+  (Gradle).
+- The Rust `api-client` through `clients/mobile-core` (UniFFI) for the API, so routes, wire types,
+  token refresh and resumable uploads are not rewritten in Kotlin. New calls are exported from
+  `mobile-core`.
 - WorkManager for background uploads (constraints: network, optional "Wi-Fi only" and "while
   charging"), Room for local state, DataStore for settings.
 - Tokens in EncryptedSharedPreferences / Android Keystore.

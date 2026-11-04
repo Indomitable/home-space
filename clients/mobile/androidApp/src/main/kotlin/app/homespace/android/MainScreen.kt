@@ -31,7 +31,6 @@ import kotlinx.coroutines.launch
 import uniffi.homespace_core.CoreClient
 import uniffi.homespace_core.Entry
 import uniffi.homespace_core.EntryKind
-import uniffi.homespace_core.humanSize
 
 private const val DEFAULT_SERVER = "http://10.0.2.2:8080"
 
@@ -39,11 +38,10 @@ private const val DEFAULT_SERVER = "http://10.0.2.2:8080"
 private data class Crumb(val id: String?, val name: String)
 
 /**
- * Spike: the same check as [ServerCheckScreen], plus sign-in and browsing, through the Rust
- * client (`clients/mobile-core`) via UniFFI instead of the Kotlin one.
+ * Server check, sign-in and folder browsing through the Rust client (`clients/mobile-core`).
  */
 @Composable
-fun RustCoreScreen(modifier: Modifier = Modifier) {
+fun MainScreen(modifier: Modifier = Modifier) {
     var serverUrl by rememberSaveable { mutableStateOf(DEFAULT_SERVER) }
     var username by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -89,7 +87,7 @@ fun RustCoreScreen(modifier: Modifier = Modifier) {
         modifier = modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Rust core", style = MaterialTheme.typography.headlineMedium)
+        Text("Home Space", style = MaterialTheme.typography.headlineMedium)
         OutlinedTextField(
             value = serverUrl,
             onValueChange = { serverUrl = it },
@@ -99,9 +97,9 @@ fun RustCoreScreen(modifier: Modifier = Modifier) {
         )
         Button(enabled = !busy, onClick = {
             run {
-                // Rust `async fn` is a Kotlin `suspend fun`, like the KMP client's.
+                // Rust `async fn` is a Kotlin `suspend fun`.
                 val health = CoreClient(serverUrl).use { it.health() }
-                status = "Server status: ${health.status} (formatted by Rust: ${humanSize(1_572_864)})"
+                status = "Server status: ${health.status}"
             }
         }) { Text("Check server") }
 

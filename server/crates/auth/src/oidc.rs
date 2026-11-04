@@ -10,6 +10,7 @@ use openidconnect::{
     reqwest,
     url::Url,
 };
+use protocol::paths;
 use sha2::{Digest, Sha256};
 
 use crate::AuthError;
@@ -211,11 +212,13 @@ fn web_redirect_url(public_url: &str) -> String {
     format!("{}{WEB_REDIRECT_PATH}", public_url.trim_end_matches('/'))
 }
 
-/// Whether a client may be sent the login code at `redirect`: this server's own web client, or
-/// a loopback address for native apps (RFC 8252). Anything else would let a crafted link send
-/// the code to an attacker.
+/// Whether a client may be sent the login code at `redirect`: this server's own web client, the
+/// mobile apps' fixed address, or a loopback address for desktop apps (RFC 8252). Anything else
+/// would let a crafted link send the code to an attacker. Another app on a phone could claim the
+/// mobile address, as it could a loopback port on a computer, but the code is useless to it
+/// without the PKCE verifier.
 pub fn is_allowed_redirect(public_url: &str, redirect: &str) -> bool {
-    if redirect == web_redirect_url(public_url) {
+    if redirect == web_redirect_url(public_url) || redirect == paths::MOBILE_OIDC_REDIRECT {
         return true;
     }
     let Ok(url) = Url::parse(redirect) else {
@@ -290,6 +293,11 @@ mod tests {
     }
 
     #[test]
+    fn allows_the_mobile_redirect() {
+        assert!(is_allowed_redirect(PUBLIC, "app.homespace://oidc/callback"));
+    }
+
+    #[test]
     fn a_trailing_slash_on_the_public_url_is_ignored() {
         assert!(is_allowed_redirect(
             "https://files.example.com/",
@@ -311,6 +319,11 @@ mod tests {
             "http://localhost:1/callback",
             "http://127.0.0.1.evil.com/callback",
             "https://127.0.0.1:1/callback",
+            "app.homespace://oidc/other",
+            "app.homespace://oidc/callback?x=1",
+            "app.homespace://oidc/callback#frag",
+            "app.homespace://evil/callback",
+            "app.homespace.evil://oidc/callback",
             "javascript:alert(1)",
             "not a url",
             "",

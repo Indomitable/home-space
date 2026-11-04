@@ -54,7 +54,8 @@ pub struct OidcProvider {
 /// Query of `GET /auth/oidc/start`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OidcStartQuery {
-    /// Where to send the user after sign-in: the web client's callback page or a loopback URL.
+    /// Where to send the user after sign-in: the web client's callback page, a loopback URL or
+    /// [`MOBILE_OIDC_REDIRECT`](crate::paths::MOBILE_OIDC_REDIRECT).
     pub redirect_uri: String,
     /// Base64url (unpadded) SHA-256 of the `code_verifier` presented later (PKCE `S256`).
     pub code_challenge: String,

@@ -12,6 +12,8 @@ pub const PLATFORM_WINDOWS: &str = "desktop-windows";
 pub const PLATFORM_WEB: &str = "web";
 /// Platform of the Android app.
 pub const PLATFORM_ANDROID: &str = "android";
+/// Platform of the iOS app.
+pub const PLATFORM_IOS: &str = "ios";
 
 /// The device a client signs in from. The client generates `id` once and keeps it, so the
 /// server recognises the device across sign-ins.

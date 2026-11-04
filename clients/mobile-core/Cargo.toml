@@ -24,11 +24,20 @@ bindgen = ["uniffi/cli"]
 api-client.workspace = true
 client-core.workspace = true
 protocol.workspace = true
+rand = "0.10.3"
 thiserror.workspace = true
 time.workspace = true
-uniffi = { version = "0.32.2", features = ["tokio"] }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+uniffi = "0.32.2"
+url = "2"
+uuid = "1.29.0"
+
+# Android's certificate checks run in the JVM, so the verifier needs a handle on it (see `android`).
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.22.4", default-features = false }
+rustls-platform-verifier = "0.7.1"
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros"] }
 serde_json.workspace = true
 wiremock = "0.6.5"

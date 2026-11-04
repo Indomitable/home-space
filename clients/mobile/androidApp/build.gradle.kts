@@ -30,7 +30,7 @@ android {
     }
 }
 
-// Spike: the Rust client (clients/mobile-core) through UniFFI, next to the Kotlin `shared` one.
+// The client is Rust (clients/mobile-core), called through UniFFI-generated Kotlin bindings.
 
 /** Runs `mobile-core/scripts/build-android.sh`, rebuilding when any client crate changes. */
 abstract class RustCoreTask @Inject constructor(private val exec: ExecOperations) : DefaultTask() {
@@ -92,11 +92,11 @@ androidComponents {
 tasks.withType<Test>().configureEach {
     // JVM unit tests load the host build of the library (built by generateRustCoreBindings).
     systemProperty("jna.library.path", clientsDir.dir("target/debug").asFile.path)
+    // JNA loads native code; without this, newer JDKs warn on every run.
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
 
 dependencies {
-    implementation(project(":shared"))
-
     // The UniFFI bindings call the library through JNA and await it with coroutines.
     implementation("${libs.jna.get()}@aar")
     implementation(libs.kotlinx.coroutines.core)

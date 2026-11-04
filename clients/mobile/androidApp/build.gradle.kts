@@ -26,6 +26,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            proguardFiles("proguard-rules.pro")
         }
     }
 }
@@ -89,6 +90,33 @@ androidComponents {
     }
 }
 
+/** The version of the Kotlin half of rustls-platform-verifier that the Rust half expects. */
+abstract class RustlsVerifierVersion : ValueSource<String, RustlsVerifierVersion.Params> {
+    interface Params : ValueSourceParameters {
+        val lockFile: RegularFileProperty
+    }
+
+    override fun obtain(): String {
+        val lines = parameters.lockFile.get().asFile.readLines()
+        val name = lines.indexOf("name = \"rustls-platform-verifier-android\"")
+        check(name >= 0) { "rustls-platform-verifier-android not found in Cargo.lock" }
+        return lines[name + 1].substringAfter('"').substringBefore('"')
+    }
+}
+
+val rustlsVerifierVersion = providers.of(RustlsVerifierVersion::class.java) {
+    parameters.lockFile = clientsDir.file("Cargo.lock")
+}
+
+configurations.configureEach {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.rustls" && requested.name == "rustls-platform-verifier") {
+            useVersion(rustlsVerifierVersion.get())
+            because("it must be the version the Rust crate was built against")
+        }
+    }
+}
+
 tasks.withType<Test>().configureEach {
     // JVM unit tests load the host build of the library (built by generateRustCoreBindings).
     systemProperty("jna.library.path", clientsDir.dir("target/debug").asFile.path)
@@ -100,9 +128,12 @@ dependencies {
     // The UniFFI bindings call the library through JNA and await it with coroutines.
     implementation("${libs.jna.get()}@aar")
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.rustls.platform.verifier)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.browser)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)

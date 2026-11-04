@@ -50,7 +50,13 @@ async fn oidc_callback(
     Query(query): Query<OidcCallbackQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let code = query.code.as_deref().filter(|code| !code.is_empty());
-    let url = state.auth.oidc_callback(&query.state, code).await?;
+    let url = state
+        .auth
+        .oidc_callback(
+            query.state.as_deref().filter(|state| !state.is_empty()),
+            code,
+        )
+        .await?;
     // The URL carries the one-time code, so keep it out of caches and `Referer` headers.
     Ok((
         [

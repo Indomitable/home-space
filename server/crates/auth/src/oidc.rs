@@ -120,6 +120,12 @@ impl OidcService {
         is_allowed_redirect(&self.config.public_url, redirect)
     }
 
+    /// This server's own web client callback, where a browser goes when the sign-in it came
+    /// back from is no longer known.
+    pub fn web_redirect(&self) -> String {
+        web_redirect_url(&self.config.public_url)
+    }
+
     /// Builds the URL that sends the user to the provider, tagged with `state`.
     pub fn authorize(&self, state: &str) -> Authorization {
         let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
@@ -201,12 +207,15 @@ fn callback_url(public_url: &str) -> String {
     format!("{}{CALLBACK_PATH}", public_url.trim_end_matches('/'))
 }
 
+fn web_redirect_url(public_url: &str) -> String {
+    format!("{}{WEB_REDIRECT_PATH}", public_url.trim_end_matches('/'))
+}
+
 /// Whether a client may be sent the login code at `redirect`: this server's own web client, or
 /// a loopback address for native apps (RFC 8252). Anything else would let a crafted link send
 /// the code to an attacker.
 pub fn is_allowed_redirect(public_url: &str, redirect: &str) -> bool {
-    let web = format!("{}{WEB_REDIRECT_PATH}", public_url.trim_end_matches('/'));
-    if redirect == web {
+    if redirect == web_redirect_url(public_url) {
         return true;
     }
     let Ok(url) = Url::parse(redirect) else {

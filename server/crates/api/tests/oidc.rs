@@ -439,19 +439,34 @@ async fn a_state_works_only_once(pool: PgPool) {
     idp.respond_with(IdToken::new("s", &started.nonce)).await;
     let params = [("state", started.state.as_str()), ("code", PROVIDER_CODE)];
 
-    assert_eq!(callback(&app, &params).await.status, StatusCode::SEE_OTHER);
-    assert_eq!(
-        callback(&app, &params).await.status,
-        StatusCode::UNAUTHORIZED
+    assert!(
+        client_redirect(&callback(&app, &params).await)
+            .1
+            .contains_key("code")
     );
+    // A provider resuming the same sign-in again, e.g. after the back button, lands on the web
+    // client's error page instead of a bare API error, and no code is handed out.
+    let (base, again) = client_redirect(&callback(&app, &params).await);
+    assert_eq!(base, WEB_REDIRECT);
+    assert_eq!(
+        again.get("error").map(String::as_str),
+        Some("login_expired")
+    );
+    assert!(!again.contains_key("code"));
 }
 
 #[sqlx::test(migrations = "../../migrations")]
-async fn an_unknown_state_is_unauthorized(pool: PgPool) {
+async fn an_unknown_state_sends_the_browser_to_the_web_client(pool: PgPool) {
     let idp = FakeIdp::start().await;
     let app = setup_oidc(pool, &idp, DEFAULTS).await;
-    let response = callback(&app, &[("state", "forged"), ("code", PROVIDER_CODE)]).await;
-    assert_eq!(response.status, StatusCode::UNAUTHORIZED);
+    let forged = callback(&app, &[("state", "forged"), ("code", PROVIDER_CODE)]).await;
+    let missing = callback(&app, &[("error", "access_denied")]).await;
+    for response in [forged, missing] {
+        let (base, params) = client_redirect(&response);
+        assert_eq!(base, WEB_REDIRECT);
+        assert_eq!(params.len(), 1);
+        assert_eq!(params["error"], "login_expired");
+    }
 }
 
 #[sqlx::test(migrations = "../../migrations")]

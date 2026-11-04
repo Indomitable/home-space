@@ -63,7 +63,8 @@ pub struct OidcStartQuery {
 /// Query the provider sends to `GET /auth/oidc/callback`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OidcCallbackQuery {
-    pub state: String,
+    /// Left out by some providers when they report an error.
+    pub state: Option<String>,
     pub code: Option<String>,
     pub error: Option<String>,
 }

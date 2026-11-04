@@ -11,3 +11,4 @@ xcuserdata/
 DerivedData/
 # Written by XcodeGen from the info section of project.yml
 iosApp/iosApp/Info.plist
+/gradle/gradle-daemon-jvm.properties

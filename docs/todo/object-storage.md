@@ -12,6 +12,11 @@ the provider, and lets the server run on a small machine.
 The operator should be able to choose where content is stored. The local file system stays the
 default, so nothing changes for existing installs.
 
+**Decided:** one backend for the whole server, set by the operator through the configuration.
+Users do not bring their own buckets. That would need encrypted credentials in the database, a
+settings UI, per-user migration, and copying files between backends when they move between users
+(send-to-device, future sharing copies). It can still be added on top later.
+
 ## What is stored today
 
 `BlobStore` is the only code that touches content, and its API is small:
@@ -223,10 +228,6 @@ proxied, because the server must hash and count the bytes.
 
 ## Open questions
 
-- **Who chooses the storage**: one backend for the whole server, set by the operator (this
-  plan), or per user ("bring your own bucket") set in the app? Per user needs encrypted
-  credentials in the database, a settings UI, per-user migration, and moving files between users
-  (send-to-device, future sharing copies) across backends.
 - **Encryption**: rely on the provider's server-side encryption (SSE-S3/SSE-KMS, Azure default
   encryption), or add server-side encryption with our own key so the provider never sees
   plaintext? Our own key breaks pre-signed downloads and makes losing the key fatal.

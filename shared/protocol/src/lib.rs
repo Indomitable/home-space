@@ -22,8 +22,8 @@ pub use auth::{
 pub use capabilities::Capabilities;
 pub use change::{Change, ChangesQuery, ChangesResponse};
 pub use device::{
-    Device, DeviceInfo, PLATFORM_ANDROID, PLATFORM_LINUX, PLATFORM_MACOS, PLATFORM_WEB,
-    PLATFORM_WINDOWS, RenameDevice,
+    Device, DeviceInfo, PLATFORM_ANDROID, PLATFORM_IOS, PLATFORM_LINUX, PLATFORM_MACOS,
+    PLATFORM_WEB, PLATFORM_WINDOWS, RenameDevice,
 };
 pub use error::{ErrorBody, ErrorCode};
 pub use event::{ClientMessage, Event};

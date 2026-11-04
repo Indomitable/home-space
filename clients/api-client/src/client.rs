@@ -6,8 +6,8 @@ use tokio::sync::Mutex as AsyncMutex;
 
 use protocol::{
     Capabilities, ChangesQuery, ChangesResponse, ClientMessage, CreateFolderRequest, DeviceInfo,
-    ErrorBody, FileVersion, ListQuery, LoginRequest, Me, MoveRequest, MoveResponse, Node, NodeId,
-    OidcExchangeRequest, OnConflict, Providers, RefreshRequest, RestoreRequest, SearchHit,
+    ErrorBody, FileVersion, Health, ListQuery, LoginRequest, Me, MoveRequest, MoveResponse, Node,
+    NodeId, OidcExchangeRequest, OnConflict, Providers, RefreshRequest, RestoreRequest, SearchHit,
     SearchQuery, TicketRequest, TicketResponse, TokenPair, TrashItem, UpdateRequest, paths,
 };
 #[cfg(not(target_arch = "wasm32"))]
@@ -232,6 +232,12 @@ impl Client {
             expect_success(response).await?;
         }
         Ok(())
+    }
+
+    /// Asks whether the server and its database are up; needs no session.
+    pub async fn health(&self) -> Result<Health, ApiError> {
+        let response = self.http.get(self.url(paths::HEALTH)).send().await?;
+        decode(response).await
     }
 
     /// The signed-in user.

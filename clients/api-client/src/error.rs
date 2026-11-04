@@ -106,12 +106,26 @@ fn cloudflare_reason(status: u16) -> Option<&'static str> {
 
 impl From<reqwest::Error> for ApiError {
     fn from(err: reqwest::Error) -> Self {
+        let message = with_causes(&err);
         if err.is_decode() {
-            Self::Decode(err.to_string())
+            Self::Decode(message)
         } else {
-            Self::Transport(err.to_string())
+            Self::Transport(message)
         }
     }
+}
+
+/// `err` followed by its sources, since reqwest's own message ("error sending request")
+/// leaves out why, such as a refused connection or a failed TLS handshake.
+fn with_causes(err: &dyn std::error::Error) -> String {
+    let mut message = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
 }
 
 #[cfg(test)]

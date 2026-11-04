@@ -9,7 +9,7 @@ mod uploads;
 mod ws;
 
 use axum::{Json, Router, routing::get};
-use serde_json::{Value, json};
+use protocol::Health;
 
 use crate::{ApiError, AppState};
 
@@ -29,11 +29,11 @@ pub fn routes() -> Router<AppState> {
 
 async fn health(
     axum::extract::State(state): axum::extract::State<AppState>,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Json<Health>, ApiError> {
     state
         .db
         .ping()
         .await
         .map_err(|err| ApiError::Internal(err.to_string()))?;
-    Ok(Json(json!({ "status": "ok" })))
+    Ok(Json(Health::ok()))
 }

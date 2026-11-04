@@ -1,3 +1,6 @@
+import com.android.build.api.variant.ApplicationVariant
+import javax.inject.Inject
+
 // AGP 9 compiles Kotlin itself, so there is no org.jetbrains.kotlin.android plugin here.
 plugins {
     alias(libs.plugins.android.application)
@@ -27,8 +30,76 @@ android {
     }
 }
 
+// Spike: the Rust client (clients/mobile-core) through UniFFI, next to the Kotlin `shared` one.
+
+/** Runs `mobile-core/scripts/build-android.sh`, rebuilding when any client crate changes. */
+abstract class RustCoreTask @Inject constructor(private val exec: ExecOperations) : DefaultTask() {
+    @get:Input abstract val mode: Property<String>
+    @get:Input abstract val profile: Property<String>
+    @get:Input abstract val androidHome: Property<String>
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val sources: ConfigurableFileCollection
+    @get:Internal abstract val script: RegularFileProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun build() {
+        exec.exec {
+            environment("ANDROID_HOME", androidHome.get())
+            commandLine(
+                script.get().asFile.path, mode.get(), outputDir.get().asFile.path, profile.get(),
+            )
+        }
+    }
+}
+
+val clientsDir = rootProject.layout.projectDirectory.dir("..")
+val rustSources = files(
+    listOf("mobile-core", "api-client", "client-core", "../shared/protocol").map { crate ->
+        clientsDir.dir(crate).asFileTree.matching {
+            include("src/**", "Cargo.toml")
+        }
+    },
+    clientsDir.file("Cargo.lock"),
+)
+
+fun RustCoreTask.configure(mode: String, profile: String, out: String) {
+    this.mode = mode
+    this.profile = profile
+    androidHome = androidComponents.sdkComponents.sdkDirectory.map { it.asFile.path }
+    sources.from(rustSources)
+    script = clientsDir.file("mobile-core/scripts/build-android.sh")
+    outputDir = layout.buildDirectory.dir(out)
+}
+
+val rustBindings = tasks.register<RustCoreTask>("generateRustCoreBindings") {
+    configure("bindings", "debug", "generated/rust-core/kotlin")
+}
+
+androidComponents {
+    onVariants { variant: ApplicationVariant ->
+        val profile = if (variant.buildType == "release") "mobile" else "debug"
+        val jni = tasks.register<RustCoreTask>(
+            "buildRustCore${variant.name.replaceFirstChar(Char::uppercase)}",
+        ) {
+            configure("jni", profile, "generated/rust-core/jniLibs/${variant.name}")
+        }
+        variant.sources.kotlin?.addGeneratedSourceDirectory(rustBindings, RustCoreTask::outputDir)
+        variant.sources.jniLibs?.addGeneratedSourceDirectory(jni, RustCoreTask::outputDir)
+    }
+}
+
+tasks.withType<Test>().configureEach {
+    // JVM unit tests load the host build of the library (built by generateRustCoreBindings).
+    systemProperty("jna.library.path", clientsDir.dir("target/debug").asFile.path)
+}
+
 dependencies {
     implementation(project(":shared"))
+
+    // The UniFFI bindings call the library through JNA and await it with coroutines.
+    implementation("${libs.jna.get()}@aar")
+    implementation(libs.kotlinx.coroutines.core)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
@@ -36,4 +107,9 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // The plain jar carries the desktop JNA natives the JVM tests need.
+    testImplementation(libs.jna)
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

@@ -7,10 +7,12 @@ Native UI on each platform, with the code that talks to the server in Rust:
   [UniFFI](https://mozilla.github.io/uniffi-rs/). Rust `async fn` becomes a Kotlin `suspend fun`
   and a Swift `async throws` func, and Rust errors become typed exceptions (`CoreException` in
   Kotlin, `CoreError` in Swift). The bindings are generated on every build and are not committed.
+  Every async call runs on a runtime in `mobile-core`, never on the app's UI thread.
 - `androidApp/`: Android app in Kotlin with Jetpack Compose.
 - `iosApp/`: iOS app in SwiftUI.
 
-For now both apps have one screen: check the server, sign in, and browse folders.
+Both apps sign in with a password or single sign-on, whichever the server offers, stay signed in
+between runs, and browse folders.
 
 Routes, JSON, session refresh, error mapping, sorting and size/date labels all come from the Rust
 crates, so nothing is mirrored by hand. `mobile-core/src/lib.rs` is a thin mapping to FFI-friendly
@@ -45,8 +47,6 @@ use Cargo's debug profile, and release builds use `mobile`. The bindings load th
 JNA.
 
 The app defaults to `http://10.0.2.2:8080`, which is the host machine as seen from the emulator.
-Plain HTTP is allowed only to `10.0.2.2` and `localhost`
-(`androidApp/src/main/res/xml/network_security_config.xml`).
 
 The server must listen on the host's loopback (`127.0.0.1` or `0.0.0.0`), since `10.0.2.2` maps
 there. A server bound only to a LAN address is unreachable from the emulator.
@@ -73,9 +73,26 @@ The `RustCore` aggregate target runs `mobile-core/scripts/build-ios.sh` before t
 (device and simulator static libraries) and the Swift bindings to `build/rust-core/ios`, so
 building in Xcode is enough. Run `xcodegen generate` again after adding or removing Swift files.
 
-The app defaults to `http://localhost:8080`, and App Transport Security allows plain HTTP only to
-local addresses. `iosAppUITests` checks the server from the app, so it needs the server running
-on `localhost:8080`.
+The app defaults to `http://localhost:8080`. `iosAppUITests` checks that the app offers sign-in
+once the server answers, so it needs the server running on `localhost:8080` with password sign-in
+on, and nobody signed in on the simulator.
+
+## Single sign-on
+
+The browser returns to the app at `app.homespace://oidc/callback`
+(`protocol::paths::MOBILE_OIDC_REDIRECT`), which the server allows along with PKCE. It isn't
+registered at the identity provider, which only ever sees the server's own callback.
+
+To try it, start Keycloak and the server as in the root `README.md`. `HOMESPACE_PUBLIC_URL` must be
+https or loopback, so `10.0.2.2` won't do on the Android emulator. Forward the ports instead, and
+use `http://127.0.0.1:8080` as the server in the app:
+
+```sh
+adb reverse tcp:8080 tcp:8080
+adb reverse tcp:8180 tcp:8180
+```
+
+The iOS simulator shares the host's network, so it needs no forwarding.
 
 ## Notes
 
@@ -86,8 +103,12 @@ on `localhost:8080`.
   own Xcode target, so Xcode does not read the xcframework while it is being replaced.
 - UniFFI: no error field may be named `message`, because it clashes with Kotlin's
   `Throwable.message`.
-- Open: HTTPS on Android. reqwest verifies certificates with `rustls-platform-verifier`, which on
-  Android must be initialised from JNI with the app context and ships a small Kotlin component.
-  Plain HTTP to the dev server works without it. iOS needs nothing extra.
+- HTTPS on Android: reqwest verifies certificates with `rustls-platform-verifier`, whose Kotlin
+  half comes from upstream's Maven repository (see `settings.gradle.kts`), at the version in
+  `Cargo.lock`. `PlatformVerifier` initialises it at startup. Don't add a `networkSecurityConfig`
+  to the app: it would replace the library's allow-list of revocation servers, and certificates
+  without an OCSP responder, such as all of Let's Encrypt's, would be reported as revoked.
+- Plain HTTP: the Rust client's sockets aren't subject to Android's network security config or
+  iOS's App Transport Security, so the apps will sign in to any `http://` address they are given.
 - Open: background transfers. reqwest cannot upload while an iOS app is suspended. That needs a
   background `URLSession` in Swift.

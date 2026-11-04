@@ -22,16 +22,17 @@ made on the server back to the phone. It is not a full file browser.
   `mobile-core`.
 - WorkManager for background uploads (constraints: network, optional "Wi-Fi only" and "while
   charging"), Room for local state, DataStore for settings.
-- Tokens in EncryptedSharedPreferences / Android Keystore.
+- Tokens encrypted with an Android Keystore key (`SessionStore.kt`, done).
 
 ### Sign in
 
-- Password login via `POST /auth/login`, refresh via `/auth/refresh` (rotating, so serialize the
-  refreshes the way `api-client` does).
-- SSO: open `/auth/oidc/start` in a Custom Tab with an app-link or custom-scheme redirect, then
-  call `/auth/oidc/exchange` with the PKCE verifier. The server's allowed client redirects need an
-  entry for the app's scheme.
-- The server URL is typed in on the first screen; `GET /auth/providers` decides which buttons
+Done: see `clients/mobile/README.md`.
+
+- Password login and refresh go through `api-client`, via `mobile-core`.
+- SSO opens `/auth/oidc/start` in a Custom Tab and comes back to `app.homespace://oidc/callback`,
+  a fixed custom scheme because every self-hosted server has its own domain, which rules out app
+  links.
+- The server URL is typed in on the login screen; `GET /auth/providers` decides which buttons
   appear.
 
 ### Tracked folders

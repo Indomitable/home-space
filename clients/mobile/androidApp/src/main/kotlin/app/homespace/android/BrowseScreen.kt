@@ -2,9 +2,11 @@ package app.homespace.android
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import uniffi.homespace_core.CoreException
 import uniffi.homespace_core.Entry
@@ -92,7 +97,7 @@ fun BrowseScreen(session: Session.SignedIn, model: SessionViewModel, modifier: M
                 TextButton(onClick = model::signOut) { Text("Sign out") }
             }
         }
-        Text(path.joinToString(" / ") { it.name }, style = MaterialTheme.typography.titleMedium)
+        CurrentFolder(path, onOpenParent = { index -> path.removeRange(index + 1, path.size) })
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(entries, key = { it.id }) { entry ->
@@ -110,6 +115,47 @@ fun BrowseScreen(session: Session.SignedIn, model: SessionViewModel, modifier: M
                         }
                     },
                     onLongClick = toggle,
+                )
+            }
+        }
+    }
+}
+
+/** The folder being browsed; tapping it lists the folders above it, to jump back to any of them. */
+@Composable
+private fun CurrentFolder(path: List<Crumb>, onOpenParent: (Int) -> Unit) {
+    val parents = path.dropLast(1)
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            modifier = Modifier
+                .clickable(
+                    enabled = parents.isNotEmpty(),
+                    onClickLabel = "Show parent folders",
+                ) { expanded = true }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                path.lastOrNull()?.name.orEmpty(),
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (parents.isNotEmpty()) {
+                Icon(painterResource(R.drawable.ic_arrow_drop_down), contentDescription = null)
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            parents.forEachIndexed { index, crumb ->
+                DropdownMenuItem(
+                    text = { Text(crumb.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    leadingIcon = { NodeIcon(EntryIcon.FOLDER) },
+                    onClick = {
+                        expanded = false
+                        onOpenParent(index)
+                    },
                 )
             }
         }

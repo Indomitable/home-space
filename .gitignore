@@ -28,3 +28,5 @@ rustc-ice-*.txt
 server/data/
 .idea/
 dist
+.DS_Store
+

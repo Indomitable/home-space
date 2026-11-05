@@ -9,9 +9,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.Modifier
 
 /** Runtime permission for private addresses, from Android 17 (API 37). */
@@ -39,7 +42,9 @@ class MainActivity : ComponentActivity() {
         }
         handleCallback(intent)
         setContent {
-            MaterialTheme {
+            MaterialTheme(
+                colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme(),
+            ) {
                 Surface {
                     val screen = Modifier.safeDrawingPadding()
                     when (val session = model.session) {

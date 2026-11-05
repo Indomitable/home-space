@@ -10,7 +10,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
 
 use api_client::{ApiError, Pkce, VERIFIER_BYTES};
-use client_core::{format, listing};
+use client_core::{format, icon, listing};
 use protocol::{DeviceInfo, NodeId, NodeKind, paths};
 
 #[cfg(target_os = "android")]
@@ -156,12 +156,22 @@ pub enum EntryKind {
     File,
 }
 
+/// Which icon to show for an entry; the apps bundle one asset for each.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum EntryIcon {
+    Folder,
+    Image,
+    Document,
+    Other,
+}
+
 /// A file or folder, with the labels the desktop and web clients show for it.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct Entry {
     pub id: String,
     pub parent_id: Option<String>,
     pub kind: EntryKind,
+    pub icon: EntryIcon,
     pub name: String,
     pub size: i64,
     pub mime: String,
@@ -179,6 +189,12 @@ impl From<protocol::Node> for Entry {
             NodeKind::Folder => EntryKind::Folder,
             NodeKind::File => EntryKind::File,
         };
+        let entry_icon = match icon::node_icon(&node) {
+            icon::NodeIcon::Folder => EntryIcon::Folder,
+            icon::NodeIcon::Image => EntryIcon::Image,
+            icon::NodeIcon::Document => EntryIcon::Document,
+            icon::NodeIcon::Other => EntryIcon::Other,
+        };
         Self {
             id: node.id.to_string(),
             parent_id: node.parent_id.map(|id| id.to_string()),
@@ -189,6 +205,7 @@ impl From<protocol::Node> for Entry {
             updated_label: format::short_date(node.updated_at),
             updated_at: node.updated_at.into(),
             kind,
+            icon: entry_icon,
             name: node.name,
             size: node.size,
             mime: node.mime,
@@ -430,6 +447,20 @@ mod tests {
     }
 
     const DEVICE_ID: &str = "00000000-0000-0000-0000-0000000000aa";
+
+    #[test]
+    fn entries_carry_the_icon_for_their_kind_and_mime() {
+        let icon = |kind: &str, mime: &str| {
+            let mut json = node("a", kind, 0);
+            json["mime"] = mime.into();
+            let node: protocol::Node = serde_json::from_value(json).expect("node");
+            Entry::from(node).icon
+        };
+        assert_eq!(icon("folder", ""), EntryIcon::Folder);
+        assert_eq!(icon("file", "image/png"), EntryIcon::Image);
+        assert_eq!(icon("file", "application/pdf"), EntryIcon::Document);
+        assert_eq!(icon("file", "application/zip"), EntryIcon::Other);
+    }
 
     /// Every token a client reported, in order.
     #[derive(Default)]

@@ -39,11 +39,11 @@ private struct FolderView: View {
                     NavigationLink {
                         FolderView(model: model, client: client, folderId: entry.id, title: entry.name)
                     } label: {
-                        Label(entry.name, systemImage: "folder")
+                        Label { Text(entry.name) } icon: { EntryIconView(icon: entry.icon) }
                     }
                 case .file:
                     VStack(alignment: .leading) {
-                        Label(entry.name, systemImage: "doc")
+                        Label { Text(entry.name) } icon: { EntryIconView(icon: entry.icon) }
                         Text("\(entry.sizeLabel) · \(entry.updatedLabel)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -61,5 +61,27 @@ private struct FolderView: View {
                 self.error = "\(error)"
             }
         }
+    }
+}
+
+/// The same icons and colours as the web client: only folders are coloured.
+private struct EntryIconView: View {
+    let icon: EntryIcon
+
+    private var asset: String {
+        switch icon {
+        case .folder: "node-folder"
+        case .image: "node-image"
+        case .document: "node-description"
+        case .other: "node-draft"
+        }
+    }
+
+    var body: some View {
+        Image(decorative: asset)
+            .renderingMode(.template)
+            .resizable()
+            .frame(width: 20, height: 20)
+            .foregroundStyle(icon == .folder ? Color("FolderAccent") : Color.primary)
     }
 }

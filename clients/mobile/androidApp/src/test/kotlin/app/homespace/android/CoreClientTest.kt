@@ -1,5 +1,6 @@
 package app.homespace.android
 
+import kotlin.io.path.createTempDirectory
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -8,6 +9,7 @@ import org.junit.Test
 import uniffi.homespace_core.CoreClient
 import uniffi.homespace_core.CoreException
 import uniffi.homespace_core.DeviceIdentity
+import uniffi.homespace_core.DownloadListener
 import uniffi.homespace_core.SessionListener
 import uniffi.homespace_core.humanSize
 import uniffi.homespace_core.normalizeServerUrl
@@ -56,11 +58,30 @@ class CoreClientTest {
                     tokens.add(token)
                 }
             },
+            createTempDirectory().toString(),
         )
         try {
             // Signing out with no session needs no network, and still reports the session gone.
             client.logout()
             assertEquals(listOf<String?>(null), tokens)
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test
+    fun downloadsAreTypedAcrossTheBindings() = runTest {
+        val client = CoreClient("http://127.0.0.1:9")
+        try {
+            client.openCopy(
+                "nope",
+                object : DownloadListener {
+                    override fun progress(id: String, done: Long, total: Long) = Unit
+                },
+            )
+            error("expected a failure")
+        } catch (e: CoreException.InvalidId) {
+            assertEquals("nope", e.id)
         } finally {
             client.close()
         }

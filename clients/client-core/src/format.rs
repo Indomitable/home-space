@@ -2,6 +2,8 @@ use time::OffsetDateTime;
 
 const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
 const STEP: f64 = 1024.0;
+const REPLACEMENT: char = '_';
+const FORBIDDEN: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
 
 /// Formats a byte count the way file managers do, e.g. `1.5 MB`.
 pub fn human_size(bytes: i64) -> String {
@@ -40,11 +42,49 @@ pub fn conflicts_title(count: usize, location: &str) -> String {
     }
 }
 
+/// Replaces characters that are not allowed in a local file name.
+pub fn sanitize_component(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|character| {
+            if character.is_control() || FORBIDDEN.contains(&character) {
+                REPLACEMENT
+            } else {
+                character
+            }
+        })
+        .collect();
+    if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
+        REPLACEMENT.to_string()
+    } else {
+        cleaned
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use time::macros::datetime;
 
     use super::*;
+
+    #[test]
+    fn sanitize_replaces_forbidden_characters() {
+        assert_eq!(sanitize_component("a/b:c?.txt"), "a_b_c_.txt");
+    }
+
+    #[test]
+    fn sanitize_maps_dot_names() {
+        let names: Vec<_> = ["", ".", ".."]
+            .into_iter()
+            .map(sanitize_component)
+            .collect();
+        assert_eq!(names, ["_", "_", "_"]);
+    }
+
+    #[test]
+    fn sanitize_keeps_ordinary_names() {
+        assert_eq!(sanitize_component("Führerschein.pdf"), "Führerschein.pdf");
+    }
 
     #[test]
     fn small_sizes_are_shown_in_bytes() {

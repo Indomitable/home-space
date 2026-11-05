@@ -6,7 +6,7 @@
 //! clients run.
 
 use std::future::Future;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::SystemTime;
 
 use api_client::{ApiError, Pkce, VERIFIER_BYTES};
@@ -218,6 +218,8 @@ impl From<protocol::Node> for Entry {
 #[derive(uniffi::Object)]
 pub struct CoreClient {
     inner: api_client::Client,
+    /// The signed-in user's Lost & Found, which Home leaves out while it is empty.
+    lost_and_found: Mutex<Option<NodeId>>,
 }
 
 #[uniffi::export]
@@ -225,9 +227,7 @@ impl CoreClient {
     /// A signed-out client for the server at `base_url`, e.g. `http://10.0.2.2:8080`.
     #[uniffi::constructor]
     pub fn new(base_url: String) -> Self {
-        Self {
-            inner: api_client::Client::new(base_url.trim_end_matches('/')),
-        }
+        Self::wrapping(api_client::Client::new(base_url.trim_end_matches('/')))
     }
 
     /// A signed-out client for `base_url` that signs in as `device` and reports its refresh
@@ -246,7 +246,7 @@ impl CoreClient {
             }),
         )
         .with_device(device);
-        Ok(Self { inner })
+        Ok(Self::wrapping(inner))
     }
 
     pub fn base_url(&self) -> String {
@@ -286,7 +286,7 @@ impl CoreClient {
                 ApiError::Unauthorized => CoreError::InvalidCredentials,
                 other => other.into(),
             })?;
-        Ok(me.into())
+        Ok(self.signed_in(me))
     }
 
     /// Starts a single sign-on. The browser comes back to [`paths::MOBILE_OIDC_REDIRECT`].
@@ -318,7 +318,7 @@ impl CoreClient {
                 ApiError::Unauthorized => CoreError::SsoExpired,
                 other => other.into(),
             })?;
-        Ok(me.into())
+        Ok(self.signed_in(me))
     }
 
     /// Resumes a session from a saved refresh token. `Unauthorized` means that session is gone;
@@ -327,14 +327,22 @@ impl CoreClient {
     pub async fn restore(&self, refresh_token: String) -> Result<SignedInUser, CoreError> {
         let inner = self.inner.clone();
         let me = off_ui_thread(async move { inner.restore(&refresh_token).await }).await?;
-        Ok(me.into())
+        Ok(self.signed_in(me))
     }
 
-    /// Lists a folder, or Home when `parent_id` is `None`, folders first then by name.
+    /// Lists a folder, or Home when `parent_id` is `None`, folders first then by name. Home
+    /// leaves out Lost & Found while it is empty.
     pub async fn list(&self, parent_id: Option<String>) -> Result<Vec<Entry>, CoreError> {
         let parent = parent_id.as_deref().map(parse_id).transpose()?;
         let inner = self.inner.clone();
-        let mut nodes = off_ui_thread(async move { inner.list(parent).await }).await?;
+        let lost_and_found = *self.lost_and_found.lock().expect("lost and found lock");
+        let mut nodes = off_ui_thread(async move {
+            match (parent, lost_and_found) {
+                (None, Some(found)) => inner.list_home(found).await,
+                _ => inner.list(parent).await,
+            }
+        })
+        .await?;
         listing::sort_nodes(&mut nodes, listing::Sort::default());
         Ok(nodes.into_iter().map(Entry::from).collect())
     }
@@ -342,6 +350,20 @@ impl CoreClient {
     pub async fn logout(&self) -> Result<(), CoreError> {
         let inner = self.inner.clone();
         Ok(off_ui_thread(async move { inner.logout().await }).await?)
+    }
+}
+
+impl CoreClient {
+    fn wrapping(inner: api_client::Client) -> Self {
+        Self {
+            inner,
+            lost_and_found: Mutex::new(None),
+        }
+    }
+
+    fn signed_in(&self, me: protocol::Me) -> SignedInUser {
+        *self.lost_and_found.lock().expect("lost and found lock") = Some(me.lost_and_found_id);
+        me.into()
     }
 }
 
@@ -426,7 +448,7 @@ pub fn normalize_server_url(input: String) -> Result<String, CoreError> {
 mod tests {
     use std::sync::Mutex;
 
-    use wiremock::matchers::{body_partial_json, method, path};
+    use wiremock::matchers::{body_partial_json, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
@@ -854,6 +876,50 @@ mod tests {
         assert_eq!(entries[0].size_label, "");
         assert_eq!(entries[2].size_label, "1.5 KB");
         assert_eq!(entries[2].updated_label, "2026-11-02 11:30");
+    }
+
+    /// The names Home lists for a signed-in user whose Lost & Found holds `contents`.
+    async fn home_names(contents: serde_json::Value) -> Vec<String> {
+        const LOST_AND_FOUND: &str = "00000000-0000-0000-0000-000000000002";
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(protocol::paths::LOGIN))
+            .respond_with(tokens("refresh"))
+            .mount(&server)
+            .await;
+        mount_me(&server).await;
+        Mock::given(method("GET"))
+            .and(path(protocol::paths::NODES))
+            .and(query_param("parent_id", LOST_AND_FOUND))
+            .respond_with(ResponseTemplate::new(200).set_body_json(contents))
+            .mount(&server)
+            .await;
+        let mut found = node("Lost & Found", "folder", 0);
+        found["id"] = LOST_AND_FOUND.into();
+        Mock::given(method("GET"))
+            .and(path(protocol::paths::NODES))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!([found, node("Photos", "folder", 0)])),
+            )
+            .mount(&server)
+            .await;
+
+        let client = CoreClient::new(server.uri());
+        client.login("me".into(), "secret".into()).await.unwrap();
+        let entries = client.list(None).await.unwrap();
+        entries.into_iter().map(|entry| entry.name).collect()
+    }
+
+    #[tokio::test]
+    async fn home_leaves_out_an_empty_lost_and_found() {
+        assert_eq!(home_names(serde_json::json!([])).await, ["Photos"]);
+    }
+
+    #[tokio::test]
+    async fn home_shows_a_lost_and_found_with_items() {
+        let contents = serde_json::json!([node("a.txt", "file", 10)]);
+        assert_eq!(home_names(contents).await, ["Lost & Found", "Photos"]);
     }
 
     #[tokio::test]

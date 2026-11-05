@@ -27,9 +27,13 @@ private struct FolderView: View {
     let title: String
     @State private var entries: [Entry] = []
     @State private var error: String?
+    @State private var selection = Set<String>()
+    @State private var editMode = EditMode.inactive
+
+    private var selecting: Bool { editMode.isEditing }
 
     var body: some View {
-        List {
+        List(selection: $selection) {
             if let error {
                 Text(error).foregroundStyle(.red)
             }
@@ -51,7 +55,27 @@ private struct FolderView: View {
                 }
             }
         }
-        .navigationTitle(title)
+        .navigationTitle(selecting ? "\(selection.count) selected" : title)
+        .navigationBarBackButtonHidden(selecting)
+        .environment(\.editMode, $editMode)
+        .toolbar {
+            if selecting {
+                ToolbarItem(placement: .topBarLeading) {
+                    if selection.count < entries.count {
+                        Button("Select All") { selection = Set(entries.map(\.id)) }
+                    } else {
+                        Button("Deselect All") { selection = [] }
+                    }
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(selecting ? "Done" : "Select") {
+                    selection = []
+                    editMode = selecting ? .inactive : .active
+                }
+                .disabled(entries.isEmpty)
+            }
+        }
         .task {
             do {
                 entries = try await client.list(parentId: folderId)

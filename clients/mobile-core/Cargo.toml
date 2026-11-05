@@ -23,11 +23,13 @@ bindgen = ["uniffi/cli"]
 [dependencies]
 api-client.workspace = true
 client-core.workspace = true
+hex = "0.4.3"
 protocol.workspace = true
 rand = "0.10.3"
+sha2.workspace = true
 thiserror.workspace = true
 time.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "rt-multi-thread"] }
 uniffi = "0.32.2"
 url = "2"
 uuid = "1.29.0"
@@ -38,6 +40,6 @@ jni = { version = "0.22.4", default-features = false }
 rustls-platform-verifier = "0.7.1"
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros"] }
 serde_json.workspace = true
+tempfile = "3"
 wiremock = "0.6.5"

@@ -6,15 +6,19 @@
 //! clients run.
 
 use std::future::Future;
+use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::SystemTime;
 
 use api_client::{ApiError, Pkce, VERIFIER_BYTES};
-use client_core::{format, icon, listing};
-use protocol::{DeviceInfo, NodeId, NodeKind, paths};
+use client_core::{format, icon, labels, listing};
+use protocol::{DeviceInfo, NodeId, NodeKind, OnConflict, paths};
 
 #[cfg(target_os = "android")]
 mod android;
+mod files;
+
+pub use files::DownloadListener;
 
 uniffi::setup_scaffolding!();
 
@@ -82,6 +86,9 @@ pub enum CoreError {
     /// What was typed as a server address is not an http or https URL.
     #[error("the server address must start with http:// or https://")]
     InvalidServerAddress,
+    /// The download was stopped by [`CoreClient::cancel_download`] or by signing out.
+    #[error("the download was cancelled")]
+    Cancelled,
 }
 
 impl From<api_client::ApiError> for CoreError {
@@ -177,10 +184,12 @@ pub struct Entry {
     pub mime: String,
     pub version: i32,
     pub updated_at: SystemTime,
+    /// Lowercase hex SHA-256 of a file's content.
+    pub sha256: Option<String>,
+    /// The copy of the current content on this phone, for files that have one.
+    pub local_path: Option<String>,
     /// Empty for folders, otherwise e.g. `1.5 MB`.
     pub size_label: String,
-    /// `YYYY-MM-DD HH:MM` in UTC.
-    pub updated_label: String,
 }
 
 impl From<protocol::Node> for Entry {
@@ -202,7 +211,6 @@ impl From<protocol::Node> for Entry {
                 EntryKind::Folder => String::new(),
                 EntryKind::File => format::human_size(node.size),
             },
-            updated_label: format::short_date(node.updated_at),
             updated_at: node.updated_at.into(),
             kind,
             icon: entry_icon,
@@ -210,8 +218,63 @@ impl From<protocol::Node> for Entry {
             size: node.size,
             mime: node.mime,
             version: node.version,
+            sha256: node.sha256,
+            local_path: None,
         }
     }
+}
+
+/// What the details panel shows for a file or folder, like the desktop and web clients.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct EntryDetails {
+    pub entry: Entry,
+    /// The MIME type, or `Folder`.
+    pub type_label: String,
+    /// When it was created; the apps format this for the device's locale and time zone.
+    pub created_at: SystemTime,
+    /// `Edited on` for files and `Created on` for folders.
+    pub device_title: String,
+    /// The device, when the server knows it.
+    pub device_label: Option<String>,
+}
+
+/// What to do about files that already exist where others are moved to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum MoveMode {
+    /// Change nothing and report the conflicts.
+    Abort,
+    /// The moved file becomes current and the existing content a version.
+    Override,
+    /// Keep the existing file and put the moved one in the recycle bin.
+    Skip,
+}
+
+/// A file that clashes with another at the destination.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MoveConflict {
+    pub name: String,
+    /// Path relative to what is moved.
+    pub path: String,
+    pub incoming: ConflictSide,
+    /// The file in the way; `None` when two selected files share a name.
+    pub existing: Option<ConflictSide>,
+}
+
+/// One of the files in a conflict.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ConflictSide {
+    /// When it last changed; the apps format this for the device's locale and time zone.
+    pub updated_at: SystemTime,
+    /// E.g. `1.5 KB`.
+    pub size_label: String,
+}
+
+/// How a move ended. With conflicts nothing changed, and the move can be retried with a mode.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct MoveResult {
+    /// E.g. `1 file already exists in “Photos”`.
+    pub conflicts_title: String,
+    pub conflicts: Vec<MoveConflict>,
 }
 
 /// Client for one server; the apps keep one per signed-in server.
@@ -220,6 +283,7 @@ pub struct CoreClient {
     inner: api_client::Client,
     /// The signed-in user's Lost & Found, which Home leaves out while it is empty.
     lost_and_found: Mutex<Option<NodeId>>,
+    files: Arc<files::LocalFiles>,
 }
 
 #[uniffi::export]
@@ -230,13 +294,14 @@ impl CoreClient {
         Self::wrapping(api_client::Client::new(base_url.trim_end_matches('/')))
     }
 
-    /// A signed-out client for `base_url` that signs in as `device` and reports its refresh
-    /// token to `listener`.
+    /// A signed-out client for `base_url` that signs in as `device`, reports its refresh token
+    /// to `listener` and keeps local copies of files under `files_dir`, a folder only it uses.
     #[uniffi::constructor]
     pub fn with_session(
         base_url: String,
         device: DeviceIdentity,
         listener: Arc<dyn SessionListener>,
+        files_dir: String,
     ) -> Result<Self, CoreError> {
         let device = device_info(device)?;
         let inner = api_client::Client::with_listener(
@@ -246,7 +311,9 @@ impl CoreClient {
             }),
         )
         .with_device(device);
-        Ok(Self::wrapping(inner))
+        let mut client = Self::wrapping(inner);
+        client.files = Arc::new(files::LocalFiles::new(PathBuf::from(files_dir)));
+        Ok(client)
     }
 
     pub fn base_url(&self) -> String {
@@ -336,20 +403,126 @@ impl CoreClient {
         let parent = parent_id.as_deref().map(parse_id).transpose()?;
         let inner = self.inner.clone();
         let lost_and_found = *self.lost_and_found.lock().expect("lost and found lock");
-        let mut nodes = off_ui_thread(async move {
-            match (parent, lost_and_found) {
+        let files = self.files.clone();
+        off_ui_thread(async move {
+            let mut nodes = match (parent, lost_and_found) {
                 (None, Some(found)) => inner.list_home(found).await,
                 _ => inner.list(parent).await,
-            }
+            }?;
+            listing::sort_nodes(&mut nodes, listing::Sort::default());
+            let mut entries: Vec<Entry> = nodes.into_iter().map(Entry::from).collect();
+            files.mark_copies(&mut entries).await;
+            Ok(entries)
         })
-        .await?;
-        listing::sort_nodes(&mut nodes, listing::Sort::default());
-        Ok(nodes.into_iter().map(Entry::from).collect())
+        .await
     }
 
+    /// The fields of the details panel. The device is left out if the device list won't load.
+    pub async fn details(&self, id: String) -> Result<EntryDetails, CoreError> {
+        let id = parse_id(&id)?;
+        let inner = self.inner.clone();
+        let files = self.files.clone();
+        off_ui_thread(async move {
+            let node = inner.get(id).await?;
+            let devices = inner.devices().await.unwrap_or_default();
+            let is_folder = node.kind == NodeKind::Folder;
+            let device_label = labels::edited_on(node.edited_on, &devices);
+            let type_label = if is_folder {
+                "Folder".to_owned()
+            } else {
+                node.mime.clone()
+            };
+            let created_at = node.created_at.into();
+            let mut entries = [Entry::from(node)];
+            files.mark_copies(&mut entries).await;
+            let [entry] = entries;
+            Ok(EntryDetails {
+                entry,
+                type_label,
+                created_at,
+                device_title: if is_folder { "Created on" } else { "Edited on" }.to_owned(),
+                device_label,
+            })
+        })
+        .await
+    }
+
+    /// Renames within the same folder; a name that is taken fails as `conflict`.
+    pub async fn rename(&self, id: String, name: String) -> Result<Entry, CoreError> {
+        let id = parse_id(&id)?;
+        let inner = self.inner.clone();
+        let node = off_ui_thread(async move { inner.rename(id, &name).await }).await?;
+        Ok(node.into())
+    }
+
+    /// Moves into `parent_id`, or to Home when `None`. Not a rename's `PATCH`: that silently
+    /// merges with a file of the same name, whereas here the user gets to choose.
+    pub async fn move_nodes(
+        &self,
+        ids: Vec<String>,
+        parent_id: Option<String>,
+        mode: MoveMode,
+    ) -> Result<MoveResult, CoreError> {
+        let ids = ids
+            .iter()
+            .map(|id| parse_id(id))
+            .collect::<Result<Vec<_>, _>>()?;
+        let parent = parent_id.as_deref().map(parse_id).transpose()?;
+        let on_conflict = match mode {
+            MoveMode::Abort => OnConflict::Abort,
+            MoveMode::Override => OnConflict::Override,
+            MoveMode::Skip => OnConflict::Skip,
+        };
+        let inner = self.inner.clone();
+        let files = self.files.clone();
+        off_ui_thread(async move {
+            let moved = inner.move_nodes(&ids, parent, on_conflict).await?;
+            for skipped in &moved.skipped {
+                files.remove(*skipped).await;
+            }
+            let location = moved.target.as_ref().map_or_else(
+                || format!("“{}”", labels::HOME),
+                |target| format!("“{}”", target.name),
+            );
+            Ok(MoveResult {
+                conflicts_title: format::conflicts_title(moved.conflicts.len(), &location),
+                conflicts: moved.conflicts.iter().map(MoveConflict::from).collect(),
+            })
+        })
+        .await
+    }
+
+    /// Moves to the recycle bin, one at a time, along with any local copy. Stops at the first
+    /// failure, with the ones before it already deleted.
+    pub async fn delete(&self, ids: Vec<String>) -> Result<(), CoreError> {
+        let ids = ids
+            .iter()
+            .map(|id| parse_id(id))
+            .collect::<Result<Vec<_>, _>>()?;
+        let inner = self.inner.clone();
+        let files = self.files.clone();
+        off_ui_thread(async move {
+            for id in ids {
+                inner.delete(id).await?;
+                files.remove(id).await;
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// Ends the session here and on the server, and removes the files kept on this phone. They
+    /// go first: this device is already signed out, however long the server takes to answer.
     pub async fn logout(&self) -> Result<(), CoreError> {
         let inner = self.inner.clone();
-        Ok(off_ui_thread(async move { inner.logout().await }).await?)
+        let files = self.files.clone();
+        off_ui_thread(async move {
+            files.cancel_all();
+            files.wipe().await;
+            inner.logout().await
+        })
+        .await
+        .map_err(Into::into)
     }
 }
 
@@ -358,11 +531,13 @@ impl CoreClient {
         Self {
             inner,
             lost_and_found: Mutex::new(None),
+            files: Arc::default(),
         }
     }
 
     fn signed_in(&self, me: protocol::Me) -> SignedInUser {
         *self.lost_and_found.lock().expect("lost and found lock") = Some(me.lost_and_found_id);
+        self.files.set_user(me.id.to_string());
         me.into()
     }
 }
@@ -373,6 +548,26 @@ impl From<protocol::Me> for SignedInUser {
             id: me.id.to_string(),
             username: me.username,
             lost_and_found_id: me.lost_and_found_id.to_string(),
+        }
+    }
+}
+
+impl From<&protocol::Node> for ConflictSide {
+    fn from(node: &protocol::Node) -> Self {
+        Self {
+            updated_at: node.updated_at.into(),
+            size_label: format::human_size(node.size),
+        }
+    }
+}
+
+impl From<&protocol::Conflict> for MoveConflict {
+    fn from(conflict: &protocol::Conflict) -> Self {
+        Self {
+            name: conflict.source.name.clone(),
+            path: conflict.path.clone(),
+            incoming: ConflictSide::from(&conflict.source),
+            existing: conflict.existing.as_ref().map(ConflictSide::from),
         }
     }
 }
@@ -423,6 +618,12 @@ fn login_code(callback_url: &str) -> Result<String, CoreError> {
 fn parse_id(id: &str) -> Result<NodeId, CoreError> {
     id.parse()
         .map_err(|_| CoreError::InvalidId { id: id.to_owned() })
+}
+
+/// Whether moving `entries` into `destination` (`None` for Home) would leave them where they are.
+#[uniffi::export]
+pub fn already_in(entries: Vec<Entry>, destination: Option<String>) -> bool {
+    entries.iter().all(|entry| entry.parent_id == destination)
 }
 
 /// Formats a byte count the way the desktop and web clients do, e.g. `1.5 MB`.
@@ -501,10 +702,16 @@ mod tests {
         }
     }
 
+    /// A folder for a test's files that lasts until the test process ends.
+    fn test_dir() -> String {
+        let dir = tempfile::tempdir().expect("temp dir");
+        dir.keep().to_string_lossy().into_owned()
+    }
+
     fn session_client(server: &MockServer) -> (CoreClient, Arc<Recorder>) {
         let recorder = Arc::new(Recorder::default());
-        let client =
-            CoreClient::with_session(server.uri(), device(), recorder.clone()).expect("client");
+        let client = CoreClient::with_session(server.uri(), device(), recorder.clone(), test_dir())
+            .expect("client");
         (client, recorder)
     }
 
@@ -617,8 +824,8 @@ mod tests {
         mount_me(&server).await;
 
         let recorder = Arc::new(ThreadRecorder::default());
-        let client =
-            CoreClient::with_session(server.uri(), device(), recorder.clone()).expect("client");
+        let client = CoreClient::with_session(server.uri(), device(), recorder.clone(), test_dir())
+            .expect("client");
         client.login("me".into(), "secret".into()).await.unwrap();
 
         let threads = recorder.0.lock().unwrap();
@@ -674,9 +881,13 @@ mod tests {
     #[tokio::test]
     async fn restoring_while_offline_keeps_the_saved_token() {
         let recorder = Arc::new(Recorder::default());
-        let client =
-            CoreClient::with_session("http://127.0.0.1:9".into(), device(), recorder.clone())
-                .unwrap();
+        let client = CoreClient::with_session(
+            "http://127.0.0.1:9".into(),
+            device(),
+            recorder.clone(),
+            test_dir(),
+        )
+        .unwrap();
         let err = client.restore("saved".into()).await.unwrap_err();
         assert!(matches!(err, CoreError::Unreachable { .. }), "{err:?}");
         assert!(recorder.0.lock().unwrap().is_empty());
@@ -875,7 +1086,10 @@ mod tests {
         assert_eq!(names, ["Photos", "a.txt", "b.txt"]);
         assert_eq!(entries[0].size_label, "");
         assert_eq!(entries[2].size_label, "1.5 KB");
-        assert_eq!(entries[2].updated_label, "2026-11-02 11:30");
+        assert_eq!(
+            entries[2].updated_at,
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_793_619_000)
+        );
     }
 
     /// The names Home lists for a signed-in user whose Lost & Found holds `contents`.
@@ -938,5 +1152,398 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, CoreError::InvalidId { .. }));
+    }
+
+    const FILE_ID: &str = "00000000-0000-0000-0000-0000000000f1";
+    const CONTENT: &[u8] = b"hello world";
+    const CONTENT_SHA: &str = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
+    const OTHER: &[u8] = b"changed";
+    /// Not the hash of anything the mock server sends.
+    const OTHER_SHA: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+    fn file_json(name: &str, sha: &str) -> serde_json::Value {
+        let mut json = node(name, "file", CONTENT.len() as i64);
+        json["id"] = FILE_ID.into();
+        json["sha256"] = sha.into();
+        json
+    }
+
+    fn file_route() -> String {
+        protocol::paths::node(FILE_ID.parse().unwrap())
+    }
+
+    fn content_route() -> String {
+        protocol::paths::file_content(FILE_ID.parse().unwrap())
+    }
+
+    async fn mount_file(server: &MockServer, json: serde_json::Value) {
+        server.reset().await;
+        mount_login(server).await;
+        Mock::given(method("GET"))
+            .and(path(file_route()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json))
+            .mount(server)
+            .await;
+    }
+
+    async fn mount_content(server: &MockServer, body: &[u8]) {
+        Mock::given(method("GET"))
+            .and(path(content_route()))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
+            .mount(server)
+            .await;
+    }
+
+    async fn mount_login(server: &MockServer) {
+        Mock::given(method("POST"))
+            .and(path(protocol::paths::LOGIN))
+            .respond_with(tokens("first"))
+            .mount(server)
+            .await;
+        mount_me(server).await;
+    }
+
+    async fn signed_in(server: &MockServer) -> CoreClient {
+        mount_login(server).await;
+        let (client, _) = session_client(server);
+        client.login("me".into(), "secret".into()).await.unwrap();
+        client
+    }
+
+    /// Every progress report of a download.
+    #[derive(Default)]
+    struct Progress(Mutex<Vec<(i64, i64)>>);
+
+    impl DownloadListener for Progress {
+        fn progress(&self, _id: String, done: i64, total: i64) {
+            self.0.lock().unwrap().push((done, total));
+        }
+    }
+
+    fn listed(server_file: serde_json::Value) -> ResponseTemplate {
+        ResponseTemplate::new(200).set_body_json(serde_json::json!([server_file]))
+    }
+
+    async fn listed_path(
+        client: &CoreClient,
+        server: &MockServer,
+        json: serde_json::Value,
+    ) -> Option<String> {
+        let folder = "00000000-0000-0000-0000-0000000000d1";
+        server.reset().await;
+        Mock::given(method("GET"))
+            .and(path(protocol::paths::NODES))
+            .and(query_param("parent_id", folder))
+            .respond_with(listed(json))
+            .mount(server)
+            .await;
+        let entries = client.list(Some(folder.to_owned())).await.unwrap();
+        entries[0].local_path.clone()
+    }
+
+    #[tokio::test]
+    async fn opening_a_file_downloads_it_once_and_reports_progress() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        mount_file(&server, file_json("a.txt", CONTENT_SHA)).await;
+        mount_content(&server, CONTENT).await;
+
+        let progress = Arc::new(Progress::default());
+        let opened = client
+            .open_copy(FILE_ID.into(), progress.clone())
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&opened).unwrap(), CONTENT);
+        assert!(opened.ends_with("a.txt"), "{opened}");
+        let total = CONTENT.len() as i64;
+        assert_eq!(progress.0.lock().unwrap().last(), Some(&(total, total)));
+
+        // The content is no longer served, so the second open can only have used the copy.
+        mount_file(&server, file_json("a.txt", CONTENT_SHA)).await;
+        let again = client.open_copy(FILE_ID.into(), progress).await.unwrap();
+        assert_eq!(again, opened);
+    }
+
+    #[tokio::test]
+    async fn the_listing_marks_the_copy_until_the_content_changes() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        let same = file_json("a.txt", CONTENT_SHA);
+        assert_eq!(listed_path(&client, &server, same.clone()).await, None);
+
+        mount_file(&server, same.clone()).await;
+        mount_content(&server, CONTENT).await;
+        let opened = client
+            .open_copy(FILE_ID.into(), Arc::new(Progress::default()))
+            .await
+            .unwrap();
+
+        assert_eq!(listed_path(&client, &server, same).await, Some(opened));
+        let replaced = file_json("a.txt", OTHER_SHA);
+        assert_eq!(listed_path(&client, &server, replaced).await, None);
+    }
+
+    #[tokio::test]
+    async fn new_content_replaces_the_old_copy() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        mount_file(&server, file_json("a.txt", CONTENT_SHA)).await;
+        mount_content(&server, CONTENT).await;
+        let listener = Arc::new(Progress::default());
+        let old = client
+            .open_copy(FILE_ID.into(), listener.clone())
+            .await
+            .unwrap();
+
+        let sha = hex_sha(OTHER);
+        mount_file(&server, file_json("a.txt", &sha)).await;
+        mount_content(&server, OTHER).await;
+        let new = client.open_copy(FILE_ID.into(), listener).await.unwrap();
+
+        assert_eq!(std::fs::read(&new).unwrap(), OTHER);
+        assert!(!std::path::Path::new(&old).exists());
+    }
+
+    fn hex_sha(bytes: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(bytes))
+    }
+
+    #[tokio::test]
+    async fn a_rename_on_the_server_keeps_the_copy_under_the_new_name() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        mount_file(&server, file_json("a.txt", CONTENT_SHA)).await;
+        mount_content(&server, CONTENT).await;
+        let listener = Arc::new(Progress::default());
+        client
+            .open_copy(FILE_ID.into(), listener.clone())
+            .await
+            .unwrap();
+
+        mount_file(&server, file_json("b.txt", CONTENT_SHA)).await;
+        let renamed = client.open_copy(FILE_ID.into(), listener).await.unwrap();
+        assert!(renamed.ends_with("b.txt"), "{renamed}");
+        assert_eq!(std::fs::read(&renamed).unwrap(), CONTENT);
+    }
+
+    #[tokio::test]
+    async fn a_file_replaced_during_the_download_starts_over_then_gives_up() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        mount_file(&server, file_json("a.txt", OTHER_SHA)).await;
+        mount_content(&server, CONTENT).await;
+
+        let err = client
+            .open_copy(FILE_ID.into(), Arc::new(Progress::default()))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&err, CoreError::Failed { code, .. } if code == "content_changed"),
+            "{err:?}"
+        );
+        let requests = server.received_requests().await.unwrap();
+        let downloads = requests
+            .iter()
+            .filter(|request| request.url.path() == content_route())
+            .count();
+        assert_eq!(downloads, 2);
+    }
+
+    /// Cancels the download from inside its first progress report.
+    struct CancelOnProgress(Mutex<Option<Arc<CoreClient>>>);
+
+    impl DownloadListener for CancelOnProgress {
+        fn progress(&self, id: String, _done: i64, _total: i64) {
+            if let Some(client) = self.0.lock().unwrap().take() {
+                client.cancel_download(id).unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelling_leaves_nothing_behind_and_a_new_download_can_start() {
+        let server = MockServer::start().await;
+        let client = Arc::new(signed_in(&server).await);
+        mount_file(&server, file_json("a.txt", CONTENT_SHA)).await;
+        mount_content(&server, CONTENT).await;
+
+        let listener = Arc::new(CancelOnProgress(Mutex::new(Some(client.clone()))));
+        let err = client
+            .open_copy(FILE_ID.into(), listener)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CoreError::Cancelled), "{err:?}");
+        let same = file_json("a.txt", CONTENT_SHA);
+
+        let node_dir = client.files.node_dir(FILE_ID.parse().unwrap()).unwrap();
+        assert!(!node_dir.join("download.part").exists());
+        assert_eq!(listed_path(&client, &server, same.clone()).await, None);
+
+        mount_file(&server, same).await;
+        mount_content(&server, CONTENT).await;
+        client
+            .open_copy(FILE_ID.into(), Arc::new(Progress::default()))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_copy_opens_while_the_server_is_down() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        mount_file(&server, file_json("a.txt", CONTENT_SHA)).await;
+        mount_content(&server, CONTENT).await;
+        let listener = Arc::new(Progress::default());
+        let opened = client
+            .open_copy(FILE_ID.into(), listener.clone())
+            .await
+            .unwrap();
+
+        server.reset().await;
+        Mock::given(method("GET"))
+            .and(path(file_route()))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        assert_eq!(
+            client.open_copy(FILE_ID.into(), listener).await.unwrap(),
+            opened
+        );
+    }
+
+    #[tokio::test]
+    async fn saving_writes_the_destination_and_leaves_no_copy() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        let same = file_json("a.txt", CONTENT_SHA);
+        mount_file(&server, same.clone()).await;
+        mount_content(&server, CONTENT).await;
+
+        let dest = std::path::Path::new(&test_dir())
+            .join("out")
+            .join("saved.txt");
+        client
+            .save_copy(
+                FILE_ID.into(),
+                dest.to_string_lossy().into_owned(),
+                Arc::new(Progress::default()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), CONTENT);
+        assert_eq!(listed_path(&client, &server, same).await, None);
+    }
+
+    #[tokio::test]
+    async fn signing_out_removes_the_copies_even_if_the_server_fails() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        mount_file(&server, file_json("a.txt", CONTENT_SHA)).await;
+        mount_content(&server, CONTENT).await;
+        let opened = client
+            .open_copy(FILE_ID.into(), Arc::new(Progress::default()))
+            .await
+            .unwrap();
+
+        server.reset().await;
+        Mock::given(method("POST"))
+            .and(path(protocol::paths::LOGOUT))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+        let _ = client.logout().await;
+        assert!(!std::path::Path::new(&opened).exists());
+    }
+
+    #[tokio::test]
+    async fn deleting_a_file_removes_its_copy() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        mount_file(&server, file_json("a.txt", CONTENT_SHA)).await;
+        mount_content(&server, CONTENT).await;
+        let opened = client
+            .open_copy(FILE_ID.into(), Arc::new(Progress::default()))
+            .await
+            .unwrap();
+
+        server.reset().await;
+        Mock::given(method("DELETE"))
+            .and(path(file_route()))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
+        client.delete(vec![FILE_ID.into()]).await.unwrap();
+        assert!(!std::path::Path::new(&opened).exists());
+    }
+
+    #[tokio::test]
+    async fn a_taken_name_is_a_conflict() {
+        let server = MockServer::start().await;
+        Mock::given(method("PATCH"))
+            .and(path(file_route()))
+            .and(body_partial_json(serde_json::json!({"name": "b.txt"})))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": "conflict", "message": "name already exists",
+            })))
+            .mount(&server)
+            .await;
+        let err = signed_in(&server)
+            .await
+            .rename(FILE_ID.into(), "b.txt".into())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&err, CoreError::Failed { code, .. } if code == "conflict"),
+            "{err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_move_reports_its_conflicts_with_labels() {
+        let server = MockServer::start().await;
+        let mut target = node("Photos", "folder", 0);
+        target["id"] = "00000000-0000-0000-0000-0000000000d1".into();
+        Mock::given(method("POST"))
+            .and(path(protocol::paths::NODES_MOVE))
+            .and(body_partial_json(
+                serde_json::json!({"on_conflict": "abort"}),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "moved": [], "skipped": [], "target": target,
+                "conflicts": [{
+                    "source": file_json("a.txt", CONTENT_SHA),
+                    "path": "a.txt",
+                    "existing": null,
+                }],
+            })))
+            .mount(&server)
+            .await;
+        let result = signed_in(&server)
+            .await
+            .move_nodes(vec![FILE_ID.into()], None, MoveMode::Abort)
+            .await
+            .unwrap();
+        assert_eq!(result.conflicts_title, "1 file already exists in “Photos”");
+        assert_eq!(result.conflicts[0].name, "a.txt");
+        assert_eq!(result.conflicts[0].incoming.size_label, "11 B");
+        assert_eq!(
+            result.conflicts[0].incoming.updated_at,
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_793_619_000)
+        );
+        assert!(result.conflicts[0].existing.is_none());
+    }
+
+    #[test]
+    fn already_in_compares_every_parent() {
+        let entry = |parent: Option<&str>| {
+            let mut json = node("a", "file", 0);
+            json["parent_id"] = parent.map_or(serde_json::Value::Null, Into::into);
+            Entry::from(serde_json::from_value::<protocol::Node>(json).unwrap())
+        };
+        let parent = "00000000-0000-0000-0000-0000000000d1";
+        assert!(already_in(vec![entry(None)], None));
+        assert!(!already_in(vec![entry(None)], Some(parent.to_owned())));
+        assert!(!already_in(vec![entry(None), entry(Some(parent))], None));
     }
 }

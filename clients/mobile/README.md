@@ -12,10 +12,13 @@ Native UI on each platform, with the code that talks to the server in Rust:
 - `iosApp/`: iOS app in SwiftUI.
 
 Both apps sign in with a password or single sign-on, whichever the server offers, stay signed in
-between runs, browse folders, and select several rows.
+between runs, browse folders, and select several rows. They also manage files: details, rename,
+move, delete (to the recycle bin) and save to a chosen location. Tapping a file downloads it and
+opens it in the system's viewer.
 
-Routes, JSON, session refresh, error mapping, sorting and size/date labels all come from the Rust
-crates, so nothing is mirrored by hand. `mobile-core/src/lib.rs` is a thin mapping to FFI-friendly
+Routes, JSON, session refresh, error mapping, sorting and size labels all come from the Rust crates,
+so nothing is mirrored by hand. Dates are the exception: Rust exports the time, and each app formats
+it with the platform's formatter for the device's locale and time zone. `mobile-core/src/lib.rs` is a thin mapping to FFI-friendly
 records (ids as strings, times as `SystemTime`). Add a call there, and both apps get it on their
 next build.
 
@@ -77,6 +80,33 @@ The app defaults to `http://localhost:8080`. `iosAppUITests` checks that the app
 once the server answers, so it needs the server running on `localhost:8080` with password sign-in
 on, and nobody signed in on the simulator.
 
+## Opened files
+
+Tapping a file keeps a copy on the device, in `filesDir/downloads` on Android and Application
+Support `/downloads` on iOS (excluded from backups). `mobile-core/src/files.rs` owns the layout,
+which needs no database:
+
+```
+<downloads>/<user id>/<node id>/<sha256>/<name>    the copy; `v<version>` if the node has no hash
+<downloads>/<user id>/<node id>/download.part      a download in progress
+```
+
+- The hash is in the path, so new content on the server simply misses: the badge goes, and the
+  next tap downloads again. Older hash folders are removed once the new copy is in place.
+- Each open asks the server for the current node, and only falls back to any local copy if the
+  server can't be reached. Tapping a file with a current copy downloads nothing.
+- The server has no Range support, so an interrupted download restarts on the next tap. Downloads
+  stop when the OS suspends or kills the app.
+- Cancelling is a flag checked between chunks. Requests are never aborted, because a token refresh
+  in flight must finish or the rotated token is lost.
+- Signing out deletes the whole folder, even if the server can't be reached.
+- A file deleted elsewhere keeps its copy until sign-out, as do files inside a folder deleted in
+  the app. Nothing tracks copies yet: see `docs/todo/mobile-file-tracking.md`.
+
+Android hands files to viewers through a `FileProvider` scoped to `downloads/`, with a read-only
+grant. iOS uses Quick Look. Save to… picks the location first on Android, but on iOS only after the
+download, because the system's export picker needs a file that already exists.
+
 ## Single sign-on
 
 The browser returns to the app at `app.homespace://oidc/callback`
@@ -101,6 +131,8 @@ The iOS simulator shares the host's network, so it needs no forwarding.
 - Builds: the first Rust build per target takes about 30 s. The iOS script clears Xcode's
   environment, because cargo's C builds (aws-lc-sys) break under it. The Rust build also has its
   own Xcode target, so Xcode does not read the xcframework while it is being replaced.
+  Xcode copies the xcframework's headers before that target runs, so the first build after a
+  change to the exported API can fail with missing `uniffi_homespace_core_*` symbols. Build again.
 - UniFFI: no error field may be named `message`, because it clashes with Kotlin's
   `Throwable.message`.
 - HTTPS on Android: reqwest verifies certificates with `rustls-platform-verifier`, whose Kotlin

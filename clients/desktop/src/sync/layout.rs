@@ -5,8 +5,9 @@ use std::{
 
 use protocol::{NodeId, NodeKind};
 
+use client_core::format::sanitize_component;
+
 use super::model::{Mapping, RemoteNode};
-use crate::transfers::sanitize_component;
 
 /// Where every synced remote node lives on disk.
 ///

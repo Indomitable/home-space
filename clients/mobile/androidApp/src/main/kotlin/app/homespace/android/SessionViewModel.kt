@@ -1,19 +1,31 @@
 package app.homespace.android
 
 import android.app.Application
+import android.net.Uri
 import android.os.Build
+import android.provider.DocumentsContract
+import android.widget.Toast
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import java.io.File
+import java.io.FileNotFoundException
+import java.io.IOException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.homespace_core.CoreClient
 import uniffi.homespace_core.CoreException
 import uniffi.homespace_core.DeviceIdentity
+import uniffi.homespace_core.DownloadListener
+import uniffi.homespace_core.Entry
 import uniffi.homespace_core.SessionListener
 import uniffi.homespace_core.SignInOptions
 import uniffi.homespace_core.SignedInUser
@@ -39,6 +51,9 @@ sealed interface Probe {
 
 /** A folder on the way down from Home; `id` is null for Home itself. */
 data class Crumb(val id: String?, val name: String)
+
+/** A downloaded file waiting to be shown. */
+data class OpenRequest(val path: String, val mime: String)
 
 /**
  * The session and the sign-in form. It outlives the activity, so the signed-in client survives
@@ -66,6 +81,26 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
 
     /** Where the folder browser is, kept here so that rotating the phone doesn't reset it. */
     val path = mutableStateListOf<Crumb>()
+
+    /** How far along each running download is, from 0 to 1, whichever folder is on screen. */
+    val downloads = mutableStateMapOf<String, Float>()
+
+    /** The folder on screen is reloaded whenever this changes. */
+    var reloadKey by mutableIntStateOf(0)
+        private set
+
+    /** A finished download for the screen to open. */
+    var pendingOpen by mutableStateOf<OpenRequest?>(null)
+        private set
+
+    /** Set by the screen: a file that finishes downloading in the background isn't opened. */
+    var foreground = false
+
+    /** The file whose destination the system's save screen is asking for. */
+    var pendingSave: Entry? = null
+
+    // Only the file tapped last opens when it finishes.
+    private var lastTapped: String? = null
 
     init {
         val saved = store.loadSession()
@@ -207,9 +242,109 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun reload() {
+        reloadKey++
+    }
+
+    fun onOpened() {
+        pendingOpen = null
+    }
+
+    /** Shows a file: at once if the copy here is current, else after downloading it. */
+    fun openFile(session: Session.SignedIn, entry: Entry) {
+        lastTapped = entry.id
+        if (entry.id in downloads) return
+        downloads[entry.id] = 0f
+        viewModelScope.launch {
+            try {
+                val path = session.client.openCopy(entry.id, progressListener())
+                if (lastTapped == entry.id && foreground) {
+                    pendingOpen = OpenRequest(path, entry.mime)
+                }
+                reload()
+            } catch (e: CoreException) {
+                onDownloadFailed(session, entry, e)
+            } finally {
+                downloads.remove(entry.id)
+            }
+        }
+    }
+
+    /** Saves a file where the user chose; the document the system created goes if that fails. */
+    fun saveFile(session: Session.SignedIn, entry: Entry, destination: Uri) {
+        val resolver = getApplication<Application>().contentResolver
+        val temp = File(getApplication<Application>().cacheDir, "save/${entry.id}")
+        downloads[entry.id] = 0f
+        viewModelScope.launch {
+            var saved = false
+            try {
+                session.client.saveCopy(entry.id, temp.path, progressListener())
+                withContext(Dispatchers.IO) {
+                    val output = resolver.openOutputStream(destination, "wt")
+                        ?: throw FileNotFoundException(destination.toString())
+                    output.use { sink -> temp.inputStream().use { it.copyTo(sink) } }
+                }
+                saved = true
+                toast("Saved “${entry.name}”")
+            } catch (e: CoreException) {
+                onDownloadFailed(session, entry, e)
+            } catch (e: IOException) {
+                toast("Could not save “${entry.name}”: ${e.message}")
+            } finally {
+                downloads.remove(entry.id)
+                withContext(Dispatchers.IO) {
+                    temp.delete()
+                    if (!saved) {
+                        runCatching { DocumentsContract.deleteDocument(resolver, destination) }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Deletes this phone's copy of a file. */
+    fun removeLocalCopy(session: Session.SignedIn, entry: Entry) {
+        viewModelScope.launch {
+            try {
+                session.client.removeLocalCopy(entry.id)
+            } catch (e: CoreException) {
+                toast("Failed: ${e.fileMessage()}")
+            }
+            reload()
+        }
+    }
+
+    private fun progressListener() = object : DownloadListener {
+        override fun progress(id: String, done: Long, total: Long) {
+            val fraction = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 1f
+            viewModelScope.launch {
+                // A report can arrive after the download has ended.
+                if (id in downloads) downloads[id] = fraction
+            }
+        }
+    }
+
+    private fun onDownloadFailed(
+        failed: Session.SignedIn,
+        entry: Entry,
+        error: CoreException,
+    ) {
+        when {
+            error is CoreException.Cancelled -> Unit
+            error !is CoreException.Unauthorized ->
+                toast("Could not download “${entry.name}”: ${error.fileMessage()}")
+            session === failed -> onSessionEnded()
+        }
+    }
+
+    private fun toast(message: String) {
+        Toast.makeText(getApplication(), message, Toast.LENGTH_LONG).show()
+    }
+
     fun signOut() {
         val current = session
         store.forgetSession()
+        downloads.clear()
         backToForm()
         if (current is Session.SignedIn) {
             viewModelScope.launch {
@@ -228,6 +363,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     fun onSessionEnded() {
         val current = session
         store.forgetSession()
+        downloads.clear()
         backToForm()
         if (current is Session.SignedIn) current.client.close()
     }
@@ -262,10 +398,21 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
         },
+        File(getApplication<Application>().filesDir, DOWNLOADS_DIR).path,
     )
 }
 
+/** Under the app's files folder; `res/xml/file_paths.xml` shares this folder with viewers. */
+private const val DOWNLOADS_DIR = "downloads"
+
 private const val SIGN_IN_FAILED = "Signing in failed. Please try again."
+
+/** The sentence to show when a file operation fails; the generated `message` lists raw fields. */
+internal fun CoreException.fileMessage(): String = when (this) {
+    is CoreException.Failed -> detail.replaceFirstChar { it.uppercase() }
+    is CoreException.Unreachable -> "Could not reach the server"
+    else -> message.orEmpty()
+}
 
 /** The sentence to show for a failure, matching the web client's. */
 private fun CoreException.signInMessage(): String = when (this) {
@@ -275,8 +422,8 @@ private fun CoreException.signInMessage(): String = when (this) {
     is CoreException.SsoFailed -> SIGN_IN_FAILED
     is CoreException.InvalidServerAddress ->
         "The server address must start with http:// or https://"
-    is CoreException.Unreachable -> "Could not reach the server: $detail"
+    is CoreException.Unreachable -> "Could not reach the server"
     is CoreException.Failed -> detail
     is CoreException.Unauthorized -> "Your session has ended. Please sign in again."
-    is CoreException.InvalidId -> SIGN_IN_FAILED
+    is CoreException.InvalidId, is CoreException.Cancelled -> SIGN_IN_FAILED
 }

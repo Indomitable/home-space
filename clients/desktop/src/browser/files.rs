@@ -5,8 +5,10 @@ use iced::Task;
 use api_client::Client;
 use protocol::{Node, NodeId, NodeKind};
 
+use client_core::format::sanitize_component;
+
 use super::Message;
-use crate::transfers::{self, DownloadFile, UploadPlan, sanitize_component};
+use crate::transfers::{self, DownloadFile, UploadPlan};
 
 const TEMP_FOLDER: &str = "home-space";
 

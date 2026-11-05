@@ -15,6 +15,7 @@ use tokio::{fs, io::AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 
 use api_client::{ApiError, Client};
+use client_core::format::sanitize_component;
 use client_core::listing::{Sort, sort_nodes};
 use protocol::{CreateUpload, ErrorCode, Node, NodeId, NodeKind};
 
@@ -27,8 +28,6 @@ const CHANNEL_SIZE: usize = 64;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 const MAX_DEPTH: usize = 64;
 const PART_SUFFIX: &str = ".part";
-const REPLACEMENT: char = '_';
-const FORBIDDEN: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
 const TOO_DEEP: &str = "folder tree is too deep";
 const ALREADY_EXISTS: &str = "already exists";
 const MISSING_FOLDER: &str = "parent folder could not be created";
@@ -389,25 +388,6 @@ fn overall_progress(items: &[Transfer]) -> f32 {
         0.0
     } else {
         items.iter().map(Transfer::fraction).sum::<f32>() / items.len() as f32
-    }
-}
-
-/// Replaces characters that are not allowed in a local file name.
-pub fn sanitize_component(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|character| {
-            if character.is_control() || FORBIDDEN.contains(&character) {
-                REPLACEMENT
-            } else {
-                character
-            }
-        })
-        .collect();
-    if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
-        REPLACEMENT.to_string()
-    } else {
-        cleaned
     }
 }
 
@@ -810,25 +790,6 @@ mod tests {
     fn a_replacing_download_is_kept() {
         let file = DownloadFile::replacing(&file_node(), PathBuf::from("/tmp/a.txt"));
         assert_eq!(file.then, Then::Keep);
-    }
-
-    #[test]
-    fn sanitize_replaces_forbidden_characters() {
-        assert_eq!(sanitize_component("a/b:c?.txt"), "a_b_c_.txt");
-    }
-
-    #[test]
-    fn sanitize_maps_dot_names() {
-        let names: Vec<_> = ["", ".", ".."]
-            .into_iter()
-            .map(sanitize_component)
-            .collect();
-        assert_eq!(names, ["_", "_", "_"]);
-    }
-
-    #[test]
-    fn sanitize_keeps_ordinary_names() {
-        assert_eq!(sanitize_component("Führerschein.pdf"), "Führerschein.pdf");
     }
 
     #[test]

@@ -13,6 +13,7 @@
          and every Let's Encrypt server would then be reported as revoked. -->
     <application
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">

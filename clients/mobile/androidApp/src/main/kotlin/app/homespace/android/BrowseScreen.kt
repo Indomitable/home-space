@@ -1,7 +1,8 @@
 package app.homespace.android
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -46,12 +48,18 @@ fun BrowseScreen(session: Session.SignedIn, model: SessionViewModel, modifier: M
     val path = model.path
     val entries = remember { mutableStateListOf<Entry>() }
     var error by remember { mutableStateOf<String?>(null) }
+    // The ids of the selected rows; a long press starts selecting, and it ends once this is empty.
+    var selected by remember { mutableStateOf(emptySet<String>()) }
+    val selecting = selected.isNotEmpty()
 
     BackHandler(enabled = path.size > 1) { path.removeAt(path.lastIndex) }
+    // Declared last so it goes first: back leaves the selection before it leaves the folder.
+    BackHandler(enabled = selecting) { selected = emptySet() }
 
     LaunchedEffect(session.client, path.lastOrNull()) {
         val folder = path.lastOrNull() ?: return@LaunchedEffect
         error = null
+        selected = emptySet()
         try {
             val listed = session.client.list(folder.id)
             entries.clear()
@@ -69,48 +77,75 @@ fun BrowseScreen(session: Session.SignedIn, model: SessionViewModel, modifier: M
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                session.user.username,
+                if (selecting) "${selected.size} selected" else session.user.username,
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = model::signOut) { Text("Sign out") }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (path.size > 1) {
-                TextButton(onClick = { path.removeAt(path.lastIndex) }) { Text("Back") }
+            if (selecting) {
+                if (selected.size < entries.size) {
+                    TextButton(onClick = { selected = entries.map { it.id }.toSet() }) {
+                        Text("Select all")
+                    }
+                }
+                TextButton(onClick = { selected = emptySet() }) { Text("Cancel") }
+            } else {
+                TextButton(onClick = model::signOut) { Text("Sign out") }
             }
-            Text(path.joinToString(" / ") { it.name }, style = MaterialTheme.typography.titleMedium)
         }
+        Text(path.joinToString(" / ") { it.name }, style = MaterialTheme.typography.titleMedium)
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items(entries, key = { it.id }) { entry ->
-                when (entry.kind) {
-                    EntryKind.FOLDER -> Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { path.add(Crumb(entry.id, entry.name)) }
-                            .padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(ICON_GAP),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        NodeIcon(entry.icon)
-                        Text(entry.name)
-                    }
-                    EntryKind.FILE -> Row(
-                        modifier = Modifier.padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(ICON_GAP),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        NodeIcon(entry.icon)
-                        Column {
-                            Text(entry.name)
-                            Text(
-                                "${entry.sizeLabel} · ${entry.updatedLabel}",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                    }
+                val toggle = {
+                    selected = if (entry.id in selected) selected - entry.id else selected + entry.id
                 }
+                EntryRow(
+                    entry = entry,
+                    selecting = selecting,
+                    isSelected = entry.id in selected,
+                    onClick = {
+                        when {
+                            selecting -> toggle()
+                            entry.kind == EntryKind.FOLDER -> path.add(Crumb(entry.id, entry.name))
+                        }
+                    },
+                    onLongClick = toggle,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EntryRow(
+    entry: Entry,
+    selecting: Boolean,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    val background =
+        if (isSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(background)
+            .combinedClickable(onLongClick = onLongClick, onClick = onClick)
+            .padding(vertical = if (entry.kind == EntryKind.FOLDER) 8.dp else 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(ICON_GAP),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // The whole row takes the tap, so the box only shows the state.
+        if (selecting) Checkbox(checked = isSelected, onCheckedChange = null)
+        NodeIcon(entry.icon)
+        when (entry.kind) {
+            EntryKind.FOLDER -> Text(entry.name)
+            EntryKind.FILE -> Column {
+                Text(entry.name)
+                Text(
+                    "${entry.sizeLabel} · ${entry.updatedLabel}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }

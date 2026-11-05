@@ -12,7 +12,7 @@ Native UI on each platform, with the code that talks to the server in Rust:
 - `iosApp/`: iOS app in SwiftUI.
 
 Both apps sign in with a password or single sign-on, whichever the server offers, stay signed in
-between runs, and browse folders.
+between runs, browse folders, and select several rows.
 
 Routes, JSON, session refresh, error mapping, sorting and size/date labels all come from the Rust
 crates, so nothing is mirrored by hand. `mobile-core/src/lib.rs` is a thin mapping to FFI-friendly

@@ -27,16 +27,16 @@ per client, as of 2026-11-06 (checked in source, not by running the apps):
 | Trash: list and restore | Yes | Yes | No | No |
 | Search | Yes | Yes | No | No |
 | Share with links or users | No | No | No | No |
-| Upload files | Yes | Yes | No | No |
+| Upload files | Yes | Yes | Partial: auto-upload only, no file picker | Partial: auto-upload only, no file picker |
 | Drag and drop to upload | No | Yes | n/a | n/a |
-| Resumable uploads | Yes | Yes | No | No |
+| Resumable uploads | Yes | Yes | Yes | Yes |
 | Download a file | Yes | Yes | Yes | Yes |
 | Save to a chosen location | Yes | Partial: the browser picks the folder | Yes | Yes |
 | Keep offline copies on the device | No | No | Yes | Yes |
 | Progress for transfers | Yes | Yes | Yes | Yes |
-| Folder sync from this device | Yes | No | No | No |
-| Quick upload of camera photos | No | No | No | No |
-| Transfers continue with the app closed | n/a | n/a | No | No |
+| Folder sync from this device | Yes | No | One way: auto-upload | One way: auto-upload |
+| Quick upload of camera photos | No | No | Yes | Yes |
+| Transfers continue with the app closed | n/a | n/a | Auto-upload: yes | Auto-upload: when iOS allows |
 
 Sources: `clients/desktop/src/browser`, `clients/desktop/src/transfers.rs`, `clients/desktop/src/sync`,
 `clients/web/src/upload.rs`, `clients/web/src/pages/browser`, `clients/mobile/androidApp`,
@@ -72,6 +72,3 @@ table after each step.
 - Is a delete from the phone a move to the bin, as now? (Yes, unless the trash UI makes it
   confusing.)
 - Should iOS and Android share one data flow for search and trash, or keep the native list state?
-- `docs/todo/android-app.md` says no Android client exists. The browsing app does exist, so that
-  write-up's "Problem" and "Screens" sections are out of date. Its upload-only tracked-folder plan
-  still holds.

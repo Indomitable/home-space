@@ -171,7 +171,7 @@ CREATE TABLE transfer_items (
     button using a file input (`webkitdirectory` for folders) and drag and drop.
   - The web client is a device too, so it can receive: a toast plus an "Incoming" entry in the app
     bar. One file downloads directly, several or a folder as the zip.
-- **Android**: receive and send later, together with [android-app.md](android-app.md). Sending
+- **Android**: receive and send later, together with auto-upload (see `clients/mobile/README.md`). Sending
   from the Android share sheet is the natural entry point there.
 
 ### Steps

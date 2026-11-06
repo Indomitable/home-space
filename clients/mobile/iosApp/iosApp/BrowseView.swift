@@ -48,7 +48,7 @@ struct BrowseView: View {
     }
 }
 
-/// The screens the header's menu leads to. Empty for now.
+/// The screens the header's menu leads to.
 private enum AccountPage: String, Identifiable {
     case profile = "Profile"
     case settings = "Settings"
@@ -148,7 +148,12 @@ private struct FolderView: View {
         }
         .toolbar(selecting && !chosen.isEmpty ? .visible : .hidden, for: .bottomBar)
         .navigationDestination(item: $page) { page in
-            Color.clear.navigationTitle(page.rawValue)
+            switch page {
+            case .profile:
+                Color.clear.navigationTitle(page.rawValue)
+            case .settings:
+                SettingsView(model: model, client: client)
+            }
         }
         .sheet(item: $action) { current in
             FileDialog(action: current, model: model, client: client) {

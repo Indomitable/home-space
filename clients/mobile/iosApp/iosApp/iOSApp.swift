@@ -3,10 +3,18 @@ import SwiftUI
 @main
 struct iOSApp: App {
     @State private var model = SessionModel()
+    @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        BackgroundSync.register()
+    }
 
     var body: some Scene {
         WindowGroup {
             RootView(model: model)
+                .onChange(of: scenePhase, initial: true) { _, phase in
+                    model.appInFront(phase == .active)
+                }
         }
     }
 }

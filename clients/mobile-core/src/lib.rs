@@ -16,8 +16,13 @@ use protocol::{DeviceInfo, NodeId, NodeKind, OnConflict, paths};
 
 #[cfg(target_os = "android")]
 mod android;
+mod autoupload;
 mod files;
 
+pub use autoupload::{
+    AutoUpload, AutoUploadListener, LocalItem, LocalSources, PassSummary, SourceKind, SyncSettings,
+    UploadSource,
+};
 pub use files::DownloadListener;
 
 uniffi::setup_scaffolding!();
@@ -89,6 +94,16 @@ pub enum CoreError {
     /// The download was stopped by [`CoreClient::cancel_download`] or by signing out.
     #[error("the download was cancelled")]
     Cancelled,
+}
+
+/// A foreign implementation threw something other than a `CoreError`.
+impl From<uniffi::UnexpectedUniFFICallbackError> for CoreError {
+    fn from(err: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::Failed {
+            code: "callback".to_owned(),
+            detail: err.reason,
+        }
+    }
 }
 
 impl From<api_client::ApiError> for CoreError {
@@ -236,6 +251,8 @@ pub struct EntryDetails {
     pub device_title: String,
     /// The device, when the server knows it.
     pub device_label: Option<String>,
+    /// The device that auto-uploaded the file, if one did.
+    pub source_device: Option<String>,
 }
 
 /// What to do about files that already exist where others are moved to.
@@ -427,6 +444,8 @@ impl CoreClient {
             let devices = inner.devices().await.unwrap_or_default();
             let is_folder = node.kind == NodeKind::Folder;
             let device_label = labels::edited_on(node.edited_on, &devices);
+            // Only a label, and an older server has none to give.
+            let properties = inner.node_properties(id).await.unwrap_or_default();
             let type_label = if is_folder {
                 "Folder".to_owned()
             } else {
@@ -442,6 +461,7 @@ impl CoreClient {
                 created_at,
                 device_title: if is_folder { "Created on" } else { "Edited on" }.to_owned(),
                 device_label,
+                source_device: properties.source_device,
             })
         })
         .await

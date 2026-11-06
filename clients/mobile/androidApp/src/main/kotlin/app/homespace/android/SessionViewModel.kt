@@ -1,6 +1,7 @@
 package app.homespace.android
 
 import android.app.Application
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
@@ -99,6 +100,13 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     /** The file whose destination the system's save screen is asking for. */
     var pendingSave: Entry? = null
 
+    /** "Sync only on Wi-Fi" is on, and the phone isn't on it. */
+    var waitingForWifi by mutableStateOf(false)
+        private set
+
+    private var sync: ForegroundSync? = null
+    private var appInFront = false
+
     // Only the file tapped last opens when it finishes.
     private var lastTapped: String? = null
 
@@ -127,13 +135,12 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
 
     private fun resume(saved: SavedSession) {
         viewModelScope.launch {
-            val client = newClient(saved.server)
             try {
-                enter(client, client.restore(saved.refreshToken))
+                // Finds the client if background work or an earlier activity already restored it.
+                val active = ClientHolder.resume(getApplication())
+                if (active == null) backToForm() else enter(active)
             } catch (e: CoreException) {
-                client.close()
                 if (e is CoreException.Unauthorized) {
-                    store.forgetSession()
                     backToForm()
                 } else {
                     session = Session.Resuming(saved.server, e.signInMessage())
@@ -179,7 +186,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
             try {
                 val client = newClient(normalizeServerUrl(server))
                 try {
-                    enter(client, client.login(username.trim(), attempt))
+                    adoptAndEnter(client, client.login(username.trim(), attempt))
                 } catch (e: CoreException) {
                     client.close()
                     throw e
@@ -232,7 +239,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             val client = newClient(pending.server)
             try {
-                enter(client, client.finishSso(url, pending.verifier))
+                adoptAndEnter(client, client.finishSso(url, pending.verifier))
             } catch (e: CoreException) {
                 client.close()
                 error = e.signInMessage()
@@ -343,13 +350,17 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
 
     fun signOut() {
         val current = session
+        val active = ClientHolder.active
         store.forgetSession()
         downloads.clear()
+        endSync()
         backToForm()
         if (current is Session.SignedIn) {
             viewModelScope.launch {
-                // Already signed out here; this only revokes the token on the server.
+                // Already signed out here; this only revokes the token on the server. Auto-upload
+                // goes first, since cancelling its uploads takes the session.
                 try {
+                    active?.autoUpload?.wipe()
                     current.client.logout()
                 } catch (_: CoreException) {
                 } finally {
@@ -362,22 +373,67 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     /** The server ended the session while the user was browsing. */
     fun onSessionEnded() {
         val current = session
+        val active = ClientHolder.active
         store.forgetSession()
         downloads.clear()
+        endSync()
         backToForm()
-        if (current is Session.SignedIn) current.client.close()
+        if (current is Session.SignedIn) {
+            viewModelScope.launch {
+                try {
+                    active?.autoUpload?.wipe()
+                } catch (_: CoreException) {
+                } finally {
+                    current.client.close()
+                }
+            }
+        }
     }
 
+    // The client stays with `ClientHolder`, for the next activity or background work.
     override fun onCleared() {
-        (session as? Session.SignedIn)?.client?.close()
+        sync?.stop()
     }
 
-    private fun enter(client: CoreClient, user: SignedInUser) {
+    /** Called as the app comes to the front and leaves it. */
+    fun onForegroundChanged(inFront: Boolean) {
+        appInFront = inFront
+        if (inFront) sync?.start() else sync?.stop()
+    }
+
+    /** Tries what can be tried at once, such as after the user asked. */
+    fun syncNow() {
+        sync?.syncNow()
+    }
+
+    private fun endSync() {
+        sync?.stop()
+        sync = null
+        cancelBackgroundSync(getApplication())
+        // Only auto-upload keeps access to folders, and it forgets its sources now.
+        val resolver = getApplication<Application>().contentResolver
+        resolver.persistedUriPermissions.forEach {
+            runCatching { resolver.releasePersistableUriPermission(it.uri, READ_GRANT) }
+        }
+        ClientHolder.active?.let(ClientHolder::release)
+    }
+
+    private fun adoptAndEnter(client: CoreClient, user: SignedInUser) {
+        enter(ClientHolder.adopt(getApplication(), client, user))
+    }
+
+    private fun enter(active: ActiveSession) {
         username = ""
         error = null
         path.clear()
         path.add(Crumb(null, "Home"))
-        session = Session.SignedIn(client, user)
+        session = Session.SignedIn(active.client, active.user)
+        sync = ForegroundSync(getApplication(), active, viewModelScope, ::onSessionEnded) {
+            viewModelScope.launch { waitingForWifi = !it }
+        }.also {
+            if (appInFront) it.start()
+        }
+        runCatching { applyBackgroundSetting(getApplication(), active.autoUpload.settings()) }
     }
 
     private fun backToForm() {
@@ -386,24 +442,11 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         probeNow()
     }
 
-    private fun newClient(address: String): CoreClient = CoreClient.withSession(
-        address,
-        DeviceIdentity(store.deviceId, Build.MODEL),
-        object : SessionListener {
-            override fun refreshTokenChanged(token: String?) {
-                if (token == null) {
-                    store.forgetSession()
-                } else {
-                    store.saveSession(address, token)
-                }
-            }
-        },
-        File(getApplication<Application>().filesDir, DOWNLOADS_DIR).path,
-    )
+    private fun newClient(address: String): CoreClient =
+        ClientHolder.newClient(getApplication(), address)
 }
 
-/** Under the app's files folder; `res/xml/file_paths.xml` shares this folder with viewers. */
-private const val DOWNLOADS_DIR = "downloads"
+private const val READ_GRANT = Intent.FLAG_GRANT_READ_URI_PERMISSION
 
 private const val SIGN_IN_FAILED = "Signing in failed. Please try again."
 

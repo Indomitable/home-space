@@ -16,26 +16,6 @@ enum Probe {
     case failed(String)
 }
 
-/// Saves the refresh token as soon as Rust reports it: tokens are single use, so one that was
-/// rotated but not saved would sign the user out on the next start.
-private final class TokenSaver: SessionListener {
-    private let server: String
-    private let store: SessionStore
-
-    init(server: String, store: SessionStore) {
-        self.server = server
-        self.store = store
-    }
-
-    func refreshTokenChanged(token: String?) {
-        if let token {
-            store.saveSession(SavedSession(server: server, refreshToken: token))
-        } else {
-            store.forgetSession()
-        }
-    }
-}
-
 /// Forwards download progress to the main actor; reports come from the Rust runtime's threads.
 private final class ProgressForwarder: DownloadListener {
     private let report: @Sendable (String, Double) -> Void
@@ -88,9 +68,12 @@ final class SessionModel {
     private(set) var pendingExport: PendingExport?
     /// A failure with no dialog of its own to appear in.
     var notice: String?
+    /// Runs auto-upload while the app is open and someone is signed in.
+    private(set) var foregroundSync: ForegroundSync?
 
     @ObservationIgnored private let store = SessionStore()
     @ObservationIgnored private var started = false
+    @ObservationIgnored private var isInFront = false
     @ObservationIgnored private var probeTask: Task<Void, Never>?
     @ObservationIgnored private var probeGeneration = 0
     /// Only the file tapped last opens when its download ends.
@@ -127,11 +110,13 @@ final class SessionModel {
     private func resume(_ saved: SavedSession) {
         Task {
             do {
-                let client = try newClient(server: saved.server)
-                let user = try await client.restore(refreshToken: saved.refreshToken)
-                enter(client, user)
+                // Finds the client if a background task already restored it.
+                if let active = try await ClientHolder.shared.resume() {
+                    enter(active)
+                } else {
+                    backToForm()
+                }
             } catch CoreError.Unauthorized {
-                store.forgetSession()
                 backToForm()
             } catch {
                 session = .resuming(server: saved.server, error: signInMessage(for: error))
@@ -322,26 +307,63 @@ final class SessionModel {
 
     func signOut() {
         let current = session
+        let auto = endSync()
         store.forgetSession()
         forgetDownloads()
         backToForm()
         if case .signedIn(let client, _) = current {
-            // Already signed out here; this only revokes the token on the server.
-            Task { try? await client.logout() }
+            // Already signed out here; this only revokes the token on the server. Auto-upload goes
+            // first, since cancelling its uploads takes the session.
+            Task {
+                try? await auto?.wipe()
+                try? await client.logout()
+            }
         }
     }
 
     /// The server ended the session while the user was browsing.
     func sessionEnded() {
+        let auto = endSync()
         store.forgetSession()
         forgetDownloads()
         backToForm()
+        Task { try? await auto?.wipe() }
+    }
+
+    /// Called as the app comes to the front and leaves it.
+    func appInFront(_ inFront: Bool) {
+        isInFront = inFront
+        if inFront {
+            foregroundSync?.start()
+        } else {
+            foregroundSync?.stop()
+            BackgroundSync.schedule()
+        }
+    }
+
+    /// Stops everything that syncs, and returns what to wipe once the session has gone.
+    private func endSync() -> AutoUpload? {
+        let auto = try? ClientHolder.shared.active?.autoUpload()
+        foregroundSync?.stop()
+        foregroundSync = nil
+        ClientHolder.shared.release()
+        BackgroundSync.schedule()
+        return auto
     }
 
     private func enter(_ client: CoreClient, _ user: SignedInUser) {
+        enter(ClientHolder.shared.adopt(client: client, user: user))
+    }
+
+    private func enter(_ active: ActiveSession) {
         username = ""
         error = nil
-        session = .signedIn(client: client, user: user)
+        session = .signedIn(client: active.client, user: active.user)
+        let sync = ForegroundSync(session: active) { [weak self] in self?.sessionEnded() }
+        foregroundSync = sync
+        if isInFront {
+            sync.start()
+        }
     }
 
     private func forgetDownloads() {
@@ -357,24 +379,7 @@ final class SessionModel {
     }
 
     private func newClient(server: String) throws -> CoreClient {
-        try CoreClient.withSession(
-            baseUrl: server,
-            device: DeviceIdentity(id: store.deviceId, name: UIDevice.current.name),
-            listener: TokenSaver(server: server, store: store),
-            filesDir: try Self.downloadsFolder().path
-        )
-    }
-
-    /// Where opened files are kept. They can be downloaded again, so they stay out of backups.
-    private static func downloadsFolder() throws -> URL {
-        var folder = try FileManager.default
-            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            .appendingPathComponent("downloads", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try folder.setResourceValues(values)
-        return folder
+        try ClientHolder.shared.newClient(server: server)
     }
 }
 

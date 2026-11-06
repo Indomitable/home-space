@@ -6,11 +6,16 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.homespace_core.AutoUpload
+import uniffi.homespace_core.AutoUploadListener
 import uniffi.homespace_core.CoreClient
 import uniffi.homespace_core.CoreException
 import uniffi.homespace_core.DeviceIdentity
 import uniffi.homespace_core.DownloadListener
+import uniffi.homespace_core.LocalItem
+import uniffi.homespace_core.LocalSources
 import uniffi.homespace_core.SessionListener
+import uniffi.homespace_core.SourceKind
 import uniffi.homespace_core.humanSize
 import uniffi.homespace_core.normalizeServerUrl
 
@@ -44,6 +49,38 @@ class CoreClientTest {
             assertEquals("nope", e.id)
         } finally {
             client.close()
+        }
+    }
+
+    @Test
+    fun autoUploadNeedsSomeoneSignedIn() {
+        val sources = object : LocalSources {
+            override fun list(kind: SourceKind, handle: String) = emptyList<LocalItem>()
+            override fun stat(kind: SourceKind, handle: String, key: String): LocalItem? = null
+            override fun read(
+                kind: SourceKind,
+                handle: String,
+                key: String,
+                offset: ULong,
+                len: ULong,
+            ) = ByteArray(0)
+        }
+        val listener = object : AutoUploadListener {
+            override fun changed() = Unit
+        }
+        val dir = createTempDirectory().toString()
+        val client = CoreClient.withSession(
+            "http://127.0.0.1:9",
+            DeviceIdentity("00000000-0000-0000-0000-0000000000aa", "Test"),
+            object : SessionListener {
+                override fun refreshTokenChanged(token: String?) = Unit
+            },
+            dir,
+        )
+        client.use {
+            assertThrows(CoreException.Unauthorized::class.java) {
+                AutoUpload.open(it, dir, sources, listener)
+            }
         }
     }
 

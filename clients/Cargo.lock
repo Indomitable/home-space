@@ -3502,6 +3502,7 @@ dependencies = [
  "jni",
  "protocol",
  "rand",
+ "rusqlite",
  "rustls-platform-verifier",
  "serde_json",
  "sha2 0.11.1",

@@ -72,6 +72,9 @@ private struct DetailsSheet: View {
                     if let device = details.deviceLabel {
                         LabeledContent(details.deviceTitle, value: device)
                     }
+                    if let source = details.sourceDevice {
+                        LabeledContent("Uploaded from", value: source)
+                    }
                 }
             }
             .navigationTitle(entry.name)

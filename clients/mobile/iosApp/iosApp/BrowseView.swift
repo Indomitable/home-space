@@ -25,13 +25,6 @@ struct BrowseView: View {
     var body: some View {
         NavigationStack {
             FolderView(model: model, client: client, user: user, folderId: nil, title: "Home")
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Menu(user.username) {
-                            Button("Sign out", role: .destructive) { model.signOut() }
-                        }
-                    }
-                }
         }
         .quickLookPreview(Binding(get: { model.preview }, set: { model.preview = $0 }))
         .sheet(
@@ -55,6 +48,38 @@ struct BrowseView: View {
     }
 }
 
+/// The screens the header's menu leads to. Empty for now.
+private enum AccountPage: String, Identifiable {
+    case profile = "Profile"
+    case settings = "Settings"
+
+    var id: Self { self }
+}
+
+/// The header's menu: who is signed in, and where to go from here.
+private struct AccountMenu: View {
+    let username: String
+    let onOpen: (AccountPage) -> Void
+    let onSignOut: () -> Void
+
+    var body: some View {
+        Menu("Menu", systemImage: "ellipsis.circle") {
+            Section(username) {
+                Button(AccountPage.profile.rawValue, systemImage: "person") { onOpen(.profile) }
+                Button(AccountPage.settings.rawValue, systemImage: "gearshape") { onOpen(.settings) }
+            }
+            Section {
+                Button(
+                    "Sign out",
+                    systemImage: "rectangle.portrait.and.arrow.right",
+                    role: .destructive,
+                    action: onSignOut
+                )
+            }
+        }
+    }
+}
+
 private struct FolderView: View {
     let model: SessionModel
     let client: CoreClient
@@ -66,6 +91,7 @@ private struct FolderView: View {
     @State private var selection = Set<String>()
     @State private var editMode = EditMode.inactive
     @State private var action: FileAction?
+    @State private var page: AccountPage?
 
     private var selecting: Bool { editMode.isEditing }
     private var chosen: [Entry] { entries.filter { selection.contains($0.id) } }
@@ -107,11 +133,23 @@ private struct FolderView: View {
                 }
                 .disabled(entries.isEmpty)
             }
+            if !selecting {
+                ToolbarItem(placement: .topBarTrailing) {
+                    AccountMenu(
+                        username: user.username,
+                        onOpen: { page = $0 },
+                        onSignOut: { model.signOut() }
+                    )
+                }
+            }
             if selecting && !chosen.isEmpty {
                 ToolbarItemGroup(placement: .bottomBar) { selectionActions }
             }
         }
         .toolbar(selecting && !chosen.isEmpty ? .visible : .hidden, for: .bottomBar)
+        .navigationDestination(item: $page) { page in
+            Color.clear.navigationTitle(page.rawValue)
+        }
         .sheet(item: $action) { current in
             FileDialog(action: current, model: model, client: client) {
                 action = nil

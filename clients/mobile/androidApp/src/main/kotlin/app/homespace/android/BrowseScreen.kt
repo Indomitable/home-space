@@ -90,7 +90,12 @@ private enum class RowAction { SAVE, DETAILS, RENAME, MOVE, DELETE, REMOVE_DOWNL
 
 /** Folder browsing through the Rust client (`clients/mobile-core`). */
 @Composable
-fun BrowseScreen(session: Session.SignedIn, model: SessionViewModel, modifier: Modifier = Modifier) {
+fun BrowseScreen(
+    session: Session.SignedIn,
+    model: SessionViewModel,
+    onOpenPage: (AccountPage) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val path = model.path
     val entries = remember { mutableStateListOf<Entry>() }
     var error by remember { mutableStateOf<String?>(null) }
@@ -154,12 +159,12 @@ fun BrowseScreen(session: Session.SignedIn, model: SessionViewModel, modifier: M
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                if (selecting) "${selected.size} selected" else session.user.username,
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.weight(1f),
-            )
             if (selecting) {
+                Text(
+                    "${selected.size} selected",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f),
+                )
                 if (selected.size < entries.size) {
                     TextButton(onClick = { selected = entries.map { it.id }.toSet() }) {
                         Text("Select all")
@@ -167,7 +172,16 @@ fun BrowseScreen(session: Session.SignedIn, model: SessionViewModel, modifier: M
                 }
                 TextButton(onClick = { selected = emptySet() }) { Text("Cancel") }
             } else {
-                TextButton(onClick = model::signOut) { Text("Sign out") }
+                CurrentFolder(
+                    path,
+                    onOpenParent = { index -> path.removeRange(index + 1, path.size) },
+                    modifier = Modifier.weight(1f),
+                )
+                AccountMenu(
+                    username = session.user.username,
+                    onOpenPage = onOpenPage,
+                    onSignOut = model::signOut,
+                )
             }
         }
         if (selecting) {
@@ -178,7 +192,6 @@ fun BrowseScreen(session: Session.SignedIn, model: SessionViewModel, modifier: M
                 onAction = { action = it },
             )
         }
-        CurrentFolder(path, onOpenParent = { index -> path.removeRange(index + 1, path.size) })
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         LazyColumn {
             items(entries, key = { it.id }) { entry ->
@@ -256,10 +269,10 @@ private fun SelectionActions(
 
 /** The folder being browsed; tapping it lists the folders above it, to jump back to any of them. */
 @Composable
-private fun CurrentFolder(path: List<Crumb>, onOpenParent: (Int) -> Unit) {
+private fun CurrentFolder(path: List<Crumb>, onOpenParent: (Int) -> Unit, modifier: Modifier = Modifier) {
     val parents = path.dropLast(1)
     var expanded by remember { mutableStateOf(false) }
-    Box {
+    Box(modifier) {
         Row(
             modifier = Modifier
                 .clickable(
@@ -271,7 +284,7 @@ private fun CurrentFolder(path: List<Crumb>, onOpenParent: (Int) -> Unit) {
         ) {
             Text(
                 path.lastOrNull()?.name.orEmpty(),
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
@@ -291,6 +304,56 @@ private fun CurrentFolder(path: List<Crumb>, onOpenParent: (Int) -> Unit) {
                     },
                 )
             }
+        }
+    }
+}
+
+/** The header's menu: who is signed in, and where to go from here. */
+@Composable
+private fun AccountMenu(
+    username: String,
+    onOpenPage: (AccountPage) -> Unit,
+    onSignOut: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }, modifier = Modifier.size(MENU_BUTTON_SIZE)) {
+            Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "Menu")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            Text(
+                username,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text(AccountPage.PROFILE.title) },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_person), contentDescription = null) },
+                onClick = {
+                    expanded = false
+                    onOpenPage(AccountPage.PROFILE)
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(AccountPage.SETTINGS.title) },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_settings), contentDescription = null) },
+                onClick = {
+                    expanded = false
+                    onOpenPage(AccountPage.SETTINGS)
+                },
+            )
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Sign out") },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_logout), contentDescription = null) },
+                onClick = {
+                    expanded = false
+                    onSignOut()
+                },
+            )
         }
     }
 }

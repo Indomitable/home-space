@@ -342,9 +342,19 @@ final class SessionModel {
         runUploads()
     }
 
+    /// Everything paused goes again, as one thing the user did.
+    func continueUploads() {
+        guard let queue = uploadQueue() else { return }
+        for upload in uploads where upload.state == .paused {
+            try? queue.retry(key: upload.key)
+        }
+        ContinuedUploads.begin(queue: queue)
+        runUploads()
+    }
+
     /// Whether Retry can help: there is a copy, or the photo is still at hand in this run.
     func canRetry(_ upload: QueuedUpload) -> Bool {
-        upload.state == .offline || (upload.state == .failed && (upload.canRetry || pickedPhotos[upload.key] != nil))
+        upload.state == .offline || upload.state == .paused || (upload.state == .failed && (upload.canRetry || pickedPhotos[upload.key] != nil))
     }
 
     /// Gives up on an upload: the row goes now, and a running one stops at its next chunk.

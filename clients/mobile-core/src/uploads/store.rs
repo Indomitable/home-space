@@ -18,10 +18,12 @@ const SCHEMA: &str = "
         size     INTEGER NOT NULL,
         done     INTEGER NOT NULL,      -- bytes the server had when last heard
         session  TEXT,                  -- the server's upload session
-        problem  TEXT                   -- why it stopped, for the user; it waits for a retry
+        problem  TEXT,                  -- why it stopped, for the user; it waits for a retry
+        paused   INTEGER NOT NULL DEFAULT 0 -- it waits for the user to continue
     );
 ";
-const COLUMNS: &str = "key, parent, folder, name, source, ready, size, done, session, problem";
+const COLUMNS: &str =
+    "key, parent, folder, name, source, ready, size, done, session, problem, paused";
 
 pub(super) type Result<T> = rusqlite::Result<T>;
 
@@ -37,6 +39,7 @@ pub(super) struct Row {
     pub done: u64,
     pub session: Option<Uuid>,
     pub problem: Option<String>,
+    pub paused: bool,
 }
 
 fn row_of(row: &rusqlite::Row<'_>) -> Result<Row> {
@@ -53,6 +56,7 @@ fn row_of(row: &rusqlite::Row<'_>) -> Result<Row> {
         // One that can't be read is one the server can't be asked about, so it starts anew.
         session: session.and_then(|id| Uuid::parse_str(&id).ok()),
         problem: row.get(9)?,
+        paused: row.get(10)?,
     })
 }
 
@@ -65,6 +69,15 @@ impl Store {
         let db = Connection::open(path)?;
         db.execute_batch("PRAGMA journal_mode = WAL;")?;
         db.execute_batch(SCHEMA)?;
+        // A queue from before pausing keeps its files.
+        let has_paused: bool = db.query_row(
+            "SELECT EXISTS (SELECT 1 FROM pragma_table_info('queue') WHERE name = 'paused')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_paused {
+            db.execute_batch("ALTER TABLE queue ADD COLUMN paused INTEGER NOT NULL DEFAULT 0")?;
+        }
         Ok(Self { db: Mutex::new(db) })
     }
 
@@ -97,13 +110,14 @@ impl Store {
         rows.collect()
     }
 
-    /// The next one that can go: not stopped by a problem, and with a copy or a way to make one.
+    /// The next one that can go: not paused or stopped by a problem, and with a copy or a way to
+    /// make one.
     pub fn next(&self) -> Result<Option<Row>> {
         self.db()
             .query_row(
                 &format!(
                     "SELECT {COLUMNS} FROM queue
-                     WHERE problem IS NULL AND (ready = 1 OR source IS NOT NULL)
+                     WHERE problem IS NULL AND paused = 0 AND (ready = 1 OR source IS NOT NULL)
                      ORDER BY position LIMIT 1"
                 ),
                 [],
@@ -143,6 +157,22 @@ impl Store {
         self.db().execute(
             "UPDATE queue SET problem = ?2 WHERE key = ?1",
             params![key, problem],
+        )?;
+        Ok(())
+    }
+
+    /// Everything that could still go waits for the user.
+    pub fn pause_all(&self) -> Result<()> {
+        self.db()
+            .execute("UPDATE queue SET paused = 1 WHERE problem IS NULL", [])?;
+        Ok(())
+    }
+
+    /// It can go again, whether it was paused or stopped by a problem.
+    pub fn resume(&self, key: &str) -> Result<()> {
+        self.db().execute(
+            "UPDATE queue SET problem = NULL, paused = 0 WHERE key = ?1",
+            [key],
         )?;
         Ok(())
     }

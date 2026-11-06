@@ -206,7 +206,7 @@ enum BackgroundSync {
 
 /// Lets the picked files carry on after the user leaves the app, where iOS 26 offers it: the system
 /// shows the progress and may end the task, and the user can end it from there. It must start from
-/// something the user did, so it starts on picking files or on Retry, not when the app opens. On
+/// something the user did, so it starts on picking files, Retry or Continue, not when the app opens. On
 /// earlier versions, and when it can't start, uploads get only the short time any app gets.
 enum ContinuedUploads {
     /// Whether the task is keeping the app running, so its short background time doesn't matter.
@@ -294,9 +294,10 @@ private final class ContinuedUploadTask {
         }
         self.task = task
         var expired = false
-        // The rows stay, and carry on when the app next opens.
+        // iOS doesn't say whether it or the user ended the task, so the files wait for the user
+        // either way. Continuing is something the user did, so it can start a task again.
         task.expirationHandler = {
-            queue.stop()
+            try? queue.pause()
             Task { @MainActor in expired = true }
         }
         report((try? queue.items()) ?? [])
@@ -309,6 +310,10 @@ private final class ContinuedUploadTask {
             guard !expired, fetching, summary?.stopped == false, summary?.offline == false else { break }
             try? await Task.sleep(for: .seconds(1))
         }
+        // `report` has nothing to show once the queue is empty.
+        if succeeded && !expired {
+            task.progress.completedUnitCount = task.progress.totalUnitCount
+        }
         self.task = nil
         self.queue = nil
         isRunning = false
@@ -318,7 +323,7 @@ private final class ContinuedUploadTask {
     /// Each file counts the same, so that the bar doesn't jump when a copy's size becomes known.
     func report(_ items: [QueuedUpload]) {
         guard let task else { return }
-        let going = items.filter { $0.state != .failed }
+        let going = items.filter { $0.state != .failed && $0.state != .paused }
         guard !going.isEmpty else { return }
         finished = max(finished, known.subtracting(going.map(\.key)).count)
         known.formUnion(going.map(\.key))

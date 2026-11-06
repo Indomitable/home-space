@@ -25,6 +25,10 @@ use crate::{CoreClient, CoreError, RUNTIME, off_ui_thread, parse_id};
 
 /// Shown for a file whose copy was still being made when the app ended, on a platform that can't
 /// get back to the original.
+/// Largest chunk sent, whatever the server allows. Progress moves once per chunk, so this keeps it
+/// moving on a slow connection, and it is the most that is sent again after a dropped one.
+const MAX_CHUNK_BYTES: u64 = 4 * 1024 * 1024;
+
 const PICK_AGAIN: &str = "The app closed before this file was ready. Pick it again.";
 const COPY_GONE: &str = "The copy of this file has gone. Pick it again.";
 const FOLDER_GONE: &str = "The folder this file goes to no longer exists.";
@@ -49,6 +53,8 @@ pub enum QueuedUploadState {
     Uploading,
     /// The server can't be reached. It goes on the next [`UploadQueue::run`].
     Offline,
+    /// Waits for the user to continue or cancel. See [`UploadQueue::pause`].
+    Paused,
     /// Stopped for the reason in `problem`, until the user retries or cancels.
     Failed,
 }
@@ -67,7 +73,7 @@ pub struct QueuedUpload {
     /// The size of the file; 0 until its copy is made.
     pub total: u64,
     pub problem: Option<String>,
-    /// Whether [`UploadQueue::retry`] can help.
+    /// Whether [`UploadQueue::retry`] can help. It also continues a paused file.
     pub can_retry: bool,
 }
 
@@ -76,8 +82,10 @@ pub struct QueuedUpload {
 pub struct QueueSummary {
     /// Files that will go on a later run.
     pub remaining: u64,
-    /// Files waiting for the user.
+    /// Files waiting for the user after a problem.
     pub failed: u64,
+    /// Files waiting for the user to continue.
+    pub paused: u64,
     /// The server can't be reached.
     pub offline: bool,
     /// [`UploadQueue::stop`] ended the run.
@@ -89,6 +97,8 @@ struct Active {
     key: String,
     copying: bool,
     cancel: Arc<AtomicBool>,
+    /// Keeps it stopped if a new run clears [`Inner::stop`] before its next chunk.
+    pause: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -228,6 +238,7 @@ impl UploadQueue {
                     Some(_) => QueuedUploadState::Uploading,
                     None if row.problem.is_some() => QueuedUploadState::Failed,
                     None if !row.ready && row.source.is_none() => QueuedUploadState::Preparing,
+                    None if row.paused => QueuedUploadState::Paused,
                     None if offline => QueuedUploadState::Offline,
                     None => QueuedUploadState::Waiting,
                 };
@@ -276,12 +287,29 @@ impl UploadQueue {
         self.inner.stop.store(true, Ordering::Relaxed);
     }
 
-    /// Lets a file that stopped on a problem go again on the next [`UploadQueue::run`].
+    /// Ends the run at the next chunk, and nothing in the queue goes until the user continues it
+    /// with [`UploadQueue::retry`]. This lasts when the app next opens, unlike
+    /// [`UploadQueue::stop`]. Files added later go as usual.
+    pub fn pause(&self) -> Result<(), CoreError> {
+        let paused = self.inner.store.pause_all().map_err(storage_error);
+        if let Some(active) = self
+            .inner
+            .active
+            .lock()
+            .expect("active upload lock")
+            .as_ref()
+        {
+            active.pause.store(true, Ordering::Relaxed);
+        }
+        self.stop();
+        self.inner.listener.changed();
+        paused
+    }
+
+    /// Lets a file that was paused or stopped on a problem go again on the next
+    /// [`UploadQueue::run`].
     pub fn retry(&self, key: String) -> Result<(), CoreError> {
-        self.inner
-            .store
-            .set_problem(&key, None)
-            .map_err(storage_error)?;
+        self.inner.store.resume(&key).map_err(storage_error)?;
         self.inner.listener.changed();
         Ok(())
     }
@@ -379,13 +407,15 @@ impl Inner {
                 }
                 let key = row.key.clone();
                 let cancel = Arc::new(AtomicBool::new(false));
+                let pause = Arc::new(AtomicBool::new(false));
                 *self.active.lock().expect("active upload lock") = Some(Active {
                     key: key.clone(),
                     copying: !row.ready,
                     cancel: cancel.clone(),
+                    pause: pause.clone(),
                 });
                 self.listener.changed();
-                let sent = self.send(row, &cancel).await;
+                let sent = self.send(row, &cancel, &pause).await;
                 *self.active.lock().expect("active upload lock") = None;
                 match sent {
                     Sent::Done => {}
@@ -405,13 +435,18 @@ impl Inner {
 
             let rows = self.store.rows().unwrap_or_default();
             let failed = rows.iter().filter(|row| row.problem.is_some()).count() as u64;
+            let paused = rows
+                .iter()
+                .filter(|row| row.paused && row.problem.is_none())
+                .count() as u64;
             let mut runner = self.runner.lock().expect("upload runner lock");
             if std::mem::take(&mut runner.again) && !self.wiped.load(Ordering::Relaxed) {
                 continue;
             }
             runner.last = QueueSummary {
-                remaining: rows.len() as u64 - failed,
+                remaining: rows.len() as u64 - failed - paused,
                 failed,
+                paused,
                 offline,
                 stopped,
             };
@@ -423,7 +458,7 @@ impl Inner {
         }
     }
 
-    async fn send(&self, mut row: Row, cancel: &AtomicBool) -> Sent {
+    async fn send(&self, mut row: Row, cancel: &AtomicBool, pause: &AtomicBool) -> Sent {
         let copy = self.copy_of(&row.key);
         if !row.ready {
             let Some(source) = row.source.clone() else {
@@ -454,10 +489,11 @@ impl Inner {
             return Sent::Done;
         }
 
-        let session = match self.session(&row).await {
+        let mut session = match self.session(&row).await {
             Ok(session) => session,
             Err(err) => return self.failed(&err),
         };
+        session.chunk_size = session.chunk_size.min(MAX_CHUNK_BYTES);
         match self.store.set_session(&row.key, session.id, session.offset) {
             Ok(true) => {}
             Ok(false) | Err(_) => {
@@ -475,8 +511,9 @@ impl Inner {
                 session,
                 row.size,
                 |offset, len| {
-                    let halted =
-                        cancel.load(Ordering::Relaxed) || self.stop.load(Ordering::Relaxed);
+                    let halted = cancel.load(Ordering::Relaxed)
+                        || pause.load(Ordering::Relaxed)
+                        || self.stop.load(Ordering::Relaxed);
                     let (copy, read_failed) = (&copy, &read_failed);
                     async move {
                         if halted {
@@ -515,7 +552,9 @@ impl Inner {
                 let _ = self.client.cancel_upload(session.id).await;
                 Sent::Done
             }
-            Err(_) if self.stop.load(Ordering::Relaxed) => Sent::Stopped,
+            Err(_) if pause.load(Ordering::Relaxed) || self.stop.load(Ordering::Relaxed) => {
+                Sent::Stopped
+            }
             Err(err) => self.failed(&err),
         }
     }

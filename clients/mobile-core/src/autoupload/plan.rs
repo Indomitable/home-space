@@ -34,8 +34,6 @@ pub(super) struct Record {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Step {
-    /// Was already there when the source was added, and the user chose not to upload those.
-    LeaveOut(Item),
     /// Has not been sent before. A different file with its name on the server is kept too.
     First(Item),
     /// Changed since it was sent. It goes to the same name, which makes a new version if taken.
@@ -49,6 +47,8 @@ pub(super) enum Step {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(super) struct Plan {
     pub steps: Vec<Step>,
+    /// Were already there when the source was added, and the user chose not to upload those.
+    pub left_out: Vec<Item>,
     /// Files changed so recently that something may still be writing them.
     pub settling: usize,
 }
@@ -71,7 +71,7 @@ pub(super) fn plan(
             continue;
         }
         if leave_out_existing && record.is_none() {
-            plan.steps.push(Step::LeaveOut(item.clone()));
+            plan.left_out.push(item.clone());
             continue;
         }
         if now.saturating_sub(item.mtime) < SETTLE_NANOS {
@@ -186,7 +186,8 @@ mod tests {
     fn existing_files_can_be_left_out_on_the_first_pass() {
         let existing = item("a", 10, OLD);
         let plan = plan(std::slice::from_ref(&existing), &HashMap::new(), true, NOW);
-        assert_eq!(plan.steps, vec![Step::LeaveOut(existing)]);
+        assert_eq!(plan.left_out, vec![existing]);
+        assert!(plan.steps.is_empty());
     }
 
     #[test]

@@ -8,7 +8,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
 
-use super::plan::Record;
+use super::plan::{Item, Record};
 
 const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS settings (
@@ -227,12 +227,28 @@ impl Store {
         Ok(())
     }
 
-    pub fn existing_seen(&self, id: &str) -> Result<()> {
-        self.db().execute(
+    /// Records the files a source held when added as left out, and ends its first pass.
+    pub fn leave_out(&self, id: &str, items: &[Item]) -> Result<()> {
+        let mut db = self.db();
+        let tx = db.transaction()?;
+        for item in items {
+            put_record(
+                &tx,
+                id,
+                &Record {
+                    key: item.key.clone(),
+                    size: item.size,
+                    mtime: item.mtime,
+                    remote_name: None,
+                    remote_dir: item.dir.clone(),
+                },
+            )?;
+        }
+        tx.execute(
             "UPDATE sources SET leave_out_existing = 0 WHERE id = ?1",
             [id],
         )?;
-        Ok(())
+        tx.commit()
     }
 
     pub fn set_last_synced(&self, id: &str, at: i64) -> Result<()> {
@@ -304,22 +320,7 @@ impl Store {
     }
 
     pub fn save_record(&self, source: &str, record: &Record) -> Result<()> {
-        self.db().execute(
-            "INSERT INTO records (source, key, size, mtime, remote_name, remote_dir) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
-             ON CONFLICT (source, key) DO UPDATE SET size = excluded.size, \
-             mtime = excluded.mtime, remote_name = excluded.remote_name, \
-             remote_dir = excluded.remote_dir",
-            params![
-                source,
-                record.key,
-                record.size.cast_signed(),
-                record.mtime,
-                record.remote_name,
-                record.remote_dir,
-            ],
-        )?;
-        Ok(())
+        put_record(&self.db(), source, record)
     }
 
     pub fn folder(&self, source: &str, dir: &str) -> Result<Option<String>> {
@@ -393,4 +394,23 @@ impl Store {
         )?;
         Ok(())
     }
+}
+
+fn put_record(db: &Connection, source: &str, record: &Record) -> Result<()> {
+    db.execute(
+        "INSERT INTO records (source, key, size, mtime, remote_name, remote_dir) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
+         ON CONFLICT (source, key) DO UPDATE SET size = excluded.size, \
+         mtime = excluded.mtime, remote_name = excluded.remote_name, \
+         remote_dir = excluded.remote_dir",
+        params![
+            source,
+            record.key,
+            record.size.cast_signed(),
+            record.mtime,
+            record.remote_name,
+            record.remote_dir,
+        ],
+    )?;
+    Ok(())
 }

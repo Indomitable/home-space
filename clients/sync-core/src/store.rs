@@ -398,7 +398,7 @@ fn path_text(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sync::layout::tests::{id, node};
+    use crate::layout::tests::{id, node};
 
     fn base(n: u128, path: &str) -> Base {
         Base {

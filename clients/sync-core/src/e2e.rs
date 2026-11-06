@@ -2,7 +2,7 @@
 //!
 //! ```sh
 //! HOME_SPACE_E2E_SERVER=http://127.0.0.1:8080 HOME_SPACE_E2E_USER=alice \
-//! HOME_SPACE_E2E_PASSWORD=... cargo test -p desktop e2e -- --ignored --test-threads 1
+//! HOME_SPACE_E2E_PASSWORD=... cargo test -p sync-core e2e -- --ignored --test-threads 1
 //! ```
 //!
 //! Each run works in a fresh root folder of that account. A second client stands for the
@@ -14,12 +14,14 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use iced::futures::channel::mpsc;
+use futures::channel::mpsc;
 
 use api_client::Client;
 use protocol::{Node, NodeId, NodeKind};
 
-use super::{Command, Engine, Mapping, Update, store::Store};
+use std::sync::Arc;
+
+use super::{Command, Engine, Mapping, PrivateFiles, Update, store::Store};
 
 const PASSES: usize = 4;
 
@@ -75,7 +77,12 @@ async fn setup(name: &str) -> Setup {
     let local = temp_dir(name);
     let (mut output, updates) = mpsc::channel(4096);
     let (sender, commands) = tokio::sync::mpsc::unbounded_channel();
-    let mut engine = Engine::load(mine, Store::in_memory().expect("store")).expect("engine");
+    let mut engine = Engine::load(
+        mine,
+        Store::in_memory().expect("store"),
+        Arc::new(PrivateFiles),
+    )
+    .expect("engine");
     engine
         .handle(
             Command::Map(Mapping {

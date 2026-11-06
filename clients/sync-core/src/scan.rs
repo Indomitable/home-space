@@ -322,7 +322,7 @@ mod tests {
             fs::write(root.join(name), content).expect("file");
         }
         let gone = |n: u128, name: &str, size: u64| Base {
-            node: crate::sync::layout::tests::id(n),
+            node: crate::layout::tests::id(n),
             path: root.join(name),
             kind: NodeKind::File,
             sha256: Some("old".to_owned()),
@@ -389,7 +389,7 @@ mod tests {
         fs::write(&path, "hello").expect("a");
         let meta = fs::metadata(&path).expect("meta");
         let base = Base {
-            node: crate::sync::layout::tests::id(1),
+            node: crate::layout::tests::id(1),
             path: path.clone(),
             kind: NodeKind::File,
             sha256: Some("recorded".to_owned()),
@@ -417,7 +417,7 @@ mod tests {
         fs::write(&path, "hello").expect("a");
         let meta = fs::metadata(&path).expect("meta");
         let base = Base {
-            node: crate::sync::layout::tests::id(1),
+            node: crate::layout::tests::id(1),
             path: path.clone(),
             kind: NodeKind::File,
             sha256: Some("recorded".to_owned()),

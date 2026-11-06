@@ -76,7 +76,7 @@ CREATE TABLE group_members (
 ### Desktop sync ignore list
 
 The desktop client skips some names when it syncs (`IGNORED_NAMES`, `IGNORED_PREFIXES` and
-`IGNORED_SUFFIXES` in `clients/desktop/src/sync/scan.rs`, applied by `is_ignored`). The list is
+`IGNORED_SUFFIXES` in `clients/sync-core/src/scan.rs`, applied by `is_ignored`). The list is
 hard-coded, so changing it means a new client build.
 
 - Make it a server-side setting that admins edit in the panel: exact names, prefixes and

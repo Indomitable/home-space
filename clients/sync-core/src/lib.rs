@@ -1,4 +1,5 @@
-//! Two-way sync of mapped remote folders with local folders.
+//! Two-way sync of mapped remote folders with local folders, shared by the desktop and mobile
+//! clients. What differs between them is behind [`Platform`].
 //!
 //! Every pass compares three states per path: the remote tree (kept current from the
 //! server's change journal), a scan of the local folders and the bases recorded when both
@@ -27,8 +28,9 @@ mod status;
 mod store;
 
 use std::{
+    any::Any,
     collections::{HashMap, HashSet},
-    hash::{Hash, Hasher},
+    io,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -39,15 +41,11 @@ use std::{
 
 use time::OffsetDateTime;
 
-use iced::{
-    Subscription,
-    futures::{SinkExt, Stream, StreamExt, channel::mpsc::Sender},
-};
-use notify::{RecursiveMode, Watcher};
+use futures::{SinkExt, StreamExt, channel::mpsc::Sender};
 use tokio::{sync::mpsc, time::Instant};
 
 use api_client::{ApiError, Client};
-use protocol::{Event, NodeId, UserId};
+use protocol::{Event, NodeId};
 
 use self::{
     apply::{Effect, Failure, Folders},
@@ -57,16 +55,15 @@ use self::{
     remote::{Delta, Mirror},
     scan::Scan,
     status::Badges,
-    store::Store,
 };
 pub use self::{
+    apply::{part_path, read_range},
     model::Mapping,
     queue::{Fault, ItemState, Operation, QueueItem as Item, Summary},
     status::Badge,
+    store::Store,
 };
-use crate::session;
 
-const BUFFER: usize = 64;
 const TRANSFERS: usize = 4;
 /// Local changes come in bursts; a pass waits for the burst to settle.
 const SETTLE: Duration = Duration::from_secs(1);
@@ -81,6 +78,36 @@ const MAX_OUTAGE_BACKOFF: Duration = Duration::from_secs(5 * 60);
 const UNREADABLE_CODE: &str = "unreadable";
 /// How often badges are refreshed while a pass is transferring.
 const PROGRESS: Duration = Duration::from_millis(500);
+
+/// What the engine needs from the platform it runs on. The defaults suit an app that keeps its
+/// synced files to itself: nothing else changes them and there is no recycle bin to use.
+pub trait Platform: Send + Sync + 'static {
+    /// The app's own data, which no local folder of a mapping may overlap.
+    fn protected_dir(&self) -> Option<PathBuf> {
+        None
+    }
+
+    /// Takes away a local file whose node is gone from the server. May block.
+    fn remove_file(&self, path: &Path) -> io::Result<()> {
+        std::fs::remove_file(path)
+    }
+
+    /// Starts reporting changes under `roots` as `()` on `changed`, for as long as the returned
+    /// value is kept.
+    fn watch(
+        &self,
+        _roots: &[&Path],
+        _changed: mpsc::UnboundedSender<()>,
+    ) -> Option<Box<dyn Any + Send>> {
+        None
+    }
+}
+
+/// A [`Platform`] that relies on all the defaults.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PrivateFiles;
+
+impl Platform for PrivateFiles {}
 
 /// What the sync reports to the app.
 #[derive(Debug, Clone)]
@@ -220,96 +247,77 @@ impl Commands {
     }
 }
 
-struct Account {
+/// Runs the sync until the session ends or the app stops listening. Reports to `output`.
+pub async fn run(
     client: Client,
-    user: UserId,
-}
-
-impl Hash for Account {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.client.url("").hash(state);
-        self.user.hash(state);
-    }
-}
-
-/// Runs the sync for the signed-in `user` until the session ends.
-pub fn subscription(client: &Client, user: UserId) -> Subscription<Update> {
-    Subscription::run_with(
-        Account {
-            client: client.clone(),
-            user,
-        },
-        |account| run(account.client.clone(), account.user),
-    )
-}
-
-fn run(client: Client, user: UserId) -> impl Stream<Item = Update> {
-    iced::stream::channel(BUFFER, async move |mut output: Sender<Update>| {
-        let opened = session::data_dir()
-            .ok_or_else(|| "HOME is not set".to_owned())
-            .and_then(|dir| {
-                Store::open(&dir.join(format!("sync-{user}.db"))).map_err(|err| err.to_string())
-            })
-            .and_then(|store| Engine::load(client, store).map_err(|err| err.to_string()));
-        let mut engine = match opened {
-            Ok(engine) => engine,
-            Err(error) => {
-                let status = Status {
-                    error: Some(format!("sync is unavailable: {error}")),
-                    ..Status::default()
-                };
-                let _ = output.send(Update::Status(Arc::new(status))).await;
-                return;
-            }
-        };
-        let (commands, mut received) = mpsc::unbounded_channel();
-        if output
-            .send(Update::Ready(Commands(commands)))
-            .await
-            .is_err()
-        {
+    store: Store,
+    platform: Arc<dyn Platform>,
+    mut output: Sender<Update>,
+) {
+    let mut engine = match Engine::load(client, store, platform) {
+        Ok(engine) => engine,
+        Err(error) => {
+            let _ = output
+                .send(Update::Status(Arc::new(unavailable(&error))))
+                .await;
             return;
         }
-        let (changed, mut local_changes) = mpsc::unbounded_channel();
-        let mut watcher = engine.watch(&changed);
-        let mut due = Some(Instant::now());
-        let mut interrupted: Option<Command> = None;
-        loop {
-            let wake = due.unwrap_or_else(|| Instant::now() + RESCAN);
-            tokio::select! {
-                command = async {
-                    match interrupted.take() {
-                        Some(command) => Some(command),
-                        None => received.recv().await,
-                    }
-                } => {
-                    let Some(command) = command else { break };
-                    if engine.is_echo(&command) {
-                        continue;
-                    }
-                    if engine.handle(command, &mut output).await {
-                        watcher = engine.watch(&changed);
-                        engine.activity = Activity::Checking;
-                        engine.report_now(&mut output).await;
-                    }
-                    due = Some(due.map_or(Instant::now(), |at| at.min(Instant::now())));
+    };
+    let (commands, mut received) = mpsc::unbounded_channel();
+    if output
+        .send(Update::Ready(Commands(commands)))
+        .await
+        .is_err()
+    {
+        return;
+    }
+    let (changed, mut local_changes) = mpsc::unbounded_channel();
+    let mut watcher = engine.watch(&changed);
+    let mut due = Some(Instant::now());
+    let mut interrupted: Option<Command> = None;
+    loop {
+        let wake = due.unwrap_or_else(|| Instant::now() + RESCAN);
+        tokio::select! {
+            command = async {
+                match interrupted.take() {
+                    Some(command) => Some(command),
+                    None => received.recv().await,
                 }
-                Some(()) = local_changes.recv() => {
-                    due.get_or_insert_with(|| Instant::now() + SETTLE);
+            } => {
+                let Some(command) = command else { break };
+                if engine.is_echo(&command) {
+                    continue;
                 }
-                () = tokio::time::sleep_until(wake) => {
-                    match engine.pass(&mut output, &mut received).await {
-                        Ok(next) => due = next.map(|delay| Instant::now() + delay),
-                        Err(SignedOut) => break,
-                    }
-                    interrupted = engine.interrupted.take();
-                    // Our own writes during the pass were reported too; they need no pass.
-                    while local_changes.try_recv().is_ok() {}
+                if engine.handle(command, &mut output).await {
+                    watcher = engine.watch(&changed);
+                    engine.activity = Activity::Checking;
+                    engine.report_now(&mut output).await;
                 }
+                due = Some(due.map_or(Instant::now(), |at| at.min(Instant::now())));
+            }
+            Some(()) = local_changes.recv() => {
+                due.get_or_insert_with(|| Instant::now() + SETTLE);
+            }
+            () = tokio::time::sleep_until(wake) => {
+                match engine.pass(&mut output, &mut received).await {
+                    Ok(next) => due = next.map(|delay| Instant::now() + delay),
+                    Err(SignedOut) => break,
+                }
+                interrupted = engine.interrupted.take();
+                // Our own writes during the pass were reported too; they need no pass.
+                while local_changes.try_recv().is_ok() {}
             }
         }
-        drop(watcher);
-    })
+    }
+    drop(watcher);
+}
+
+/// The state to report when the sync cannot start.
+pub fn unavailable(error: &impl std::fmt::Display) -> Status {
+    Status {
+        error: Some(format!("sync is unavailable: {error}")),
+        ..Status::default()
+    }
 }
 
 /// The session ended; the engine stops.
@@ -327,6 +335,7 @@ struct Problem {
 
 struct Engine {
     client: Client,
+    platform: Arc<dyn Platform>,
     store: Arc<Store>,
     mirror: Mirror,
     mappings: Vec<Mapping>,
@@ -358,7 +367,7 @@ impl Drop for Engine {
 }
 
 impl Engine {
-    fn load(client: Client, store: Store) -> rusqlite::Result<Self> {
+    fn load(client: Client, store: Store, platform: Arc<dyn Platform>) -> rusqlite::Result<Self> {
         let mirror = Mirror {
             nodes: store
                 .remote_nodes()?
@@ -369,6 +378,7 @@ impl Engine {
         };
         Ok(Self {
             client,
+            platform,
             mappings: store.mappings()?,
             reload: mirror.cursor.is_none(),
             verify: HashSet::new(),
@@ -386,20 +396,13 @@ impl Engine {
     }
 
     /// Watches the mapped local folders; changes are reported as `()` on `changed`.
-    fn watch(&self, changed: &mpsc::UnboundedSender<()>) -> Option<notify::RecommendedWatcher> {
-        let changed = changed.clone();
-        let mut watcher =
-            notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-                if event.is_ok_and(|event| !event.kind.is_access()) {
-                    let _ = changed.send(());
-                }
-            })
-            .ok()?;
-        for root in self.mappings.iter().filter_map(|m| m.local.as_deref()) {
-            // A folder that is missing now (an unmounted drive) is picked up by the rescan.
-            let _ = watcher.watch(root, RecursiveMode::Recursive);
-        }
-        Some(watcher)
+    fn watch(&self, changed: &mpsc::UnboundedSender<()>) -> Option<Box<dyn Any + Send>> {
+        let roots: Vec<&Path> = self
+            .mappings
+            .iter()
+            .filter_map(|m| m.local.as_deref())
+            .collect();
+        self.platform.watch(&roots, changed.clone())
     }
 
     /// Applies a command; returns whether the watched folders changed.
@@ -433,7 +436,7 @@ impl Engine {
                         .filter(|m| m.remote != mapping.remote)
                         .filter_map(|m| m.local.as_deref())
                         .collect();
-                    let data = session::data_dir();
+                    let data = self.platform.protected_dir();
                     if let Some(reason) = layout::conflict(local, &others, data.as_deref()) {
                         let _ = output.send(Update::Rejected(reason)).await;
                         return false;
@@ -684,11 +687,17 @@ impl Engine {
                 let snapshot = folders.clone();
                 let client = self.client.clone();
                 let store = Arc::clone(&self.store);
+                let platform = Arc::clone(&self.platform);
                 let progress = Arc::clone(&self.progress);
                 let halt = Arc::clone(&breaker.halt);
-                let mut outcomes = apply::execute_all(
-                    &client, &store, &snapshot, &progress, &halt, now, TRANSFERS,
-                );
+                let shared = apply::Shared {
+                    client: &client,
+                    store: &store,
+                    platform: &platform,
+                    folders: &snapshot,
+                    progress: &progress,
+                };
+                let mut outcomes = apply::execute_all(shared, &halt, now, TRANSFERS);
                 let mut tick = tokio::time::interval(PROGRESS);
                 loop {
                     // A large file reports on the tick, between the ends of transfers.
@@ -716,6 +725,7 @@ impl Engine {
                     let outcome = apply::execute(
                         &self.client,
                         &self.store,
+                        &self.platform,
                         &folders,
                         &self.progress,
                         action.clone(),
@@ -990,6 +1000,7 @@ mod tests {
         Engine::load(
             Client::new("http://127.0.0.1:9"),
             Store::in_memory().expect("store"),
+            Arc::new(PrivateFiles),
         )
         .expect("engine")
     }
@@ -1111,7 +1122,7 @@ mod tests {
             vec![("a", failed()), ("b", failed())],
         );
         engine.unreachable(UNREACHABLE.to_owned());
-        let (mut output, _updates) = iced::futures::channel::mpsc::channel(4);
+        let (mut output, _updates) = futures::channel::mpsc::channel(4);
         let chosen = PathBuf::from("/sync/a");
         engine
             .handle(Command::Retry(Some(vec![chosen.clone()])), &mut output)
@@ -1125,7 +1136,7 @@ mod tests {
 
     async fn mapped_engine() -> (Engine, Sender<Update>) {
         let mut engine = engine();
-        let (mut output, _updates) = iced::futures::channel::mpsc::channel(4);
+        let (mut output, _updates) = futures::channel::mpsc::channel(4);
         engine
             .handle(
                 Command::Map(Mapping {

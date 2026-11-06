@@ -12,7 +12,6 @@ path = "src/main.rs"
 [dependencies]
 api-client.workspace = true
 client-core.workspace = true
-hex = "0.4.3"
 iced = { version = "0.14.0", features = ["advanced", "svg", "tokio"] }
 keyring = { version = "4.2.0", optional = true }
 notify = "8.2.1"
@@ -22,10 +21,9 @@ rand = "0.10.3"
 protocol.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 rfd = "0.17.2"
-rusqlite = { version = "0.41.1", features = ["bundled"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-sha2 = "0.11.1"
+sync-core.workspace = true
 time.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt", "time"] }
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }

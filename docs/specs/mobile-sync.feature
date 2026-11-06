@@ -254,3 +254,33 @@ Feature: Mobile data sync
       Given "note.txt" is kept on the phone
       When the user signs out
       Then the offline copies are deleted from the phone
+
+  Rule: A photo source isn't read in full once it can say what changed
+
+    Background:
+      Given the camera uploads to the server folder "Photos"
+      And a pass has dealt with everything in it
+
+    Scenario: A new photo needs no listing
+      When a new photo is taken
+      Then the next pass asks only what changed, and uploads it
+
+    Scenario: A photo that couldn't go yet isn't forgotten
+      Given a new photo whose upload failed
+      When nothing else changes
+      Then the next pass tries it again
+
+    Scenario: The platform can't answer
+      Given the change token has expired, or a memory card came or went
+      When a pass runs
+      Then it lists everything, and files already sent stay as they are
+
+    Scenario: A listing now and then
+      Given the last full listing was over 7 days ago
+      When a pass runs
+      Then it lists everything, which finds anything the platform failed to report
+
+    Scenario: Access to selected photos only
+      Given the user allowed only some photos
+      When a pass runs
+      Then it lists them, since one added to the selection isn't reported as a change

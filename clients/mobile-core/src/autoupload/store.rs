@@ -51,6 +51,11 @@ const SCHEMA: &str = "
         mtime  INTEGER NOT NULL,
         PRIMARY KEY (source, key)
     );
+    CREATE TABLE IF NOT EXISTS change_tokens (
+        source       TEXT PRIMARY KEY,
+        token        TEXT NOT NULL,         -- everything up to here has been dealt with
+        full_scan_at INTEGER NOT NULL       -- when a listing last went through to the end
+    );
 ";
 const WIFI_ONLY: &str = "wifi_only";
 const BACKGROUND: &str = "background";
@@ -81,6 +86,16 @@ pub(super) struct SavedUpload {
     pub name: String,
     pub size: u64,
     pub mtime: i64,
+}
+
+fn record_of(row: &rusqlite::Row<'_>) -> Result<Record> {
+    Ok(Record {
+        key: row.get(0)?,
+        size: row.get::<_, i64>(1)?.cast_unsigned(),
+        mtime: row.get(2)?,
+        remote_name: row.get(3)?,
+        remote_dir: row.get(4)?,
+    })
 }
 
 pub(super) struct Store {
@@ -186,6 +201,7 @@ impl Store {
         tx.execute("DELETE FROM records WHERE source = ?1", [id])?;
         tx.execute("DELETE FROM folders WHERE source = ?1", [id])?;
         tx.execute("DELETE FROM uploads WHERE source = ?1", [id])?;
+        tx.execute("DELETE FROM change_tokens WHERE source = ?1", [id])?;
         tx.commit()
     }
 
@@ -227,22 +243,64 @@ impl Store {
         Ok(())
     }
 
+    /// The token to ask for changes since, with when a listing last went through.
+    pub fn change_token(&self, source: &str) -> Result<Option<(String, i64)>> {
+        self.db()
+            .query_row(
+                "SELECT token, full_scan_at FROM change_tokens WHERE source = ?1",
+                [source],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+    }
+
+    pub fn save_change_token(&self, source: &str, token: &str, full_scan_at: i64) -> Result<()> {
+        self.db().execute(
+            "INSERT INTO change_tokens (source, token, full_scan_at) VALUES (?1, ?2, ?3) \
+             ON CONFLICT (source) DO UPDATE SET token = excluded.token, \
+             full_scan_at = excluded.full_scan_at",
+            params![source, token, full_scan_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn forget_change_token(&self, source: &str) -> Result<()> {
+        self.db()
+            .execute("DELETE FROM change_tokens WHERE source = ?1", [source])?;
+        Ok(())
+    }
+
     pub fn records(&self, source: &str) -> Result<HashMap<String, Record>> {
         let db = self.db();
         let mut statement = db.prepare(
             "SELECT key, size, mtime, remote_name, remote_dir FROM records WHERE source = ?1",
         )?;
-        let rows = statement.query_map([source], |row| {
-            Ok(Record {
-                key: row.get(0)?,
-                size: row.get::<_, i64>(1)?.cast_unsigned(),
-                mtime: row.get(2)?,
-                remote_name: row.get(3)?,
-                remote_dir: row.get(4)?,
-            })
-        })?;
+        let rows = statement.query_map([source], record_of)?;
         rows.map(|row| row.map(|record| (record.key.clone(), record)))
             .collect()
+    }
+
+    /// Only the records of `keys`, so that a few changes in a large source stay cheap.
+    pub fn records_of<'a>(
+        &self,
+        source: &str,
+        keys: impl Iterator<Item = &'a str>,
+    ) -> Result<HashMap<String, Record>> {
+        let db = self.db();
+        let mut statement = db.prepare_cached(
+            "SELECT key, size, mtime, remote_name, remote_dir FROM records \
+             WHERE source = ?1 AND key = ?2",
+        )?;
+        let mut records = HashMap::new();
+        for key in keys {
+            if let Some(record) = statement
+                .query_row(params![source, key], record_of)
+                .optional()?
+            {
+                records.insert(record.key.clone(), record);
+            }
+        }
+        Ok(records)
     }
 
     pub fn save_record(&self, source: &str, record: &Record) -> Result<()> {

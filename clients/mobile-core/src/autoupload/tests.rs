@@ -147,6 +147,9 @@ struct Sources {
     /// Called before each read with how many came before it.
     on_read: Mutex<Option<ReadHook>>,
     list_error: Mutex<Option<String>>,
+    /// Full listings asked for.
+    listings: AtomicUsize,
+    changes: Mutex<ChangeFeed>,
 }
 
 impl Sources {
@@ -163,13 +166,68 @@ impl Sources {
             .lock()
             .unwrap()
             .insert(key.to_owned(), (item, content.to_vec()));
+        self.changes.lock().unwrap().touch(key);
+    }
+
+    /// Changes a file behind the platform's back: its change feed doesn't mention it.
+    fn put_unreported(&self, key: &str, content: &[u8]) {
+        let before = self.changes.lock().unwrap().touched.clone();
+        self.put(key, "", content, OLD);
+        self.changes.lock().unwrap().touched = before;
+    }
+}
+
+/// What the fake platform reports about changes.
+#[derive(Default)]
+struct ChangeFeed {
+    enabled: bool,
+    expired: bool,
+    generation: u64,
+    touched: HashMap<String, u64>,
+}
+
+impl ChangeFeed {
+    fn touch(&mut self, key: &str) {
+        self.generation += 1;
+        self.touched.insert(key.to_owned(), self.generation);
     }
 }
 
 const OLD: Duration = Duration::from_secs(60);
 
 impl LocalSources for Sources {
+    fn change_token(&self, _: SourceKind, _: String) -> Result<Option<String>, CoreError> {
+        let reports = self.changes.lock().unwrap();
+        Ok(reports.enabled.then(|| reports.generation.to_string()))
+    }
+
+    fn changes_since(
+        &self,
+        _: SourceKind,
+        _: String,
+        token: String,
+    ) -> Result<Option<LocalChanges>, CoreError> {
+        let reports = self.changes.lock().unwrap();
+        if !reports.enabled || reports.expired {
+            return Ok(None);
+        }
+        let since: u64 = token.parse().expect("token");
+        let files = self.files.lock().unwrap();
+        let mut items: Vec<LocalItem> = reports
+            .touched
+            .iter()
+            .filter(|(_, generation)| **generation > since)
+            .filter_map(|(key, _)| files.get(key).map(|(item, _)| item.clone()))
+            .collect();
+        items.sort_by(|a, b| a.key.cmp(&b.key));
+        Ok(Some(LocalChanges {
+            items,
+            token: reports.generation.to_string(),
+        }))
+    }
+
     fn list(&self, _: SourceKind, _: String) -> Result<Vec<LocalItem>, CoreError> {
+        self.listings.fetch_add(1, Ordering::SeqCst);
         if let Some(detail) = self.list_error.lock().unwrap().clone() {
             return Err(CoreError::Failed {
                 code: "permission".to_owned(),
@@ -540,4 +598,190 @@ async fn removing_a_source_cancels_its_upload_and_wipe_forgets_everything() {
     w.auto.wipe().await.expect("wipe");
     assert!(w.auto.sources().unwrap().is_empty());
     assert!(w.auto.settings().unwrap().wifi_only);
+}
+
+impl World {
+    fn report_changes(&self) {
+        self.sources.changes.lock().unwrap().enabled = true;
+    }
+
+    fn listings(&self) -> usize {
+        self.sources.listings.load(Ordering::SeqCst)
+    }
+
+    fn names(&self) -> Vec<String> {
+        self.uploads()
+            .iter()
+            .map(|upload| upload.body["name"].as_str().unwrap().to_owned())
+            .collect()
+    }
+
+    async fn pass(&self) -> PassSummary {
+        self.auto.run_pass(true).await.unwrap()
+    }
+}
+
+#[tokio::test]
+async fn a_source_that_reports_changes_is_listed_once_and_then_asked() {
+    let w = world().await;
+    w.report_changes();
+    w.sources.put("a", "", b"aaa", OLD);
+    w.add(true);
+
+    w.pass().await;
+    assert_eq!((w.listings(), w.names()), (1, vec!["a.jpg".to_owned()]));
+
+    w.sources.put("b", "", b"bbb", OLD);
+    w.pass().await;
+    w.pass().await;
+    assert_eq!(w.listings(), 1);
+    assert_eq!(w.names(), ["a.jpg", "b.jpg"]);
+}
+
+#[tokio::test]
+async fn a_changed_file_in_the_answer_goes_to_its_recorded_place() {
+    let w = world().await;
+    w.report_changes();
+    w.sources.put("a", "", b"aaa", OLD);
+    w.add(true);
+    w.pass().await;
+
+    w.sources.put("a", "", b"changed", OLD);
+    w.pass().await;
+
+    let uploads = w.uploads();
+    assert_eq!((uploads.len(), w.listings()), (2, 1));
+    assert_eq!(uploads[1].received, b"changed");
+    assert!(uploads[1].body.get("keep_both").is_none());
+}
+
+#[tokio::test]
+async fn a_source_that_cant_report_changes_is_listed_every_time() {
+    let w = world().await;
+    w.sources.put("a", "", b"aaa", OLD);
+    w.add(true);
+    w.pass().await;
+    w.pass().await;
+    assert_eq!(w.listings(), 2);
+    assert!(w.auto.store.change_token(&w.source().id).unwrap().is_none());
+}
+
+#[tokio::test]
+async fn a_file_held_back_comes_again_without_a_new_change() {
+    let w = world().await;
+    w.report_changes();
+    w.add(true);
+    w.pass().await;
+
+    // Still being written, so it waits. Nothing changes after that, and it must not be forgotten.
+    w.sources.put("a", "", b"aaa", Duration::ZERO);
+    assert_eq!(w.pass().await.uploaded, 0);
+    let token = w
+        .auto
+        .store
+        .change_token(&w.source().id)
+        .unwrap()
+        .unwrap()
+        .0;
+    w.sources.put_unreported("a", b"aaa");
+    w.sources.changes.lock().unwrap().generation += 1;
+
+    assert_eq!(w.pass().await.uploaded, 1);
+    assert_eq!(w.listings(), 1);
+    assert_ne!(
+        w.auto
+            .store
+            .change_token(&w.source().id)
+            .unwrap()
+            .unwrap()
+            .0,
+        token
+    );
+}
+
+#[tokio::test]
+async fn a_first_listing_that_doesnt_finish_is_listed_again() {
+    let w = world().await;
+    w.report_changes();
+    w.sources.put("a", "", b"aaa", OLD);
+    w.sources.put("b", "", b"bbb", Duration::ZERO);
+    w.add(true);
+
+    w.pass().await;
+    assert!(w.auto.store.change_token(&w.source().id).unwrap().is_none());
+
+    w.sources.put_unreported("b", b"bbb");
+    w.pass().await;
+    assert_eq!(w.listings(), 2);
+    assert_eq!(w.names(), ["a.jpg", "b.jpg"]);
+    assert!(w.auto.store.change_token(&w.source().id).unwrap().is_some());
+}
+
+#[tokio::test]
+async fn an_expired_token_falls_back_to_a_listing() {
+    let w = world().await;
+    w.report_changes();
+    w.add(true);
+    w.pass().await;
+
+    w.sources.put_unreported("a", b"aaa");
+    w.sources.changes.lock().unwrap().expired = true;
+    w.pass().await;
+
+    assert_eq!(w.listings(), 2);
+    assert_eq!(w.names(), ["a.jpg"]);
+}
+
+#[tokio::test]
+async fn a_listing_now_and_then_finds_what_the_platform_didnt_report() {
+    let w = world().await;
+    w.report_changes();
+    w.add(true);
+    w.pass().await;
+
+    w.sources.put_unreported("a", b"aaa");
+    w.pass().await;
+    assert_eq!(w.names(), Vec::<String>::new());
+
+    let id = w.source().id;
+    let (token, _) = w.auto.store.change_token(&id).unwrap().unwrap();
+    let long_ago = run::nanos(SystemTime::now()) - 8 * 24 * 60 * 60 * 1_000_000_000;
+    w.auto
+        .store
+        .save_change_token(&id, &token, long_ago)
+        .unwrap();
+    w.pass().await;
+
+    assert_eq!(w.listings(), 2);
+    assert_eq!(w.names(), ["a.jpg"]);
+    let (_, scanned) = w.auto.store.change_token(&id).unwrap().unwrap();
+    assert!(scanned > long_ago);
+}
+
+#[tokio::test]
+async fn an_answer_doesnt_count_as_a_listing() {
+    let w = world().await;
+    w.report_changes();
+    w.add(true);
+    w.pass().await;
+    let id = w.source().id;
+    let (_, scanned) = w.auto.store.change_token(&id).unwrap().unwrap();
+
+    w.sources.put("a", "", b"aaa", OLD);
+    w.pass().await;
+
+    assert_eq!(w.auto.store.change_token(&id).unwrap().unwrap().1, scanned);
+}
+
+#[tokio::test]
+async fn removing_a_source_forgets_its_token() {
+    let w = world().await;
+    w.report_changes();
+    let source = w.add(true);
+    w.pass().await;
+    assert!(w.auto.store.change_token(&source.id).unwrap().is_some());
+
+    w.auto.remove_source(source.id.clone()).await.unwrap();
+
+    assert!(w.auto.store.change_token(&source.id).unwrap().is_none());
 }

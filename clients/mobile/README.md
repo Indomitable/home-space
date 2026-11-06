@@ -266,6 +266,14 @@ adb reverse tcp:8180 tcp:8180
 
 The iOS simulator shares the host's network, so it needs no forwarding.
 
+On a real iPhone, a server on the local network needs the local network permission. Two things made
+that fail on iOS 18.7, both with `No route to host` and no prompt:
+
+- A second Debug build next to an installed one. Debug builds can share a stub executable, and iOS
+  tracks this permission by the executable's UUID. Build with `ENABLE_DEBUG_DYLIB=NO`.
+- Opening the app from a UI test. Have the test attach to an app opened another way, such as
+  `xcrun devicectl device process launch`, and call `activate()` rather than `launch()`.
+
 ## Notes
 
 - Size: Rust adds about 5 MB to the stripped iOS binary with the `mobile` Cargo profile

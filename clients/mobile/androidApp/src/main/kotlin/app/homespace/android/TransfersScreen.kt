@@ -170,6 +170,7 @@ private fun UploadRow(upload: QueuedUpload, onRetry: () -> Unit, onCancel: () ->
                 QueuedUploadState.PREPARING -> "Preparing to upload to $folder"
                 QueuedUploadState.UPLOADING -> "Uploading to $folder$percent"
                 QueuedUploadState.OFFLINE -> "Waiting for the connection to upload to $folder$percent"
+                QueuedUploadState.PAUSED -> "Paused upload to $folder$percent"
                 QueuedUploadState.FAILED -> upload.problem ?: "This file couldn't be uploaded"
             }
             Text(
@@ -178,8 +179,9 @@ private fun UploadRow(upload: QueuedUpload, onRetry: () -> Unit, onCancel: () ->
                 color = if (failed) MaterialTheme.colorScheme.error else Color.Unspecified,
             )
         }
-        if (upload.state == QueuedUploadState.OFFLINE || (failed && upload.canRetry)) {
-            TextButton(onClick = onRetry) { Text("Retry") }
+        val paused = upload.state == QueuedUploadState.PAUSED
+        if (upload.state == QueuedUploadState.OFFLINE || paused || (failed && upload.canRetry)) {
+            TextButton(onClick = onRetry) { Text(if (paused) "Continue" else "Retry") }
         }
         IconButton(onClick = onCancel, modifier = Modifier.size(MENU_BUTTON_SIZE)) {
             Icon(painterResource(R.drawable.ic_close), contentDescription = "Cancel upload of ${upload.name}")

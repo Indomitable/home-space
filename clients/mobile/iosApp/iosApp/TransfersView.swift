@@ -13,9 +13,19 @@ struct TransfersView: View {
     var body: some View {
         List {
             if !model.uploads.isEmpty {
-                Section("Uploads") {
+                Section {
                     ForEach(model.uploads, id: \.key) { upload in
                         UploadRow(model: model, upload: upload)
+                    }
+                } header: {
+                    HStack {
+                        Text("Uploads")
+                        Spacer()
+                        if model.uploads.count(where: { $0.state == .paused }) > 1 {
+                            Button("Continue All") { model.continueUploads() }
+                                .font(.subheadline)
+                                .textCase(nil)
+                        }
                     }
                 }
             }
@@ -122,6 +132,7 @@ private struct UploadRow: View {
         case .preparing: "Preparing to upload to \(upload.folderName)"
         case .uploading: "Uploading to \(upload.folderName)\(shown)"
         case .offline: "Waiting for the connection to upload to \(upload.folderName)\(shown)"
+        case .paused: "Paused upload to \(upload.folderName)\(shown)"
         case .failed: upload.problem ?? "This file couldn’t be uploaded"
         }
     }
@@ -138,7 +149,7 @@ private struct UploadRow: View {
             }
             Spacer()
             if model.canRetry(upload) {
-                Button("Retry") { model.retryUpload(upload: upload) }
+                Button(upload.state == .paused ? "Continue" : "Retry") { model.retryUpload(upload: upload) }
                     .buttonStyle(.borderless)
             }
             Button("Cancel Upload", systemImage: "xmark.circle.fill") {
@@ -156,9 +167,13 @@ struct UploadsSummaryRow: View {
     let uploads: [QueuedUpload]
 
     private var failed: Int { uploads.count { $0.state == .failed } }
-    private var going: [QueuedUpload] { uploads.filter { $0.state != .failed } }
+    private var paused: [QueuedUpload] { uploads.filter { $0.state == .paused } }
+    private var going: [QueuedUpload] { uploads.filter { $0.state != .failed && $0.state != .paused } }
 
     private var title: String {
+        if going.isEmpty, failed == 0 {
+            return paused.count == 1 ? "Upload of \(paused[0].name) paused" : "\(paused.count) uploads paused"
+        }
         if going.isEmpty {
             return failed == 1 ? "1 file couldn’t be uploaded" : "\(failed) files couldn’t be uploaded"
         }
@@ -170,11 +185,15 @@ struct UploadsSummaryRow: View {
         if !going.isEmpty, failed > 0 {
             parts.append("\(failed) failed")
         }
+        if !paused.isEmpty, !going.isEmpty || failed > 0 {
+            parts.append("\(paused.count) paused")
+        }
         if going.contains(where: { $0.state == .offline }) {
             parts.append("Waiting for the connection")
         } else {
-            let total = going.reduce(0) { $0 + $1.total }
-            let done = going.reduce(0) { $0 + $1.done }
+            let shown = going.isEmpty && failed == 0 ? paused : going
+            let total = shown.reduce(0) { $0 + $1.total }
+            let done = shown.reduce(0) { $0 + $1.done }
             if total > 0 {
                 parts.append("\(Int(Double(done) / Double(total) * 100))%")
             }

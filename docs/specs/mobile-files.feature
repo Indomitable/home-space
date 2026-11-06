@@ -153,7 +153,8 @@ Feature: Search, new folders and uploads on mobile
     Scenario: iOS ends the task, or alice does
       Given an upload going on out of sight
       When the task ends before the upload does
-      Then the file waits, and continues when the app opens
+      Then the file stays in Transfers as paused, even after the app opens again
+      And the upload continues from what the server has when alice taps Continue, with its progress shown by the system
 
     Scenario: A version or a moment without the task
       Given iOS 17 to 25, or iOS won't run the task now

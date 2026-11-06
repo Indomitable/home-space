@@ -191,6 +191,155 @@ async fn a_picked_file_is_copied_goes_up_in_chunks_and_leaves_the_queue() {
 }
 
 #[tokio::test]
+async fn chunks_stay_small_whatever_the_server_allows() {
+    const SERVER_CHUNK: u64 = 32 * 1024 * 1024;
+    let size = MAX_CHUNK_BYTES + 1;
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(protocol::paths::CAPABILITIES))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({ "upload_chunk_bytes": SERVER_CHUNK })),
+        )
+        .mount(&server)
+        .await;
+    let client = Arc::new(signed_in(&server).await);
+    let setup = Setup {
+        server,
+        client,
+        dir: tempfile::tempdir().unwrap(),
+        originals: Arc::default(),
+        changes: Arc::default(),
+    };
+    setup.mount_start(size, SERVER_CHUNK).await;
+    chunk_at("0", chunk_taken(MAX_CHUNK_BYTES))
+        .expect(1)
+        .mount(&setup.server)
+        .await;
+    chunk_at(&MAX_CHUNK_BYTES.to_string(), chunk_stored(size))
+        .expect(1)
+        .mount(&setup.server)
+        .await;
+    let queue = setup.open();
+    let content = vec![0; usize::try_from(size).unwrap()];
+    setup.add(&queue, "a.txt", "picked", &content);
+
+    queue.run().await.unwrap();
+
+    let requests = setup.server.received_requests().await.unwrap();
+    let chunks: Vec<usize> = requests
+        .iter()
+        .filter(|request| request.method.as_str() == "PATCH")
+        .map(|request| request.body.len())
+        .collect();
+    assert_eq!(chunks, [usize::try_from(MAX_CHUNK_BYTES).unwrap(), 1]);
+}
+
+#[tokio::test]
+async fn pausing_lasts_until_the_user_continues() {
+    let setup = Setup::new().await;
+    setup.mount_start(6, 4).await;
+    chunk_at("0", chunk_taken(4))
+        .expect(1)
+        .mount(&setup.server)
+        .await;
+    let queue = setup.open();
+    let key = setup.add(&queue, "a.txt", "picked", b"abcdef");
+    let pausing = queue.clone();
+    *setup.changes.0.lock().unwrap() = Some(Box::new(move || {
+        let progressed = pausing
+            .items()
+            .unwrap()
+            .first()
+            .is_some_and(|item| item.done == 4);
+        if progressed {
+            pausing.pause().unwrap();
+        }
+        progressed
+    }));
+
+    let summary = queue.run().await.unwrap();
+
+    assert!(summary.stopped);
+    assert_eq!((summary.remaining, summary.paused), (0, 1));
+    assert_eq!(only(&queue).state, QueuedUploadState::Paused);
+    assert_eq!(only(&queue).done, 4);
+
+    // Opening the app again sends nothing. A chunk now would fail, with no reply set up for it.
+    queue.run().await.unwrap();
+    let reopened = setup.open();
+    let summary = reopened.run().await.unwrap();
+    assert_eq!((summary.remaining, summary.paused), (0, 1));
+    assert_eq!(only(&reopened).state, QueuedUploadState::Paused);
+
+    Mock::given(method("GET"))
+        .and(path(format!("{}/{UPLOAD_ID}", protocol::paths::UPLOADS)))
+        .respond_with(upload_session(4, 6, 4))
+        .expect(1)
+        .mount(&setup.server)
+        .await;
+    chunk_at("4", chunk_stored(6))
+        .expect(1)
+        .mount(&setup.server)
+        .await;
+    reopened.retry(key).unwrap();
+    assert_eq!(reopened.run().await.unwrap(), QueueSummary::default());
+    assert!(reopened.items().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_file_added_after_pausing_goes_and_the_paused_one_waits() {
+    let setup = Setup::new().await;
+    setup.mount_start(6, 6).await;
+    chunk_at("0", chunk_stored(6))
+        .expect(1)
+        .mount(&setup.server)
+        .await;
+    let queue = setup.open();
+    setup.add(&queue, "paused.txt", "first", b"abc");
+    queue.pause().unwrap();
+    setup.add(&queue, "a.txt", "second", b"abcdef");
+
+    let summary = queue.run().await.unwrap();
+
+    assert_eq!((summary.remaining, summary.paused), (0, 1));
+    assert_eq!(only(&queue).name, "paused.txt");
+    assert_eq!(only(&queue).state, QueuedUploadState::Paused);
+}
+
+#[test]
+fn a_queue_from_before_pausing_keeps_its_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("queue.db");
+    rusqlite::Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE queue (
+                position INTEGER PRIMARY KEY AUTOINCREMENT,
+                key      TEXT NOT NULL UNIQUE,
+                parent   TEXT,
+                folder   TEXT NOT NULL,
+                name     TEXT NOT NULL,
+                source   TEXT,
+                ready    INTEGER NOT NULL,
+                size     INTEGER NOT NULL,
+                done     INTEGER NOT NULL,
+                session  TEXT,
+                problem  TEXT
+            );
+            INSERT INTO queue (key, folder, name, ready, size, done)
+            VALUES ('old', 'Home', 'a.txt', 1, 6, 4);",
+        )
+        .unwrap();
+
+    let rows = Store::open(&path).unwrap().rows().unwrap();
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].key, "old");
+    assert!(!rows[0].paused);
+}
+
+#[tokio::test]
 async fn the_queue_continues_where_it_stopped_after_the_app_ends() {
     let setup = Setup::new().await;
     setup.mount_start(6, 4).await;

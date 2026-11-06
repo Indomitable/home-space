@@ -32,9 +32,9 @@ per client, as of 2026-11-06 (checked in source, not by running the apps):
 | Resumable uploads | Yes | Yes | Yes | Yes |
 | Download a file | Yes | Yes | Yes | Yes |
 | Save to a chosen location | Yes | Partial: the browser picks the folder | Yes | Yes |
-| Keep offline copies on the device | No | No | Yes | Yes |
+| Keep offline copies on the device | Yes | Yes | Yes | Yes |
 | Progress for transfers | Yes | Yes | Yes | Yes |
-| Folder sync from this device | Yes | No | One way: auto-upload | One way: auto-upload |
+| Folder sync from this device | Yes | No | Auto-upload one way, offline folders both ways | Auto-upload one way, offline folders both ways |
 | Quick upload of camera photos | No | No | Yes | Yes |
 | Transfers continue with the app closed | n/a | n/a | Auto-upload: yes | Auto-upload: when iOS allows |
 

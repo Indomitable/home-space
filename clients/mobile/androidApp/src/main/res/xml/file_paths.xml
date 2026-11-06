@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Only downloaded files are ever shared, never the rest of the app's data. -->
+<!-- Only offline copies are ever shared, never the rest of the app's data. An app reaches just the
+     file it was given. -->
 <paths>
-    <files-path name="downloads" path="downloads/" />
+    <files-path name="offline" path="offline/" />
 </paths>

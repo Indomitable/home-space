@@ -112,6 +112,99 @@ Feature: Mobile data sync
       Then the upload is cancelled
       And the new content is uploaded by a later pass
 
+  # --- Offline ---------------------------------------------------------------------------
+
+  Rule: What is kept on the phone syncs both ways
+
+    Scenario: Opening a file keeps it
+      When "note.txt" is tapped
+      Then the file opens
+      And it is kept on the phone and shows as available offline
+
+    Scenario: Making a folder available offline
+      When "Docs" is made available offline
+      Then its files and subfolders download
+      And everything in it shows as available offline
+
+    Scenario: A change on the server arrives
+      Given "note.txt" is kept on the phone
+      When it changes on the server
+      Then the copy on the phone is updated
+
+    Scenario: A rename on the server arrives
+      Given "note.txt" is kept on the phone
+      When it is renamed on the server
+      Then the copy on the phone has the new name
+
+    Scenario: An edit goes up
+      Given "note.txt" is kept on the phone
+      When it is edited in another app or in Quick Look
+      Then the server holds the edit as the current version
+      And the previous content is a version
+
+    Scenario: An edit and a rename on the server
+      Given "note.txt" is kept on the phone
+      When it is edited on the phone and then renamed on the server
+      Then the server holds the edit under the new name
+
+    Scenario: Changes on both sides
+      Given "note.txt" is kept on the phone
+      When it changes on both sides
+      Then the later change is current
+      And the other is a version
+
+    Scenario: A tap does not overwrite an edit
+      Given "note.txt" has an edit not uploaded yet
+      And newer content is on the server
+      When "note.txt" is tapped
+      Then the edit opens
+
+  Rule: Only the app deletes, and only through the server
+
+    Scenario: A missing local file comes back
+      Given "Docs/a.txt" is kept on the phone
+      When its local file goes missing
+      Then it downloads again
+      And it stays on the server
+
+    Scenario: A file deleted on the server
+      Given "Docs/a.txt" is kept on the phone
+      When it is deleted on the server
+      Then the copy on the phone is deleted
+
+    Scenario: Something kept is deleted on the server
+      Given "note.txt" is kept for its own sake
+      When it is deleted on the server
+      Then its copy is deleted
+      And it is no longer kept
+
+    Scenario: Something kept is deleted on the server, with an edit not uploaded
+      Given "note.txt" has an edit not uploaded yet
+      When it is deleted on the server
+      Then the edit is uploaded to Lost & Found
+      And the copy is deleted
+
+  Rule: Removing warns about edits not uploaded yet
+
+    Scenario: Removing an offline copy
+      Given "note.txt" is kept on the phone with nothing to upload
+      When its offline copy is removed
+      Then it is deleted from the phone and stays on the server
+
+    Scenario: Removing a copy with an edit not uploaded
+      Given "note.txt" has an edit not uploaded yet
+      When its offline copy is removed
+      Then the user is warned, and may cancel
+
+    Scenario: Signing out with an edit not uploaded
+      Given "note.txt" has an edit not uploaded yet
+      When the user signs out
+      Then the user is warned, and may cancel
+
+    Scenario: A file in a kept folder has no removal of its own
+      Given "Docs" is made available offline
+      Then "Docs/a.txt" offers no removal, only "Docs" does
+
   # --- Settings -------------------------------------------------------------------------
 
   Rule: Sync only on Wi-Fi is on by default
@@ -149,10 +242,15 @@ Feature: Mobile data sync
 
   # --- Signing out ----------------------------------------------------------------------
 
-  Rule: Signing out ends the sync, not the files
+  Rule: Signing out ends the sync, not the local source files
 
     Scenario: Signing out
       When alice signs out
       Then uploads under way are cancelled
       And the sources are forgotten
       And the local folders are untouched
+
+    Scenario: Signing out removes offline copies
+      Given "note.txt" is kept on the phone
+      When the user signs out
+      Then the offline copies are deleted from the phone

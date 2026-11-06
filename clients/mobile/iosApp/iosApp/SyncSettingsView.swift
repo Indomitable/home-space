@@ -34,6 +34,7 @@ struct SyncSettingsView: View {
     let client: CoreClient
     @State private var settings = SyncSettings(wifiOnly: true, background: false)
     @State private var sources: [UploadSource] = []
+    @State private var offline: OfflineStatus?
     @State private var error: String?
     @State private var addingSource = false
     @State private var importingFolder = false
@@ -41,6 +42,18 @@ struct SyncSettingsView: View {
     @State private var changing: UploadSource?
     @State private var removing: UploadSource?
     @Environment(\.openURL) private var openURL
+
+    private func offlineSummary(_ status: OfflineStatus) -> String {
+        if status.unreachable {
+            return "Can't reach the server. Trying again by itself."
+        }
+        if status.pending > 0 {
+            return "\(status.pending) waiting to sync"
+        }
+        return status.kept == 0
+            ? "Files you open and folders you make available offline are kept here."
+            : "Up to date"
+    }
 
     private var auto: AutoUpload? {
         try? ClientHolder.shared.active?.autoUpload()
@@ -59,6 +72,22 @@ struct SyncSettingsView: View {
                         "In the background, iOS decides when Home Space runs. Uploads may wait "
                             + "until the phone is charging."
                     )
+                }
+            }
+            if let offline {
+                Section("Offline Files") {
+                    Text(offlineSummary(offline)).foregroundStyle(.secondary)
+                    ForEach(offline.problems, id: \.name) { problem in
+                        VStack(alignment: .leading) {
+                            Text(problem.name)
+                            Text(problem.reason).font(.caption).foregroundStyle(.red)
+                        }
+                    }
+                    if !offline.problems.isEmpty {
+                        Button("Try Again", systemImage: "arrow.clockwise") {
+                            model.foregroundSync?.syncNow()
+                        }
+                    }
                 }
             }
             Section {
@@ -188,6 +217,7 @@ struct SyncSettingsView: View {
     }
 
     private func load() {
+        Task { offline = try? await client.offlineStatus() }
         guard let auto else { return }
         attempt {
             settings = try auto.settings()

@@ -128,11 +128,10 @@ The same applies to auto-upload's SQLite database (`mobile-core/src/autoupload`)
 This builds on the mobile data sync work (auto-upload and two-way offline sync, see
 `docs/specs/mobile-sync.feature`), which leaves the iOS File Provider as a follow-up to two-way sync.
 
-1. **Done:** the upload calls in `mobile-core`, the process-wide client holder, and WorkManager.
+1. **Done:** the upload calls in `mobile-core`, the process-wide client holder, WorkManager, and
+   two-way offline sync.
 2. **Android provider:** can ship now.
-3. **Two-way offline sync:** including the replacement of the layout in `files.rs`.
-4. **iOS extension:** after two-way sync. It doesn't depend on it, but doing it later avoids
-   designing iOS storage twice.
+3. **iOS extension:** the storage it sits beside is now settled.
 
 Editing by other apps:
 

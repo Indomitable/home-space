@@ -80,32 +80,52 @@ The app defaults to `http://localhost:8080`. `iosAppUITests` checks that the app
 once the server answers, so it needs the server running on `localhost:8080` with password sign-in
 on, and nobody signed in on the simulator.
 
-## Opened files
+## Offline copies
 
-Tapping a file keeps a copy on the device, in `filesDir/downloads` on Android and Application
-Support `/downloads` on iOS (excluded from backups). `mobile-core/src/files.rs` owns the layout,
-which needs no database:
+A file that is tapped, or a file or folder made available offline, stays on the device and syncs both
+ways. `clients/sync-core` is the desktop client's engine, and `mobile-core/src/offline.rs` runs it for
+the signed-in user. Copies live in `filesDir/offline` on Android and Application Support `/offline`
+on iOS (excluded from backups):
 
 ```
-<downloads>/<user id>/<node id>/<sha256>/<name>    the copy; `v<version>` if the node has no hash
-<downloads>/<user id>/<node id>/download.part      a download in progress
+<offline>/<user id>/sync.db                      what the engine remembers
+<offline>/<user id>/<node id>/<name>             a file kept for its own sake
+<offline>/<user id>/<node id>/...                a folder kept for its own sake, with what is in it
+<offline>/<user id>/.parts/<node id>             a download started by tapping
 ```
 
-- The hash is in the path, so new content on the server simply misses: the badge goes, and the
-  next tap downloads again. Older hash folders are removed once the new copy is in place.
-- Each open asks the server for the current node, and only falls back to any local copy if the
-  server can't be reached. Tapping a file with a current copy downloads nothing.
-- The server has no Range support, so an interrupted download restarts on the next tap. Downloads
-  stop when the OS suspends or kills the app.
-- Cancelling is a flag checked between chunks. Requests are never aborted, because a token refresh
-  in flight must finish or the rotated token is lost.
-- Signing out deletes the whole folder, even if the server can't be reached.
-- A file deleted elsewhere keeps its copy until sign-out, as do files inside a folder deleted in
-  the app. Nothing tracks copies yet: see `docs/todo/mobile-file-tracking.md`.
+What the engine does is in `docs/specs/mobile-sync.feature`. On phones it differs from the desktop:
 
-Android hands files to viewers through a `FileProvider` scoped to `downloads/`, with a read-only
-grant. iOS uses Quick Look. Save to… picks the location first on Android, but on iOS only after the
-download, because the system's export picker needs a file that already exists.
+- **A missing local file comes back, and nothing is deleted on the server.** The copies belong to the
+  app, so nobody deleted them on purpose. Deleting happens through the API.
+- There is no system trash, so local files are deleted directly.
+- Something kept that is deleted on the server loses its copy. Edits in it that were not sent go to
+  Lost & Found.
+- Nobody watches the folder for changes. Passes run at launch, on resume, every minute while open, on
+  network changes, after Quick Look closes and in the background job.
+- `Gate` holds back automatic transfers. It starts closed, and the app opens it only when the settings
+  and network allow, so that closing it stops transfers at their next chunk. Tapping a file ignores
+  it, since the user asked.
+- Removing a copy and signing out warn first when edits have not been uploaded.
+- Copies are never evicted. They stay until the user removes them, or signs out.
+
+Conflicts follow the desktop client: the later change is current, the other one becomes a version.
+There is no conflict state to show. An edit made before a rename on the server still counts as the
+later change, since a rename leaves the content alone.
+
+A tap asks the server for the current node. If the copy is current nothing downloads, and if the
+server can't be reached any copy will do. A copy with edits opens as it is and is never overwritten
+by a tap. Names the engine ignores (such as `*.tmp`) are never synced, so a tap leaves a plain copy.
+
+Android hands files to viewers through a `FileProvider` scoped to `offline/`. A tap grants read-only
+access, and **Edit in another app** sends `ACTION_EDIT` with a write grant. iOS uses `QLPreviewController`
+in `.updateContents` mode, whose markup tools save into the file. Editing in other iOS apps needs the
+File Provider: see `docs/todo/mobile-file-provider.md`. Save to… picks the location first on Android,
+but on iOS only after the download, because the system's export picker needs a file that already exists.
+
+The server has no Range support, so an interrupted download starts over. Uploads over the chunk size
+continue from what the server has. Requests are never aborted, because a token refresh in flight must
+finish or the rotated token is lost.
 
 ## Auto-upload
 

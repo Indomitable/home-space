@@ -1,28 +1,21 @@
-//! Files kept on the phone: downloading them with progress, and finding them again.
-//!
-//! A copy lives at `<files_dir>/<user id>/<node id>/<sha256>/<name>`. The hash in the path is the
-//! only record of what was downloaded, so new content on the server simply misses and is fetched
-//! on the next open. Nothing tracks these files yet: a copy changes only when the user opens it.
+//! Opening and saving files, with progress. A file that is opened stays on the phone as an offline
+//! copy, which the sync then looks after: see [`crate::offline`].
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
-use client_core::format::sanitize_component;
 use protocol::{Node, NodeId, NodeKind};
 use sha2::{Digest, Sha256};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::watch;
 
-use crate::{CoreClient, CoreError, Entry, EntryKind, off_ui_thread, parse_id};
+use crate::autoupload::AutoUploadListener;
+use crate::offline::Offline;
+use crate::{CoreClient, CoreError, Entry, off_ui_thread, parse_id};
 
-/// A partial download, inside the node's folder. It sits outside the name's folder because a
-/// name at the file system's limit leaves no room for a suffix.
-const PART_FILE: &str = "download.part";
-/// The longest file name, in bytes, on the file systems the apps run on.
-const MAX_NAME_BYTES: usize = 255;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 /// How often a download starts over because the file was replaced while it ran.
 const ATTEMPTS: usize = 2;
@@ -36,13 +29,17 @@ pub trait DownloadListener: Send + Sync {
     fn progress(&self, id: String, done: i64, total: i64);
 }
 
-/// The downloads in progress and where their files go.
+/// The downloads in progress, where files go, and the sync that keeps them.
 #[derive(Default)]
 pub(crate) struct LocalFiles {
     /// `None` for a client that never signs in, which keeps no files.
     root: Option<PathBuf>,
     user: Mutex<Option<String>>,
+    /// Where edits go whose file is gone from the server.
+    rescue: Mutex<Option<NodeId>>,
     active: Mutex<HashMap<NodeId, watch::Sender<bool>>>,
+    offline: tokio::sync::Mutex<Option<Arc<Offline>>>,
+    listener: Arc<Mutex<Option<Arc<dyn AutoUploadListener>>>>,
 }
 
 impl LocalFiles {
@@ -53,59 +50,54 @@ impl LocalFiles {
         }
     }
 
-    pub(crate) fn set_user(&self, user: String) {
+    pub(crate) fn set_user(&self, user: String, rescue: NodeId) {
         *self.user.lock().expect("files user lock") = Some(user);
+        *self.rescue.lock().expect("files rescue lock") = Some(rescue);
     }
 
     pub(crate) fn user(&self) -> Option<String> {
         self.user.lock().expect("files user lock").clone()
     }
 
-    fn user_dir(&self) -> Option<PathBuf> {
-        let user = self.user.lock().expect("files user lock").clone()?;
-        Some(self.root.as_ref()?.join(user))
+    pub(crate) fn set_offline_listener(&self, listener: Arc<dyn AutoUploadListener>) {
+        *self.listener.lock().expect("offline listener lock") = Some(listener);
     }
 
-    pub(crate) fn node_dir(&self, id: NodeId) -> Result<PathBuf, CoreError> {
-        self.user_dir()
-            .map(|dir| dir.join(id.to_string()))
+    /// The sync of the signed-in user, started if it wasn't.
+    pub(crate) async fn offline(
+        &self,
+        client: &api_client::Client,
+    ) -> Result<Arc<Offline>, CoreError> {
+        let mut offline = self.offline.lock().await;
+        if let Some(running) = offline.as_ref() {
+            return Ok(running.clone());
+        }
+        let dir = self
+            .root
+            .as_ref()
+            .zip(self.user())
+            .map(|(root, user)| root.join(user))
             .ok_or_else(|| CoreError::Failed {
                 code: "no_files_dir".to_owned(),
                 detail: "this client keeps no files".to_owned(),
-            })
+            })?;
+        let rescue = *self.rescue.lock().expect("files rescue lock");
+        let started = Offline::start(client.clone(), dir, rescue, self.listener.clone()).await?;
+        *offline = Some(started.clone());
+        Ok(started)
     }
 
-    /// Fills in `local_path` of the files that have a copy.
-    pub(crate) async fn mark_copies(&self, entries: &mut [Entry]) {
-        let Some(user_dir) = self.user_dir() else {
-            return;
-        };
-        let Ok(mut read) = fs::read_dir(&user_dir).await else {
-            return;
-        };
-        let mut present = HashSet::new();
-        while let Ok(Some(item)) = read.next_entry().await {
-            present.insert(item.file_name().to_string_lossy().into_owned());
-        }
-        for entry in entries.iter_mut() {
-            if entry.kind != EntryKind::File || !present.contains(&entry.id) {
-                continue;
-            }
-            let key = entry
-                .sha256
-                .clone()
-                .unwrap_or_else(|| version_key(entry.version));
-            let dir = user_dir.join(&entry.id).join(key);
-            entry.local_path = find_file(&dir)
-                .await
-                .map(|path| path.to_string_lossy().into_owned());
+    /// Fills in the local state of `entries`.
+    pub(crate) async fn mark_copies(&self, client: &api_client::Client, entries: &mut [Entry]) {
+        if let Ok(offline) = self.offline(client).await {
+            offline.mark(entries, true);
         }
     }
 
-    /// Forgets the copy of `id`, if there is one.
-    pub(crate) async fn remove(&self, id: NodeId) {
-        if let Ok(dir) = self.node_dir(id) {
-            let _ = fs::remove_dir_all(dir).await;
+    /// Stops keeping `id` for its own sake, if it was, along with its copy.
+    pub(crate) async fn remove(&self, client: &api_client::Client, id: NodeId) {
+        if let Ok(offline) = self.offline(client).await {
+            offline.remove(id).await;
         }
     }
 
@@ -115,12 +107,31 @@ impl LocalFiles {
         }
     }
 
-    /// Removes every user's copies.
-    pub(crate) async fn wipe(&self) {
+    /// Ends the sync and removes every user's copies. Returns the uploads under way on the server,
+    /// to cancel while the session lasts.
+    pub(crate) async fn wipe(&self) -> Vec<uuid::Uuid> {
+        let running = self.offline.lock().await.take();
+        let uploads = match running {
+            Some(running) => running.shut_down().await,
+            None => Vec::new(),
+        };
         if let Some(root) = &self.root {
             let _ = fs::remove_dir_all(root).await;
         }
+        uploads
     }
+}
+
+/// What opening a file does with the copy that is there.
+pub(crate) enum MarkedFile {
+    /// There is none, or it is an unedited older version: download.
+    Fetch,
+    /// It matches the server.
+    Current,
+    /// It holds what the server does, though nothing recorded that yet.
+    SameContent(String),
+    /// It differs and may hold edits, so it opens as it is and the sync sorts it out.
+    Edited,
 }
 
 /// One running download of a file; a second is refused until this is dropped.
@@ -181,11 +192,11 @@ impl CoreClient {
         let files = self.files.clone();
         off_ui_thread(async move {
             let active = Active::start(&files, id)?;
-            let node_dir = files.node_dir(id)?;
-            let node = match client.get(id).await {
+            let offline = files.offline(&client).await?;
+            let mut node = match client.get(id).await {
                 Ok(node) => node,
                 Err(err) if err.is_unreachable() => {
-                    return match any_copy(&node_dir).await {
+                    return match offline.existing_copy(id) {
                         Some(copy) => Ok(path_text(&copy)),
                         None => Err(err.into()),
                     };
@@ -193,21 +204,41 @@ impl CoreClient {
                 Err(err) => return Err(err.into()),
             };
             require_file(&node)?;
-            let name = local_name(&node.name);
-            if let Some(copy) = find_file(&node_dir.join(content_key(&node))).await {
-                return named(copy, &name).await;
+            let target = offline.place_for(&node)?;
+            // The engine leaves such a name alone, so it stays a plain copy of what the server has.
+            let synced = !sync_core::is_ignored(&sync_core::local_name(&node.name));
+            match crate::offline::decide(&offline, &node, &target) {
+                MarkedFile::Current => {}
+                MarkedFile::SameContent(sha256) => {
+                    crate::offline::record_copy(&offline, id, &target, sha256)?;
+                }
+                MarkedFile::Edited if synced => {}
+                MarkedFile::Edited | MarkedFile::Fetch => {
+                    let before = fs::metadata(&target).await.ok();
+                    let part = offline.part_path(id)?;
+                    let (fetched, sha256) =
+                        fetch(&client, node.clone(), &part, &active, listener.as_ref()).await?;
+                    node = fetched;
+                    set_modified(&part, &node).map_err(storage)?;
+                    // Edits made during the download stay; the sync sorts them out.
+                    let after = fs::metadata(&target).await.ok();
+                    if same_file(before.as_ref(), after.as_ref()) {
+                        if let Some(parent) = target.parent() {
+                            fs::create_dir_all(parent).await.map_err(storage)?;
+                        }
+                        fs::rename(&part, &target).await.map_err(storage)?;
+                        if synced {
+                            crate::offline::record_copy(&offline, id, &target, sha256)?;
+                        }
+                    } else {
+                        let _ = fs::remove_file(&part).await;
+                    }
+                }
             }
-            fs::create_dir_all(&node_dir).await.map_err(storage)?;
-            let part = node_dir.join(PART_FILE);
-            let node = fetch(&client, node, &part, &active, listener.as_ref()).await?;
-            let name = local_name(&node.name);
-            let key = content_key(&node);
-            let dir = node_dir.join(&key);
-            fs::create_dir_all(&dir).await.map_err(storage)?;
-            let path = dir.join(name);
-            fs::rename(&part, &path).await.map_err(storage)?;
-            remove_older_copies(&node_dir, &key).await;
-            Ok(path_text(&path))
+            if synced {
+                offline.keep(&node, &target);
+            }
+            Ok(path_text(&target))
         })
         .await
     }
@@ -230,10 +261,13 @@ impl CoreClient {
             let dest = PathBuf::from(dest_path);
             let parent = dest.parent().unwrap_or(Path::new("")).to_path_buf();
             fs::create_dir_all(&parent).await.map_err(storage)?;
-            if let Ok(node_dir) = files.node_dir(id)
-                && let Some(copy) = find_file(&node_dir.join(content_key(&node))).await
+            if let Ok(offline) = files.offline(&client).await
+                && let Ok(Some(base)) = offline.store.base(id)
+                && base.sha256 == node.sha256
+                && !base.is_edited()
+                && base.path.is_file()
             {
-                fs::copy(copy, &dest).await.map_err(storage)?;
+                fs::copy(&base.path, &dest).await.map_err(storage)?;
                 return Ok(());
             }
             let part = parent.join(format!("{id}.part"));
@@ -251,36 +285,28 @@ impl CoreClient {
         }
         Ok(())
     }
-
-    /// Deletes the phone's copy of `id`; the file on the server stays.
-    pub async fn remove_local_copy(&self, id: String) -> Result<(), CoreError> {
-        let id = parse_id(&id)?;
-        let files = self.files.clone();
-        off_ui_thread(async move { files.remove(id).await }).await;
-        Ok(())
-    }
 }
 
 /// Downloads to `part`, starting over once if the file was replaced meanwhile, and returns the
-/// node the content belongs to. No partial file is left behind on failure.
+/// node the content belongs to with the hash of what arrived. No partial file is left behind on failure.
 async fn fetch(
     client: &api_client::Client,
     mut node: Node,
     part: &Path,
     active: &Active,
     listener: &dyn DownloadListener,
-) -> Result<Node, CoreError> {
+) -> Result<(Node, String), CoreError> {
     for _ in 0..ATTEMPTS {
         let written = stream(client, &node, part, active, listener).await;
-        let matches = match written {
-            Ok(sha256) => node.sha256.as_ref().is_none_or(|expect| *expect == sha256),
+        let sha256 = match written {
+            Ok(sha256) => sha256,
             Err(err) => {
                 let _ = fs::remove_file(part).await;
                 return Err(err);
             }
         };
-        if matches {
-            return Ok(node);
+        if node.sha256.as_ref().is_none_or(|expect| *expect == sha256) {
+            return Ok((node, sha256));
         }
         node = match client.get(node.id).await {
             Ok(node) => node,
@@ -354,7 +380,7 @@ fn require_file(node: &Node) -> Result<(), CoreError> {
     }
 }
 
-fn storage(err: std::io::Error) -> CoreError {
+pub(crate) fn storage(err: std::io::Error) -> CoreError {
     CoreError::Failed {
         code: "local_storage".to_owned(),
         detail: err.to_string(),
@@ -365,93 +391,20 @@ fn path_text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// What tells this file's content apart: its hash, or its version on the rare file without one.
-fn content_key(node: &Node) -> String {
-    node.sha256
-        .clone()
-        .unwrap_or_else(|| version_key(node.version))
+/// The copy gets the time of the content on the server, as with a file the sync downloads.
+fn set_modified(part: &Path, node: &Node) -> std::io::Result<()> {
+    std::fs::File::options()
+        .write(true)
+        .open(part)?
+        .set_modified(SystemTime::from(node.updated_at))
 }
 
-fn version_key(version: i32) -> String {
-    format!("v{version}")
-}
-
-/// `name` as a file name here: nothing the file system forbids, and short enough for it, keeping
-/// the extension that viewers go by.
-fn local_name(name: &str) -> String {
-    let name = sanitize_component(name);
-    if name.len() <= MAX_NAME_BYTES {
-        return name;
-    }
-    let (stem, extension) = match name.rsplit_once('.') {
-        Some((stem, extension)) if !stem.is_empty() && extension.len() < MAX_NAME_BYTES / 2 => {
-            (stem, format!(".{extension}"))
+fn same_file(before: Option<&std::fs::Metadata>, after: Option<&std::fs::Metadata>) -> bool {
+    match (before, after) {
+        (None, None) => true,
+        (Some(before), Some(after)) => {
+            before.len() == after.len() && before.modified().ok() == after.modified().ok()
         }
-        _ => (name.as_str(), String::new()),
-    };
-    let room = MAX_NAME_BYTES - extension.len();
-    let end = (0..=room)
-        .rev()
-        .find(|index| stem.is_char_boundary(*index))
-        .unwrap_or(0);
-    format!("{}{extension}", &stem[..end])
-}
-
-/// The file in `dir`, which holds one at most.
-async fn find_file(dir: &Path) -> Option<PathBuf> {
-    let mut read = fs::read_dir(dir).await.ok()?;
-    while let Ok(Some(item)) = read.next_entry().await {
-        if item.file_type().await.is_ok_and(|kind| kind.is_file()) {
-            return Some(item.path());
-        }
-    }
-    None
-}
-
-/// A copy of any content under the node's folder.
-async fn any_copy(node_dir: &Path) -> Option<PathBuf> {
-    let mut read = fs::read_dir(node_dir).await.ok()?;
-    while let Ok(Some(item)) = read.next_entry().await {
-        if let Some(file) = find_file(&item.path()).await {
-            return Some(file);
-        }
-    }
-    None
-}
-
-/// Gives a copy the file's current name, since a rename on the server keeps the content.
-async fn named(copy: PathBuf, name: &str) -> Result<String, CoreError> {
-    if copy.file_name().is_some_and(|current| current == name) {
-        return Ok(path_text(&copy));
-    }
-    let renamed = copy.with_file_name(name);
-    fs::rename(&copy, &renamed).await.map_err(storage)?;
-    Ok(path_text(&renamed))
-}
-
-async fn remove_older_copies(node_dir: &Path, keep: &str) {
-    let Ok(mut read) = fs::read_dir(node_dir).await else {
-        return;
-    };
-    while let Ok(Some(item)) = read.next_entry().await {
-        let is_dir = item.file_type().await.is_ok_and(|kind| kind.is_dir());
-        if is_dir && item.file_name() != keep {
-            let _ = fs::remove_dir_all(item.path()).await;
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn local_names_fit_the_file_system_and_keep_their_extension() {
-        assert_eq!(local_name("a/b.txt"), "a_b.txt");
-        let long = format!("{}.pdf", "é".repeat(200));
-        let name = local_name(&long);
-        assert!(name.len() <= MAX_NAME_BYTES, "{}", name.len());
-        assert!(name.ends_with(".pdf"));
-        assert!(local_name(&"x".repeat(300)).len() <= MAX_NAME_BYTES);
+        _ => false,
     }
 }

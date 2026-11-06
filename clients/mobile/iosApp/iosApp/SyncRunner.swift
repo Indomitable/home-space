@@ -3,8 +3,9 @@ import Foundation
 import Network
 import Photos
 
-/// Runs auto-upload passes while the app is in front: on opening it, every minute, when the photo
-/// library changes and when the network changes. Stops a pass when the network no longer allows it.
+/// Runs auto-upload passes and offline copies' sync while the app is in front: on opening it, every
+/// minute, when the photo library changes and when the network changes. Stops them when the network
+/// no longer allows it.
 @MainActor
 @Observable
 final class ForegroundSync: NSObject {
@@ -51,11 +52,25 @@ final class ForegroundSync: NSObject {
         if let auto = try? session.autoUpload(), (try? auto.settings().background) != true {
             auto.stop()
         }
+        // Nothing watches the network from here on. Background tasks check it for themselves.
+        allowOffline(false)
     }
 
     /// "Sync now", or a change of settings: tries at once what was waiting to be tried again.
     func syncNow() {
         Task { await pass(retryNow: true) }
+    }
+
+    /// Looks at the offline copies now, such as after a viewer closed. Retries nothing.
+    func checkOfflineCopies() {
+        guard networkAllows() else { return }
+        let client = session.client
+        Task { try? await client.offlineSyncNow(retryFailed: false) }
+    }
+
+    private func allowOffline(_ allowed: Bool) {
+        let client = session.client
+        Task { try? await client.offlineAllow(allowed: allowed) }
     }
 
     /// The library can be looked at only after the user has allowed it, so `start` isn't enough.
@@ -74,6 +89,7 @@ final class ForegroundSync: NSObject {
             Task { await pass(retryNow: false) }
         } else {
             (try? session.autoUpload())?.stop()
+            allowOffline(false)
         }
     }
 
@@ -85,6 +101,10 @@ final class ForegroundSync: NSObject {
     private func pass(retryNow: Bool) async {
         guard networkAllows(), let auto = try? session.autoUpload() else { return }
         do {
+            try? await session.client.offlineAllow(allowed: true)
+            if retryNow {
+                try? await session.client.offlineSyncNow(retryFailed: true)
+            }
             _ = try await auto.runPass(retryNow: retryNow)
         } catch CoreError.Unauthorized {
             onSessionEnded()
@@ -151,8 +171,15 @@ enum BackgroundSync {
             task.setTaskCompleted(success: true)
             return
         }
-        task.expirationHandler = { auto.stop() }
+        let client = session.client
+        task.expirationHandler = {
+            auto.stop()
+            Task { try? await client.offlineAllow(allowed: false) }
+        }
         let summary = try? await auto.runPass(retryNow: false)
+        try? await client.offlinePass()
+        // Nothing watches the network once this task ends. An open app allows it again.
+        try? await client.offlineAllow(allowed: false)
         task.setTaskCompleted(success: summary != nil)
     }
 

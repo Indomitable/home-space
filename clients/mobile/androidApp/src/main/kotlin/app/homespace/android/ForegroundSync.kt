@@ -17,8 +17,9 @@ import uniffi.homespace_core.CoreException
 private const val INTERVAL_MILLIS = 60_000L
 
 /**
- * Runs auto-upload passes while the app is open: on opening it, every minute, when a new photo
- * appears and when the network changes. Stops a pass when the network no longer allows it.
+ * Runs auto-upload passes and offline copies' sync while the app is open: on opening it, every
+ * minute, when a new photo appears and when the network changes. Stops them when the network no
+ * longer allows it.
  */
 class ForegroundSync(
     context: Context,
@@ -76,6 +77,8 @@ class ForegroundSync(
         runCatching {
             if (!session.autoUpload.settings().background) session.autoUpload.stop()
         }
+        // Nothing watches the network from here on. The background job has its own constraints.
+        scope.launch { allowOffline(false) }
     }
 
     /** "Sync now", or a change of settings: tries at once what was waiting to be tried again. */
@@ -86,7 +89,12 @@ class ForegroundSync(
     private fun onNetworkChanged() {
         val allowed = runCatching { networkAllows() }.getOrDefault(false)
         onNetworkAllowed(allowed)
-        if (allowed) wake.trySend(false) else session.autoUpload.stop()
+        if (allowed) {
+            wake.trySend(false)
+        } else {
+            session.autoUpload.stop()
+            scope.launch { allowOffline(false) }
+        }
     }
 
     /** Whether the current network may be used. */
@@ -97,11 +105,20 @@ class ForegroundSync(
         return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
     }
 
+    /** Failing only means that the phone can't store the copies, which opening a file shows too. */
+    private suspend fun allowOffline(allowed: Boolean) {
+        runCatching { session.client.offlineAllow(allowed) }
+    }
+
     private suspend fun pass(retryNow: Boolean) {
         try {
             val allowed = networkAllows()
             onNetworkAllowed(allowed)
-            if (allowed) session.autoUpload.runPass(retryNow)
+            allowOffline(allowed)
+            if (allowed) {
+                if (retryNow) session.client.offlineSyncNow(true)
+                session.autoUpload.runPass(retryNow)
+            }
         } catch (_: CoreException.Unauthorized) {
             onSessionEnded()
         } catch (_: CoreException) {

@@ -19,6 +19,28 @@ macro_rules! node_columns {
     };
 }
 
+/// The longest node name, as the `nodes` table checks it.
+const MAX_NAME_CHARS: usize = 255;
+/// A longer "extension" is not one, and is not kept apart when a number is added to a name.
+const MAX_NUMBERED_EXTENSION: usize = 32;
+
+/// How [`Db::store_file_with`] stores a file.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StoreOptions {
+    /// Give a file whose name is taken by different content a free name, instead of making it a
+    /// new version.
+    pub keep_both: bool,
+    /// Record the writing device as the file's source, when it stored new content.
+    pub auto_upload: bool,
+}
+
+/// The predefined properties of a node.
+#[derive(Clone, Debug, Default, PartialEq, Eq, sqlx::FromRow)]
+pub struct NodeProperties {
+    /// The name of the device that last auto-uploaded the file.
+    pub source_device: Option<String>,
+}
+
 /// Values for a node to insert.
 #[derive(Clone, Debug)]
 pub struct NewNode {
@@ -337,9 +359,28 @@ impl Db {
         name: &str,
         content: NewContent,
     ) -> Result<StoreOutcome, DbError> {
+        self.store_file_with(owner, parent, name, content, StoreOptions::default())
+            .await
+    }
+
+    /// Like [`Db::store_file`], with `options` on how to treat a taken name and what to record.
+    /// With `keep_both`, the stored node's name can differ from `name`.
+    pub async fn store_file_with(
+        &self,
+        owner: UserId,
+        parent: Option<NodeId>,
+        name: &str,
+        content: NewContent,
+        options: StoreOptions,
+    ) -> Result<StoreOutcome, DbError> {
         let mut tx = self.begin().await?;
         require_folder(&mut tx, owner, parent).await?;
-        let existing = find_sibling(&mut tx, owner, parent, NodeKind::File, name, None).await?;
+        let (existing, name) = if options.keep_both {
+            place_beside(&mut tx, owner, parent, name, &content).await?
+        } else {
+            let existing = find_sibling(&mut tx, owner, parent, NodeKind::File, name, None).await?;
+            (existing, name.to_owned())
+        };
         let outcome = match existing {
             Some(node) => apply_content(&mut tx, node, content).await?,
             None => {
@@ -363,8 +404,29 @@ impl Db {
                 StoreOutcome::Created(node)
             }
         };
+        if options.auto_upload
+            && let StoreOutcome::Created(node) | StoreOutcome::Versioned { node, .. } = &outcome
+        {
+            record_source_device(&mut tx, owner, node.id).await?;
+        }
         tx.commit().await?;
         Ok(outcome)
+    }
+
+    /// The predefined properties of a node of `owner`; none of them set if it has no row.
+    pub async fn node_properties(
+        &self,
+        owner: UserId,
+        id: NodeId,
+    ) -> Result<NodeProperties, DbError> {
+        self.get_node(owner, id).await?;
+        let properties = sqlx::query_as::<_, NodeProperties>(
+            "SELECT source_device FROM node_properties WHERE node_id = $1",
+        )
+        .bind(id)
+        .fetch_optional(self.pool())
+        .await?;
+        Ok(properties.unwrap_or_default())
     }
 
     /// Replaces the content of an existing file, archiving the previous content as a version
@@ -542,6 +604,63 @@ pub(crate) async fn find_sibling(
     .fetch_optional(conn)
     .await?;
     Ok(node)
+}
+
+/// Where a file goes that must not become a version of a different one: `name`, or else
+/// `name (1).ext`, `name (2).ext` and so on, up to the first free name. Identical content at any
+/// of them is that same file arriving again, such as a retry after a lost response, and is
+/// returned instead.
+async fn place_beside(
+    conn: &mut PgConnection,
+    owner: UserId,
+    parent: Option<NodeId>,
+    name: &str,
+    content: &NewContent,
+) -> Result<(Option<Node>, String), DbError> {
+    let mut candidate = name.to_owned();
+    for number in 1u32.. {
+        match find_sibling(conn, owner, parent, NodeKind::File, &candidate, None).await? {
+            None => return Ok((None, candidate)),
+            Some(node) if same_content(&node, content.size, Some(&content.sha256)) => {
+                return Ok((Some(node), candidate));
+            }
+            Some(_) => candidate = numbered_name(name, number),
+        }
+    }
+    Err(DbError::Conflict)
+}
+
+/// `name` with a number before its extension, still within the limit on names.
+fn numbered_name(name: &str, number: u32) -> String {
+    let (stem, extension) = match name.rfind('.') {
+        Some(dot) if dot > 0 && name.len() - dot <= MAX_NUMBERED_EXTENSION => name.split_at(dot),
+        _ => (name, ""),
+    };
+    let suffix = format!(" ({number}){extension}");
+    let room = MAX_NAME_CHARS.saturating_sub(suffix.chars().count());
+    let stem: String = stem.chars().take(room).collect();
+    format!("{stem}{suffix}")
+}
+
+/// Records the device of this transaction as the source of `node`. Without a device nothing is
+/// recorded.
+async fn record_source_device(
+    conn: &mut PgConnection,
+    owner: UserId,
+    node: NodeId,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "INSERT INTO node_properties (node_id, source_device) \
+         SELECT $1, name FROM devices \
+         WHERE user_id = $2 AND id = NULLIF(current_setting($3, true), '')::uuid \
+         ON CONFLICT (node_id) DO UPDATE SET source_device = EXCLUDED.source_device",
+    )
+    .bind(node)
+    .bind(owner)
+    .bind(DEVICE_SETTING)
+    .execute(conn)
+    .await?;
+    Ok(())
 }
 
 async fn require_folder(
@@ -1407,5 +1526,27 @@ mod tests {
             versions.iter().map(|v| v.edited_on).collect::<Vec<_>>(),
             [Some(phone)]
         );
+    }
+
+    #[test]
+    fn the_number_goes_before_the_extension() {
+        assert_eq!(numbered_name("IMG_0001.HEIC", 1), "IMG_0001 (1).HEIC");
+        assert_eq!(numbered_name("a.tar.gz", 2), "a.tar (2).gz");
+        assert_eq!(numbered_name("notes", 3), "notes (3)");
+    }
+
+    #[test]
+    fn a_leading_dot_or_an_overlong_extension_is_not_an_extension() {
+        assert_eq!(numbered_name(".bashrc", 1), ".bashrc (1)");
+        let long = format!("a.{}", "x".repeat(40));
+        assert_eq!(numbered_name(&long, 1), format!("{long} (1)"));
+    }
+
+    #[test]
+    fn a_numbered_name_stays_within_the_limit_on_names() {
+        let name = format!("{}.jpg", "é".repeat(MAX_NAME_CHARS - 4));
+        let numbered = numbered_name(&name, 12);
+        assert_eq!(numbered.chars().count(), MAX_NAME_CHARS);
+        assert!(numbered.ends_with(" (12).jpg"));
     }
 }

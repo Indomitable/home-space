@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use db::{NewContent, NewUpload, NodeId, NodeKind, StoreOutcome, Upload, UserId};
+use db::{NewContent, NewUpload, NodeId, NodeKind, StoreOptions, StoreOutcome, Upload, UserId};
 
 use crate::{FileService, FilesError, service::new_content};
 
@@ -30,6 +30,7 @@ pub enum UploadTarget {
     New {
         parent: Option<NodeId>,
         name: String,
+        options: StoreOptions,
     },
     /// New content for an existing file, stored like [`FileService::replace_content`].
     Replace(NodeId),
@@ -112,19 +113,23 @@ impl FileService {
                 limit: self.max_upload_bytes,
             });
         }
-        let (parent_id, node_id, name) = match target {
-            UploadTarget::New { parent, name } => {
+        let (parent_id, node_id, name, options) = match target {
+            UploadTarget::New {
+                parent,
+                name,
+                options,
+            } => {
                 if let Some(parent) = parent {
                     self.db.get_node(owner, parent).await?;
                 }
-                (parent, None, name)
+                (parent, None, name, options)
             }
             UploadTarget::Replace(id) => {
                 let current = self.db.get_node(owner, id).await?;
                 if current.kind != NodeKind::File {
                     return Err(FilesError::NotAFile);
                 }
-                (None, Some(id), current.name)
+                (None, Some(id), current.name, StoreOptions::default())
             }
         };
         let id = Uuid::now_v7();
@@ -137,6 +142,8 @@ impl FileService {
             mime: content_type.map(str::to_owned),
             modified_at,
             device_id: device,
+            keep_both: options.keep_both,
+            auto_upload: options.auto_upload,
         };
         self.db.create_upload(owner, new).await?;
         if let Err(err) = self.store.create_partial(id).await {
@@ -303,8 +310,18 @@ impl FileService {
                     self.store.discard(staged).await;
                     return Err(err.into());
                 }
+                let options = StoreOptions {
+                    keep_both: upload.keep_both,
+                    auto_upload: upload.auto_upload,
+                };
                 self.db
-                    .store_file(owner, upload.parent_id, &upload.name, content(&upload.name))
+                    .store_file_with(
+                        owner,
+                        upload.parent_id,
+                        &upload.name,
+                        content(&upload.name),
+                        options,
+                    )
                     .await
             }
         };
@@ -374,6 +391,7 @@ mod tests {
         UploadTarget::New {
             parent: None,
             name: name.to_owned(),
+            options: StoreOptions::default(),
         }
     }
 

@@ -55,6 +55,10 @@ pub fn ancestors(id: NodeId) -> String {
     format!("{NODES}/{id}/ancestors")
 }
 
+pub fn properties(id: NodeId) -> String {
+    format!("{NODES}/{id}/properties")
+}
+
 pub fn versions(id: NodeId) -> String {
     format!("{NODES}/{id}/versions")
 }

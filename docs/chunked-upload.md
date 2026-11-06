@@ -18,10 +18,15 @@ ones.
 
 | Request | Purpose |
 |---|---|
-| `POST /api/v1/uploads` `{name, parent_id?, size, modified_at?, mime?, node_id?}` | Starts an upload and returns `201 {id, offset, size, chunk_size}`. When `node_id` is set, the upload replaces that file's content, like `PUT /files/{id}/content`. |
+| `POST /api/v1/uploads` `{name, parent_id?, size, modified_at?, mime?, node_id?, keep_both?, auto_upload?}` | Starts an upload and returns `201 {id, offset, size, chunk_size}`. When `node_id` is set, the upload replaces that file's content, like `PUT /files/{id}/content`. |
 | `PATCH /api/v1/uploads/{id}` with the `Upload-Offset: N` header and a raw body of at most `chunk_size` bytes | Appends the body only if `N` equals the bytes already received, then returns `{offset}`. The chunk that reaches `size` stores the file and returns `{offset, node}` with `201` (new file) or `200` (new version). |
 | `GET` / `HEAD /api/v1/uploads/{id}` | Returns the current offset, in the body and in the `Upload-Offset` header. |
 | `DELETE /api/v1/uploads/{id}` | Cancels the upload. |
+
+Two flags change how a new file is stored. Both are ignored when `node_id` is set:
+
+- `keep_both`: when different content already has the name, the file is stored as `name (1).ext` or the next free number, not as a new version. Identical content at any of those names changes nothing, so a retry after a lost response creates no duplicate. The returned `node.name` is the name used.
+- `auto_upload`: when new content is stored, the name of the calling session's device is saved as the file's `source_device` (`GET /nodes/{id}/properties`). The name comes from the server's device list, not the request, and later renames of the device don't change it. A session with no device records nothing.
 
 Error responses:
 

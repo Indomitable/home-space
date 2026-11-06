@@ -16,6 +16,7 @@ use axum::{
 use futures_util::StreamExt;
 use uuid::Uuid;
 
+use db::StoreOptions;
 use files::{ChunkOutcome, FilesError, UploadStatus, UploadTarget};
 use protocol::{
     ChunkResult, CreateUpload, UploadInfo, UploadSession, UploadsQuery, paths::UPLOAD_OFFSET,
@@ -98,6 +99,10 @@ async fn create(
         None => UploadTarget::New {
             parent: request.parent_id,
             name: request.name,
+            options: StoreOptions {
+                keep_both: request.keep_both,
+                auto_upload: request.auto_upload,
+            },
         },
     };
     let status = state

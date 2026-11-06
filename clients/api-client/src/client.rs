@@ -7,8 +7,9 @@ use tokio::sync::Mutex as AsyncMutex;
 use protocol::{
     Capabilities, ChangesQuery, ChangesResponse, ClientMessage, CreateFolderRequest, DeviceInfo,
     ErrorBody, FileVersion, Health, ListQuery, LoginRequest, Me, MoveRequest, MoveResponse, Node,
-    NodeId, OidcExchangeRequest, OnConflict, Providers, RefreshRequest, RestoreRequest, SearchHit,
-    SearchQuery, TicketRequest, TicketResponse, TokenPair, TrashItem, UpdateRequest, paths,
+    NodeId, NodeProperties, OidcExchangeRequest, OnConflict, Providers, RefreshRequest,
+    RestoreRequest, SearchHit, SearchQuery, TicketRequest, TicketResponse, TokenPair, TrashItem,
+    UpdateRequest, paths,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use protocol::{ContentQuery, UploadQuery};
@@ -292,6 +293,12 @@ impl Client {
     /// Ancestors of a node from the root down to its parent.
     pub async fn ancestors(&self, id: NodeId) -> Result<Vec<Node>, ApiError> {
         self.send_json(|| self.http.get(self.url(&paths::ancestors(id))))
+            .await
+    }
+
+    /// The predefined properties of a node.
+    pub async fn node_properties(&self, id: NodeId) -> Result<NodeProperties, ApiError> {
+        self.send_json(|| self.http.get(self.url(&paths::properties(id))))
             .await
     }
 

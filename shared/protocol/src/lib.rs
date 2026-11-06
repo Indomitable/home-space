@@ -31,7 +31,7 @@ pub use health::Health;
 pub use ids::{NodeId, UserId};
 pub use node::{
     Conflict, ContentQuery, CreateFolderRequest, FileVersion, ListQuery, MoveRequest, MoveResponse,
-    Node, NodeKind, OnConflict, UpdateRequest, UploadQuery,
+    Node, NodeKind, NodeProperties, OnConflict, UpdateRequest, UploadQuery,
 };
 pub use search::{SearchHit, SearchQuery};
 pub use ticket::{TicketRequest, TicketResponse};

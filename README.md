@@ -124,12 +124,13 @@ one.
 | POST | `/folders` | `{parent_id?, name}` |
 | POST | `/files?name=&parent_id=` | raw-body streaming upload (201 new, 200 unchanged or new version) |
 | GET / PUT | `/files/{id}/content` | download / replace content |
-| POST | `/uploads` | `{name, parent_id?, size, modified_at?, mime?, node_id?}` → 201 `{id, offset, size, chunk_size}`; starts a resumable upload (`node_id` replaces that file's content) |
+| POST | `/uploads` | `{name, parent_id?, size, modified_at?, mime?, node_id?, keep_both?, auto_upload?}` → 201 `{id, offset, size, chunk_size}`; starts a resumable upload (`node_id` replaces that file's content; for the two flags see [`docs/chunked-upload.md`](docs/chunked-upload.md)) |
 | PATCH | `/uploads/{id}` | raw-body chunk with `Upload-Offset: N` → `{offset, node?}`; 409 with the right offset on a mismatch, `node` once complete |
 | GET / HEAD / DELETE | `/uploads/{id}` | current offset (also in `Upload-Offset`) / cancel |
 | GET | `/uploads?this_device=` | unfinished uploads `{id, parent_id?, node_id?, name, size, device_id?, updated_at}`, or only the calling device's |
 | GET | `/devices` | the user's devices: `{id, name, platform, created_at, last_seen_at, signed_in, current, uploads}` |
 | PATCH / DELETE | `/devices/{id}` | rename `{name}` / sign out: end its sessions and cancel its unfinished uploads (it stays listed) |
+| GET | `/nodes/{id}/properties` | predefined properties of a node: `{source_device?}`, the name of the device that last auto-uploaded the file |
 | GET | `/nodes/{id}/versions` | previous versions of a file, newest first |
 | DELETE | `/nodes/{id}/versions/{version}` | delete a previous version |
 | GET | `/files/{id}/versions/{version}/content` | download a previous version |

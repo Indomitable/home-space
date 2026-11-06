@@ -18,7 +18,7 @@ use db::{MoveOutcome, NodeUpdate, StoreOutcome};
 use notifications::Event;
 use protocol::{
     ContentQuery, CreateFolderRequest, FileVersion, ListQuery, MoveRequest, MoveResponse, Node,
-    NodeId, TicketRequest, UpdateRequest, UploadQuery,
+    NodeId, NodeProperties, TicketRequest, UpdateRequest, UploadQuery,
 };
 
 use crate::{
@@ -35,6 +35,7 @@ pub fn routes() -> Router<AppState> {
         .route("/nodes/move", post(move_nodes))
         .route("/nodes/{id}", get(get_node).patch(update).delete(delete))
         .route("/nodes/{id}/ancestors", get(ancestors))
+        .route("/nodes/{id}/properties", get(properties))
         .route("/folders", post(create_folder))
         .route("/files", post(upload).layer(DefaultBodyLimit::disable()))
         .route("/nodes/{id}/versions", get(list_versions))
@@ -90,6 +91,17 @@ async fn ancestors(
 ) -> Result<Json<Vec<Node>>, ApiError> {
     let nodes = state.files.ancestors(user.id, id).await?;
     Ok(Json(nodes.into_iter().map(Node::from).collect()))
+}
+
+async fn properties(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<NodeId>,
+) -> Result<Json<NodeProperties>, ApiError> {
+    let properties = state.files.properties(user.id, id).await?;
+    Ok(Json(NodeProperties {
+        source_device: properties.source_device,
+    }))
 }
 
 async fn create_folder(

@@ -242,6 +242,7 @@ mod tests {
             mime: None,
             node_id: None,
             keep_both: false,
+            version_of: None,
             auto_upload: false,
         };
         let source = content.clone();

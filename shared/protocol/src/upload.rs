@@ -40,6 +40,12 @@ pub struct CreateUpload {
     /// nothing. Ignored when `node_id` is set.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub keep_both: bool,
+    /// With `keep_both`: the file this content is a new version of, as long as that file still has
+    /// the name in the folder. Any other file with the name is kept. Lets a client that sent a file
+    /// earlier send an edit without taking over a different file that got its name since. Ignored
+    /// when `node_id` is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_of: Option<NodeId>,
     /// Records the calling device as the file's source (`NodeProperties::source_device`). Ignored
     /// when `node_id` is set.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

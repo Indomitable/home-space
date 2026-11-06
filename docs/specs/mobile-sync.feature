@@ -40,6 +40,14 @@ Feature: Mobile data sync
         | moved to Archive  |
         | deleted           |
 
+    Scenario: Editing a photo whose name another file took keeps both
+      Given "IMG_1.jpg" was uploaded
+      And it was moved to "Archive" on the server
+      And a different file "IMG_1.jpg" was added to "Photos"
+      When the local file is edited
+      Then "Photos/IMG_1.jpg" is unchanged
+      And a new file "Photos/IMG_1 (1).jpg" exists on the server
+
     Scenario: A local delete stays local
       Given "IMG_1.jpg" was uploaded
       When the local file is deleted
@@ -56,6 +64,11 @@ Feature: Mobile data sync
       When a different "IMG_1.jpg" appears in "Camera"
       Then the server folder holds "IMG_1.jpg" and "IMG_1 (1).jpg"
       And later edits of the local file go to "IMG_1 (1).jpg"
+
+    Scenario: Two phones with the same name keep their own files through edits
+      Given two phones each uploaded a different "IMG_1.jpg" to "Photos"
+      When each edits its own file
+      Then "Photos/IMG_1.jpg" and "Photos/IMG_1 (1).jpg" each have a new version
 
     Scenario: The same file arriving again changes nothing
       Given the answer to the last chunk of "IMG_1.jpg" was lost
@@ -146,6 +159,12 @@ Feature: Mobile data sync
       Given "note.txt" is kept on the phone
       When it is edited on the phone and then renamed on the server
       Then the server holds the edit under the new name
+
+    Scenario: An edit in a kept folder and a rename on the server
+      Given the folder "Docs" with "note.txt" is kept on the phone
+      When "note.txt" is edited on the phone and then renamed on the server
+      Then the server holds the edit under the new name
+      And no file remains under the old name
 
     Scenario: Changes on both sides
       Given "note.txt" is kept on the phone

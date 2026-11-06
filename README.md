@@ -124,7 +124,7 @@ one.
 | POST | `/folders` | `{parent_id?, name}` |
 | POST | `/files?name=&parent_id=` | raw-body streaming upload (201 new, 200 unchanged or new version) |
 | GET / PUT | `/files/{id}/content` | download / replace content |
-| POST | `/uploads` | `{name, parent_id?, size, modified_at?, mime?, node_id?, keep_both?, auto_upload?}` → 201 `{id, offset, size, chunk_size}`; starts a resumable upload (`node_id` replaces that file's content; for the two flags see [`docs/chunked-upload.md`](docs/chunked-upload.md)) |
+| POST | `/uploads` | `{name, parent_id?, size, modified_at?, mime?, node_id?, keep_both?, version_of?, auto_upload?}` → 201 `{id, offset, size, chunk_size}`; starts a resumable upload (`node_id` replaces that file's content; for the other options see [`docs/chunked-upload.md`](docs/chunked-upload.md)) |
 | PATCH | `/uploads/{id}` | raw-body chunk with `Upload-Offset: N` → `{offset, node?}`; 409 with the right offset on a mismatch, `node` once complete |
 | GET / HEAD / DELETE | `/uploads/{id}` | current offset (also in `Upload-Offset`) / cancel |
 | GET | `/uploads?this_device=` | unfinished uploads `{id, parent_id?, node_id?, name, size, device_id?, updated_at}`, or only the calling device's |

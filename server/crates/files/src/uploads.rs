@@ -143,6 +143,7 @@ impl FileService {
             modified_at,
             device_id: device,
             keep_both: options.keep_both,
+            version_of: options.version_of,
             auto_upload: options.auto_upload,
         };
         self.db.create_upload(owner, new).await?;
@@ -312,6 +313,7 @@ impl FileService {
                 }
                 let options = StoreOptions {
                     keep_both: upload.keep_both,
+                    version_of: upload.version_of,
                     auto_upload: upload.auto_upload,
                 };
                 self.db

@@ -100,6 +100,7 @@ async fn upload_chunked(
                 mime: Some(mime_of(file)),
                 node_id: None,
                 keep_both: false,
+                version_of: None,
                 auto_upload: false,
             };
             let session = client.create_upload(&request).await?;

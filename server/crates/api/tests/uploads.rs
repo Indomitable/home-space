@@ -344,6 +344,156 @@ async fn keep_both_recognises_the_same_file_arriving_again(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
+async fn version_of_makes_a_new_version_of_that_file(pool: PgPool) {
+    let app = setup(pool).await;
+    let token = app.user_token("alice").await;
+    let first = upload_with(
+        &app,
+        &token,
+        "a.txt",
+        b"first",
+        json!({ "keep_both": true }),
+    )
+    .await;
+    let id = first.json()["node"]["id"].clone();
+
+    let edit = upload_with(
+        &app,
+        &token,
+        "a.txt",
+        b"edited",
+        json!({ "keep_both": true, "version_of": id }),
+    )
+    .await;
+
+    assert_eq!(edit.status, StatusCode::OK);
+    assert_eq!(edit.json()["node"]["id"], id);
+    assert_eq!(edit.json()["node"]["name"], "a.txt");
+    assert_eq!(edit.json()["node"]["version"], 2);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn version_of_keeps_a_different_file_that_took_the_name(pool: PgPool) {
+    let app = setup(pool).await;
+    let token = app.user_token("alice").await;
+    let first = upload_with(
+        &app,
+        &token,
+        "a.txt",
+        b"first",
+        json!({ "keep_both": true }),
+    )
+    .await;
+    let id = first.json()["node"]["id"].as_str().expect("id").to_owned();
+    let renamed = app
+        .json(
+            Method::PATCH,
+            &format!("/api/v1/nodes/{id}"),
+            Some(&token),
+            json!({ "name": "moved.txt" }),
+        )
+        .await;
+    assert_eq!(renamed.status, StatusCode::OK);
+    let other = upload_with(&app, &token, "a.txt", b"other", json!({})).await;
+
+    let edit = upload_with(
+        &app,
+        &token,
+        "a.txt",
+        b"edited",
+        json!({ "keep_both": true, "version_of": id }),
+    )
+    .await;
+
+    assert_eq!(edit.status, StatusCode::CREATED);
+    assert_eq!(edit.json()["node"]["name"], "a (1).txt");
+    assert_ne!(edit.json()["node"]["id"], other.json()["node"]["id"]);
+    assert_ne!(edit.json()["node"]["id"], id.as_str());
+    let listed = app.get("/api/v1/nodes", &token).await.json();
+    let at = |name: &str| {
+        listed
+            .as_array()
+            .expect("nodes")
+            .iter()
+            .find(|node| node["name"] == name)
+            .cloned()
+            .expect(name)
+    };
+    assert_eq!(at("a.txt")["version"], 1);
+    assert_eq!(at("moved.txt")["version"], 1);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn version_of_makes_a_new_file_when_the_name_is_free(pool: PgPool) {
+    let app = setup(pool).await;
+    let token = app.user_token("alice").await;
+    let first = upload_with(
+        &app,
+        &token,
+        "a.txt",
+        b"first",
+        json!({ "keep_both": true }),
+    )
+    .await;
+    let id = first.json()["node"]["id"].as_str().expect("id").to_owned();
+    let deleted = app
+        .send(
+            Method::DELETE,
+            &format!("/api/v1/nodes/{id}"),
+            Some(&token),
+            Body::empty(),
+            None,
+        )
+        .await;
+    assert!(deleted.status.is_success());
+
+    let edit = upload_with(
+        &app,
+        &token,
+        "a.txt",
+        b"edited",
+        json!({ "keep_both": true, "version_of": id }),
+    )
+    .await;
+
+    assert_eq!(edit.status, StatusCode::CREATED);
+    assert_eq!(edit.json()["node"]["name"], "a.txt");
+    assert_ne!(edit.json()["node"]["id"], id.as_str());
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn two_phones_with_the_same_name_keep_their_own_files_through_edits(pool: PgPool) {
+    let app = setup(pool).await;
+    let token = app.user_token("alice").await;
+    let both = json!({ "keep_both": true });
+    let one = upload_with(&app, &token, "a.txt", b"one", both.clone()).await;
+    let two = upload_with(&app, &token, "a.txt", b"two", both).await;
+    assert_eq!(two.json()["node"]["name"], "a (1).txt");
+
+    let edit_one = upload_with(
+        &app,
+        &token,
+        "a.txt",
+        b"one edited",
+        json!({ "keep_both": true, "version_of": one.json()["node"]["id"] }),
+    )
+    .await;
+    let edit_two = upload_with(
+        &app,
+        &token,
+        "a (1).txt",
+        b"two edited",
+        json!({ "keep_both": true, "version_of": two.json()["node"]["id"] }),
+    )
+    .await;
+
+    assert_eq!(edit_one.json()["node"]["id"], one.json()["node"]["id"]);
+    assert_eq!(edit_one.json()["node"]["version"], 2);
+    assert_eq!(edit_two.json()["node"]["id"], two.json()["node"]["id"]);
+    assert_eq!(edit_two.json()["node"]["version"], 2);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
 async fn without_keep_both_a_taken_name_still_becomes_a_version(pool: PgPool) {
     let app = setup(pool).await;
     let token = app.user_token("alice").await;

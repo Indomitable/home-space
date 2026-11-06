@@ -87,14 +87,21 @@ final class ForegroundSync: NSObject {
     private func networkChanged(_ path: NWPath) {
         self.path = path
         onWake()
+        if applyNetworkRule() {
+            Task { await pass(retryNow: false) }
+        }
+    }
+
+    /// Whether the network may be used, stopping what is under way if not. Also after a change of
+    /// "Sync only on Wi-Fi", which no network callback reports.
+    private func applyNetworkRule() -> Bool {
         let allowed = networkAllows()
         waitingForWifi = !allowed
-        if allowed {
-            Task { await pass(retryNow: false) }
-        } else {
+        if !allowed {
             (try? session.autoUpload())?.stop()
             allowOffline(false)
         }
+        return allowed
     }
 
     private func networkAllows() -> Bool {
@@ -104,7 +111,8 @@ final class ForegroundSync: NSObject {
 
     private func pass(retryNow: Bool) async {
         onWake()
-        guard networkAllows(), let auto = try? session.autoUpload() else { return }
+        // Until the monitor first reports, nothing is known, and a background pass may be running.
+        guard path != nil, applyNetworkRule(), let auto = try? session.autoUpload() else { return }
         do {
             try? await session.client.offlineAllow(allowed: true)
             if retryNow {

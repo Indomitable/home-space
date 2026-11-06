@@ -596,6 +596,7 @@ impl Inner {
                 mime: None,
                 node_id: None,
                 keep_both: false,
+                version_of: None,
                 auto_upload: false,
             })
             .await

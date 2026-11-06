@@ -29,6 +29,8 @@ use super::{
 use crate::{Platform, layout::MAX_NAME_BYTES};
 
 const PART_SUFFIX: &str = ".part";
+/// Hex digits of the full name kept in a part file's name when the name itself doesn't fit.
+const PART_HASH_LEN: usize = 16;
 
 /// Where a download into `target` is written until it is complete.
 pub fn part_path(target: &Path) -> PathBuf {
@@ -36,8 +38,17 @@ pub fn part_path(target: &Path) -> PathBuf {
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
-    // A name at the file system's limit leaves no room for the suffix.
-    name.truncate(name.floor_char_boundary(MAX_NAME_BYTES - PART_SUFFIX.len()));
+    // A name at the file system's limit leaves no room for the suffix. The hash keeps two long
+    // names that start alike apart, as downloads run at the same time. It is the same on each try,
+    // so what an interrupted download left is overwritten rather than piling up.
+    if name.len() + PART_SUFFIX.len() > MAX_NAME_BYTES {
+        let hash = hex::encode(Sha256::digest(name.as_bytes()));
+        name.truncate(
+            name.floor_char_boundary(MAX_NAME_BYTES - PART_SUFFIX.len() - PART_HASH_LEN - 1),
+        );
+        name.push('-');
+        name.push_str(&hash[..PART_HASH_LEN]);
+    }
     name.push_str(PART_SUFFIX);
     target.with_file_name(name)
 }
@@ -344,6 +355,7 @@ async fn upload(
                     mime: None,
                     node_id: wanted.node,
                     keep_both: false,
+                    version_of: None,
                     auto_upload: false,
                 };
                 let session = client.create_upload(&request).await?;
@@ -641,6 +653,19 @@ mod tests {
         assert!(is_ignored(
             part.file_name().expect("name").to_str().expect("text")
         ));
+    }
+
+    #[test]
+    fn long_names_that_start_alike_get_their_own_part_files() {
+        let long = |end: &str| format!("{}{end}", "x".repeat(250));
+        let dir = Path::new("/tmp");
+        let (a, b) = (
+            part_path(&dir.join(long("aaaaa"))),
+            part_path(&dir.join(long("bbbbb"))),
+        );
+        assert_ne!(a, b);
+        assert_eq!(a, part_path(&dir.join(long("aaaaa"))));
+        assert!(a.file_name().expect("name").len() <= MAX_NAME_BYTES);
     }
 
     #[test]

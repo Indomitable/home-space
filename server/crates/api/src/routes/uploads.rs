@@ -101,6 +101,7 @@ async fn create(
             name: request.name,
             options: StoreOptions {
                 keep_both: request.keep_both,
+                version_of: request.version_of,
                 auto_upload: request.auto_upload,
             },
         },

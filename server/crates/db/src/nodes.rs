@@ -30,6 +30,8 @@ pub struct StoreOptions {
     /// Give a file whose name is taken by different content a free name, instead of making it a
     /// new version.
     pub keep_both: bool,
+    /// With `keep_both`: the one file with the name that does get a new version.
+    pub version_of: Option<NodeId>,
     /// Record the writing device as the file's source, when it stored new content.
     pub auto_upload: bool,
 }
@@ -376,7 +378,10 @@ impl Db {
         let mut tx = self.begin().await?;
         require_folder(&mut tx, owner, parent).await?;
         let (existing, name) = if options.keep_both {
-            place_beside(&mut tx, owner, parent, name, &content).await?
+            match find_sibling(&mut tx, owner, parent, NodeKind::File, name, None).await? {
+                Some(node) if Some(node.id) == options.version_of => (Some(node), name.to_owned()),
+                _ => place_beside(&mut tx, owner, parent, name, &content).await?,
+            }
         } else {
             let existing = find_sibling(&mut tx, owner, parent, NodeKind::File, name, None).await?;
             (existing, name.to_owned())

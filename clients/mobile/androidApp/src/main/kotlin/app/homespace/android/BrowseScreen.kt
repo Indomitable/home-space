@@ -10,12 +10,14 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContract
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,6 +31,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,6 +47,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +67,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.io.File
 import java.time.Instant
+import kotlinx.coroutines.launch
 import uniffi.homespace_core.CoreException
 import uniffi.homespace_core.Entry
 import uniffi.homespace_core.EntryIcon
@@ -75,12 +81,16 @@ private val ICON_BOX = ICON_SIZE + 6.dp
 private val BADGE_SIZE = 12.dp
 private val BADGE_PADDING = 1.dp
 private val MENU_BUTTON_SIZE = 40.dp
+// So that the add button doesn't cover the last row's menu.
+private val LIST_END_PADDING = 88.dp
 
 /** The same as the iOS app's rows, which match the Files app. */
 private val ROW_MIN_HEIGHT = 64.dp
 private const val PROGRESS_ALPHA = 0.25f
 private const val OCTET_STREAM = "application/octet-stream"
 private const val MAX_NAMES_SHOWN = 3
+private const val ANY_FILE = "*/*"
+private const val PERCENT = 100
 
 // The web client's --color-accent.
 private val FOLDER_ACCENT_LIGHT = Color(0xFF2563EB)
@@ -90,8 +100,8 @@ private val SUCCESS_LIGHT = Color(0xFF15803D)
 private val SUCCESS_DARK = Color(0xFF5FD39A)
 
 /** What a row's menu can ask for. */
-private enum class RowAction {
-    SAVE, EDIT, KEEP_OFFLINE, DETAILS, RENAME, MOVE, DELETE, REMOVE_OFFLINE, CANCEL_DOWNLOAD
+internal enum class RowAction {
+    SHOW_IN_FOLDER, SAVE, EDIT, KEEP_OFFLINE, DETAILS, RENAME, MOVE, DELETE, REMOVE_OFFLINE, CANCEL_DOWNLOAD
 }
 
 /** Folder browsing through the Rust client (`clients/mobile-core`). */
@@ -109,7 +119,15 @@ fun BrowseScreen(
     var selected by remember { mutableStateOf(emptySet<String>()) }
     val selecting = selected.isNotEmpty()
     var action by remember { mutableStateOf<FileAction?>(null) }
+    var searching by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val pickFiles = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { files ->
+        val folder = path.lastOrNull()
+        if (files.isNotEmpty() && folder != null) model.uploadFiles(session, files, folder)
+    }
     val saveTo = rememberLauncherForActivityResult(SaveDocument()) { destination ->
         val entry = model.pendingSave
         model.pendingSave = null
@@ -170,83 +188,122 @@ fun BrowseScreen(
         }
     }
 
-    Column(
-        modifier = modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (selecting) {
-                Text(
-                    "${selected.size} selected",
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.weight(1f),
-                )
-                if (selected.size < entries.size) {
-                    TextButton(onClick = { selected = entries.map { it.id }.toSet() }) {
-                        Text("Select all")
+    fun handle(entry: Entry, rowAction: RowAction) {
+        when (rowAction) {
+            RowAction.SHOW_IN_FOLDER -> scope.launch {
+                if (model.showInFolder(session, entry)) searching = false
+            }
+            RowAction.SAVE -> {
+                model.pendingSave = entry
+                saveTo.launch(entry)
+            }
+            RowAction.EDIT -> model.openFile(session, entry, edit = true)
+            RowAction.KEEP_OFFLINE -> model.makeAvailableOffline(session, entry)
+            RowAction.DETAILS -> action = FileAction.Details(entry)
+            RowAction.RENAME -> action = FileAction.Rename(entry)
+            RowAction.MOVE -> action = FileAction.Move(listOf(entry))
+            RowAction.DELETE -> action = FileAction.Delete(listOf(entry))
+            RowAction.REMOVE_OFFLINE -> model.removeOfflineCopy(session, entry)
+            RowAction.CANCEL_DOWNLOAD -> session.client.cancelDownload(entry.id)
+        }
+    }
+
+    if (searching) {
+        SearchScreen(
+            session = session,
+            model = model,
+            onClose = { searching = false },
+            onOpenFolder = { folder ->
+                scope.launch { if (model.showInFolder(session, folder)) searching = false }
+            },
+            onAction = ::handle,
+            modifier = modifier,
+        )
+    } else {
+        Box(modifier = modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (selecting) {
+                        Text(
+                            "${selected.size} selected",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (selected.size < entries.size) {
+                            TextButton(onClick = { selected = entries.map { it.id }.toSet() }) {
+                                Text("Select all")
+                            }
+                        }
+                        TextButton(onClick = { selected = emptySet() }) { Text("Cancel") }
+                    } else {
+                        CurrentFolder(
+                            path,
+                            onOpenParent = { index -> path.removeRange(index + 1, path.size) },
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { searching = true }, modifier = Modifier.size(MENU_BUTTON_SIZE)) {
+                            Icon(painterResource(R.drawable.ic_search), contentDescription = "Search")
+                        }
+                        AccountMenu(
+                            username = session.user.username,
+                            onOpenPage = onOpenPage,
+                            onSignOut = { model.requestSignOut(session) },
+                        )
                     }
                 }
-                TextButton(onClick = { selected = emptySet() }) { Text("Cancel") }
-            } else {
-                CurrentFolder(
-                    path,
-                    onOpenParent = { index -> path.removeRange(index + 1, path.size) },
-                    modifier = Modifier.weight(1f),
-                )
-                AccountMenu(
-                    username = session.user.username,
-                    onOpenPage = onOpenPage,
-                    onSignOut = { model.requestSignOut(session) },
-                )
-            }
-        }
-        if (selecting) {
-            val chosen = entries.filter { it.id in selected }
-            SelectionActions(
-                chosen = chosen,
-                canDelete = chosen.none { it.id == session.user.lostAndFoundId },
-                onAction = { action = it },
-            )
-        }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        LazyColumn {
-            items(entries, key = { it.id }) { entry ->
-                val toggle = {
-                    selected = if (entry.id in selected) selected - entry.id else selected + entry.id
+                if (selecting) {
+                    val chosen = entries.filter { it.id in selected }
+                    SelectionActions(
+                        chosen = chosen,
+                        canDelete = chosen.none { it.id == session.user.lostAndFoundId },
+                        onAction = { action = it },
+                    )
                 }
-                EntryRow(
-                    entry = entry,
-                    selecting = selecting,
-                    isSelected = entry.id in selected,
-                    progress = model.downloads[entry.id],
-                    canDelete = entry.id != session.user.lostAndFoundId,
-                    onClick = {
-                        when {
-                            selecting -> toggle()
-                            entry.kind == EntryKind.FOLDER -> path.add(Crumb(entry.id, entry.name))
-                            else -> model.openFile(session, entry)
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                LazyColumn(contentPadding = PaddingValues(bottom = LIST_END_PADDING)) {
+                    items(model.uploads, key = { it.key }) { upload ->
+                        UploadRow(
+                            upload = upload,
+                            onRetry = { model.retryUpload(session, upload) },
+                            onCancel = { model.cancelUpload(session, upload) },
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(start = ICON_BOX + ICON_GAP))
+                    }
+                    items(entries, key = { it.id }) { entry ->
+                        val toggle = {
+                            selected = if (entry.id in selected) selected - entry.id else selected + entry.id
                         }
-                    },
-                    onLongClick = toggle,
-                    onAction = { rowAction ->
-                        when (rowAction) {
-                            RowAction.SAVE -> {
-                                model.pendingSave = entry
-                                saveTo.launch(entry)
-                            }
-                            RowAction.EDIT -> model.openFile(session, entry, edit = true)
-                            RowAction.KEEP_OFFLINE -> model.makeAvailableOffline(session, entry)
-                            RowAction.DETAILS -> action = FileAction.Details(entry)
-                            RowAction.RENAME -> action = FileAction.Rename(entry)
-                            RowAction.MOVE -> action = FileAction.Move(listOf(entry))
-                            RowAction.DELETE -> action = FileAction.Delete(listOf(entry))
-                            RowAction.REMOVE_OFFLINE -> model.removeOfflineCopy(session, entry)
-                            RowAction.CANCEL_DOWNLOAD -> session.client.cancelDownload(entry.id)
-                        }
-                    },
+                        EntryRow(
+                            entry = entry,
+                            selecting = selecting,
+                            isSelected = entry.id in selected,
+                            progress = model.downloads[entry.id],
+                            canDelete = entry.id != session.user.lostAndFoundId,
+                            onClick = {
+                                when {
+                                    selecting -> toggle()
+                                    entry.kind == EntryKind.FOLDER -> path.add(Crumb(entry.id, entry.name))
+                                    else -> model.openFile(session, entry)
+                                }
+                            },
+                            onLongClick = toggle,
+                            onAction = { handle(entry, it) },
+                        )
+                        // From the text to the end of the row, as in the iOS app.
+                        HorizontalDivider(modifier = Modifier.padding(start = ICON_BOX + ICON_GAP))
+                    }
+                }
+            }
+
+            if (!selecting) {
+                AddButton(
+                    onNewFolder = { action = FileAction.NewFolder(path.lastOrNull()?.id) },
+                    onUpload = { pickFiles.launch(arrayOf(ANY_FILE)) },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
                 )
-                // From the text to the end of the row, as in the iOS app.
-                HorizontalDivider(modifier = Modifier.padding(start = ICON_BOX + ICON_GAP))
             }
         }
     }
@@ -420,8 +477,83 @@ private fun AccountMenu(
     }
 }
 
+/** Adds to the folder on screen. */
 @Composable
-private fun EntryRow(
+private fun AddButton(onNewFolder: () -> Unit, onUpload: () -> Unit, modifier: Modifier = Modifier) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier) {
+        FloatingActionButton(onClick = { expanded = true }) {
+            Icon(painterResource(R.drawable.ic_add), contentDescription = "Add")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("New folder") },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_create_new_folder), contentDescription = null) },
+                onClick = {
+                    expanded = false
+                    onNewFolder()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Upload files") },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_upload_file), contentDescription = null) },
+                onClick = {
+                    expanded = false
+                    onUpload()
+                },
+            )
+        }
+    }
+}
+
+/** A file on its way up, shown in every folder so that a failure can't go unseen. */
+@Composable
+private fun UploadRow(upload: PickedUpload, onRetry: () -> Unit, onCancel: () -> Unit) {
+    val fill = accentColor().copy(alpha = PROGRESS_ALPHA)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .progressFill(upload.progress, fill)
+            .heightIn(min = ROW_MIN_HEIGHT)
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(ICON_GAP),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(modifier = Modifier.size(ICON_BOX), contentAlignment = Alignment.CenterStart) {
+            Icon(
+                painterResource(R.drawable.ic_upload_file),
+                contentDescription = null,
+                modifier = Modifier.size(ICON_SIZE),
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(upload.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val status = upload.progress?.let { "Uploading to ${upload.folderName} · ${(it * PERCENT).toInt()}%" }
+                ?: "Waiting to upload to ${upload.folderName}"
+            Text(
+                upload.error ?: status,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (upload.error != null) MaterialTheme.colorScheme.error else Color.Unspecified,
+            )
+        }
+        if (upload.error != null) TextButton(onClick = onRetry) { Text("Retry") }
+        IconButton(onClick = onCancel, modifier = Modifier.size(MENU_BUTTON_SIZE)) {
+            Icon(painterResource(R.drawable.ic_close), contentDescription = "Cancel upload of ${upload.name}")
+        }
+    }
+}
+
+/** Fills the background from the leading edge, as far as `progress` has come. */
+private fun Modifier.progressFill(progress: Float?, fill: Color): Modifier = drawBehind {
+    if (progress != null) {
+        val width = size.width * progress
+        val left = if (layoutDirection == LayoutDirection.Rtl) size.width - width else 0f
+        drawRect(fill, topLeft = Offset(left, 0f), size = Size(width, size.height))
+    }
+}
+
+@Composable
+internal fun EntryRow(
     entry: Entry,
     selecting: Boolean,
     isSelected: Boolean,
@@ -430,6 +562,8 @@ private fun EntryRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onAction: (RowAction) -> Unit,
+    /** For a search result: where it is, in place of its size and date. */
+    location: String? = null,
 ) {
     val background =
         if (isSelected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
@@ -438,13 +572,7 @@ private fun EntryRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(background)
-            .drawBehind {
-                if (progress != null) {
-                    val width = size.width * progress
-                    val left = if (layoutDirection == LayoutDirection.Rtl) size.width - width else 0f
-                    drawRect(fill, topLeft = Offset(left, 0f), size = Size(width, size.height))
-                }
-            }
+            .progressFill(progress, fill)
             .combinedClickable(onLongClick = onLongClick, onClick = onClick)
             .heightIn(min = ROW_MIN_HEIGHT)
             .padding(vertical = 2.dp),
@@ -456,7 +584,9 @@ private fun EntryRow(
         BadgedIcon(entry.icon, state = entry.offlineState.takeIf { progress == null })
         Column(modifier = Modifier.weight(1f)) {
             Text(entry.name)
-            if (entry.kind == EntryKind.FILE) {
+            if (location != null) {
+                Text(location, style = MaterialTheme.typography.bodySmall)
+            } else if (entry.kind == EntryKind.FILE) {
                 Text(
                     "${entry.sizeLabel} · ${localDate(entry.updatedAt)}",
                     style = MaterialTheme.typography.bodySmall,
@@ -464,7 +594,7 @@ private fun EntryRow(
             }
         }
         if (!selecting) {
-            RowMenu(entry, downloading = progress != null, canDelete, onAction)
+            RowMenu(entry, downloading = progress != null, canDelete, inSearch = location != null, onAction)
         }
     }
 }
@@ -474,6 +604,7 @@ private fun RowMenu(
     entry: Entry,
     downloading: Boolean,
     canDelete: Boolean,
+    inSearch: Boolean,
     onAction: (RowAction) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -496,6 +627,7 @@ private fun RowMenu(
                     onClick = { choose(action) },
                 )
             }
+            if (inSearch) item("Show in folder", R.drawable.ic_node_folder, RowAction.SHOW_IN_FOLDER)
             if (downloading) item("Cancel download", R.drawable.ic_close, RowAction.CANCEL_DOWNLOAD)
             if (entry.kind == EntryKind.FILE && !downloading) {
                 item("Edit in another app", R.drawable.ic_edit, RowAction.EDIT)

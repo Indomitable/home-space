@@ -56,6 +56,8 @@ sealed interface FileAction {
     data class Rename(val entry: Entry) : FileAction
     data class Move(val entries: List<Entry>) : FileAction
     data class Delete(val entries: List<Entry>) : FileAction
+    /** A new folder in the folder `parentId`, or Home when null. */
+    data class NewFolder(val parentId: String?) : FileAction
 }
 
 /** Shows the dialog of `action`. `onDone` means something changed, so the folder is out of date. */
@@ -69,7 +71,20 @@ fun FileDialog(
 ) {
     when (action) {
         is FileAction.Details -> DetailsSheet(action.entry, client, onDismiss, onSessionEnded)
-        is FileAction.Rename -> RenameDialog(action.entry, client, onDismiss, onDone, onSessionEnded)
+        is FileAction.Rename -> NameDialog(
+            title = "Rename “${action.entry.name}”",
+            confirm = "Rename",
+            initial = action.entry.name,
+            save = { client.rename(action.entry.id, it) },
+            onDismiss, onDone, onSessionEnded,
+        )
+        is FileAction.NewFolder -> NameDialog(
+            title = "New folder",
+            confirm = "Create",
+            initial = "",
+            save = { client.createFolder(action.parentId, it) },
+            onDismiss, onDone, onSessionEnded,
+        )
         is FileAction.Move -> MoveDialog(action.entries, client, onDismiss, onDone, onSessionEnded)
         is FileAction.Delete -> DeleteDialog(action.entries, client, onDismiss, onDone, onSessionEnded)
     }
@@ -129,15 +144,17 @@ private fun DetailRow(label: String, value: String) {
 }
 
 @Composable
-private fun RenameDialog(
-    entry: Entry,
-    client: CoreClient,
+private fun NameDialog(
+    title: String,
+    confirm: String,
+    initial: String,
+    save: suspend (String) -> Unit,
     onDismiss: () -> Unit,
     onDone: () -> Unit,
     onSessionEnded: () -> Unit,
 ) {
     var name by remember {
-        mutableStateOf(TextFieldValue(entry.name, TextRange(0, entry.name.length)))
+        mutableStateOf(TextFieldValue(initial, TextRange(0, initial.length)))
     }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -146,7 +163,7 @@ private fun RenameDialog(
     LaunchedEffect(Unit) { focus.requestFocus() }
     val submit = submit@{
         val typed = name.text.trim()
-        if (typed.isEmpty() || typed == entry.name) {
+        if (typed.isEmpty() || typed == initial) {
             onDismiss()
             return@submit
         }
@@ -154,7 +171,7 @@ private fun RenameDialog(
         error = null
         scope.launch {
             try {
-                client.rename(entry.id, typed)
+                save(typed)
                 onDone()
             } catch (_: CoreException.Unauthorized) {
                 onSessionEnded()
@@ -167,7 +184,7 @@ private fun RenameDialog(
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Rename “${entry.name}”") },
+        title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
@@ -182,7 +199,7 @@ private fun RenameDialog(
         },
         confirmButton = {
             TextButton(onClick = submit, enabled = !saving) {
-                Text(if (saving) WORKING else "Rename")
+                Text(if (saving) WORKING else confirm)
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

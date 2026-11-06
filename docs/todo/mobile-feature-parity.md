@@ -2,8 +2,8 @@
 
 ## Problem
 
-Desktop and web have most features. Android and iOS browse, rename, move, delete and download, but
-they cannot upload, create folders, search, restore from the trash, or receive live updates. Status
+Desktop and web have most features. Android and iOS now also search, create folders and upload picked
+files, but they cannot restore from the trash or receive live updates. Status
 per client, as of 2026-11-06 (checked in source, not by running the apps):
 
 | Feature | Desktop | Web | Android | iOS |
@@ -20,14 +20,14 @@ per client, as of 2026-11-06 (checked in source, not by running the apps):
 | Select several items | Yes | Yes | Yes | Yes |
 | Details panel (created, edited on, device) | Yes | Yes | Yes | Yes |
 | Live updates while browsing | Yes | Yes | No | No |
-| Create folder | Yes | Yes | No | No |
+| Create folder | Yes | Yes | Yes | Yes |
 | Rename | Yes | Yes | Yes | Yes |
 | Move, with conflict choice | Yes | Yes | Yes | Yes |
 | Delete to bin | Yes | Yes | Yes | Yes |
 | Trash: list and restore | Yes | Yes | No | No |
-| Search | Yes | Yes | No | No |
+| Search | Yes | Yes | Yes | Yes |
 | Share with links or users | No | No | No | No |
-| Upload files | Yes | Yes | Partial: auto-upload only, no file picker | Partial: auto-upload only, no file picker |
+| Upload files | Yes | Yes | Yes, not whole folders | Yes, not whole folders |
 | Drag and drop to upload | No | Yes | n/a | n/a |
 | Resumable uploads | Yes | Yes | Yes | Yes |
 | Download a file | Yes | Yes | Yes | Yes |
@@ -53,22 +53,18 @@ write-ups and are only listed here.
 
 Work in this order:
 
-1. **Upload files** (both apps). Use the chunked upload API (`POST /uploads`, `PATCH /uploads/{id}`
-   with `Upload-Offset`, resume from `HEAD /uploads/{id}`). Export it from `mobile-core`, then
-   add a file picker on each platform. This is the main reason to have the app.
-2. **Create folders** (`POST /folders`) and **trash** (list and restore, `GET /trash`,
-   `POST /trash/restore`). Both are small calls.
-3. **Search** (`GET /search`).
-4. **Live updates** through the websocket (`/api/v1/ws`), which desktop and web already use.
-5. **Medium items**: a device list screen, a sort choice, and an iOS breadcrumb trail.
+1. **Trash** (list and restore, `GET /trash`, `POST /trash/restore`).
+2. **Live updates** through the websocket (`/api/v1/ws`), which desktop and web already use.
+3. **Medium items**: a device list screen, a sort choice, and an iOS breadcrumb trail.
 
 Each step adds `mobile-core` calls first, then Android and iOS screens. Keep parity by checking this
 table after each step.
 
 ## Open questions
 
-- Upload from the phone: start with the file picker only, or also a folder picker? Folder upload
-  is available on desktop.
+- Should picking a whole folder to upload be added? Desktop has it; auto-upload covers the ongoing case.
+- Should uploads of picked files continue with the app closed? Today they run while the app is alive,
+  and iOS gives them a short time after leaving it; Retry then continues them.
 - Is a delete from the phone a move to the bin, as now? (Yes, unless the trash UI makes it
   confusing.)
-- Should iOS and Android share one data flow for search and trash, or keep the native list state?
+- Should iOS and Android share one data flow for trash, or keep the native list state?

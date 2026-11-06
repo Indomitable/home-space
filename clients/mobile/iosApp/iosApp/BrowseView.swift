@@ -1,3 +1,4 @@
+import PhotosUI
 import QuickLook
 import SwiftUI
 
@@ -195,7 +196,17 @@ private struct FolderView: View {
     @State private var editMode = EditMode.inactive
     @State private var action: FileAction?
     @State private var page: AccountPage?
+    @State private var query = ""
+    @State private var results: [SearchResult] = []
+    /// Whether what `results` answers is the query typed now, so "no results" isn't shown early.
+    @State private var answered = false
+    @State private var shownFolder: ShownFolder?
+    @State private var pickingFiles = false
+    @State private var pickingPhotos = false
+    @State private var photos: [PhotosPickerItem] = []
 
+    private var searchText: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var searching: Bool { !searchText.isEmpty }
     private var selecting: Bool { editMode.isEditing }
     private var chosen: [Entry] { entries.filter { selection.contains($0.id) } }
 
@@ -204,21 +215,59 @@ private struct FolderView: View {
             if let error {
                 Text(error).foregroundStyle(.red)
             }
-            ForEach(entries, id: \.id) { entry in
-                row(entry)
-                    .contextMenu {
-                        if !selecting {
-                            rowActions(entry)
+            if searching {
+                ForEach(results, id: \.entry.id) { result in
+                    row(result.entry, location: result.location)
+                        .contextMenu {
+                            if result.entry.kind == .file {
+                                Button("Show in Folder", systemImage: "folder") {
+                                    shownFolder = ShownFolder(
+                                        id: result.entry.parentId,
+                                        title: result.location.components(separatedBy: " / ").last ?? "Home"
+                                    )
+                                }
+                            }
+                            rowActions(result.entry)
                         }
-                    }
-                    .fileRow()
-                    .listRowBackground(ProgressBackground(model: model, id: entry.id))
+                        .fileRow()
+                        .listRowBackground(ProgressBackground(model: model, id: result.entry.id))
+                }
+            } else {
+                ForEach(model.uploads) { upload in
+                    UploadRow(model: model, client: client, upload: upload)
+                        .selectionDisabled()
+                        .fileRow()
+                        .listRowBackground(ProgressBackground(model: model, id: upload.key))
+                }
+                ForEach(entries, id: \.id) { entry in
+                    row(entry)
+                        .contextMenu {
+                            if !selecting {
+                                rowActions(entry)
+                            }
+                        }
+                        .fileRow()
+                        .listRowBackground(ProgressBackground(model: model, id: entry.id))
+                }
+            }
+        }
+        .overlay {
+            if searching && answered && results.isEmpty && error == nil {
+                ContentUnavailableView.search(text: searchText)
             }
         }
         .fileList()
         .navigationTitle(selecting ? "\(selection.count) selected" : title)
         .navigationBarBackButtonHidden(selecting)
         .environment(\.editMode, $editMode)
+        .searchable(text: $query, prompt: "Search Files and Folders")
+        .onChange(of: searchText) {
+            answered = false
+            if searching && selecting {
+                selection = []
+                editMode = .inactive
+            }
+        }
         .toolbar {
             if selecting {
                 ToolbarItem(placement: .topBarLeading) {
@@ -229,12 +278,15 @@ private struct FolderView: View {
                     }
                 }
             }
+            if !selecting {
+                ToolbarItem(placement: .topBarTrailing) { addMenu }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(selecting ? "Done" : "Select") {
                     selection = []
                     editMode = selecting ? .inactive : .active
                 }
-                .disabled(entries.isEmpty)
+                .disabled(entries.isEmpty || searching)
             }
             if !selecting {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -266,7 +318,28 @@ private struct FolderView: View {
                 model.reload()
             }
         }
+        .navigationDestination(item: $shownFolder) { folder in
+            FolderView(model: model, client: client, user: user, folderId: folder.id, title: folder.title)
+        }
+        .sheet(isPresented: $pickingFiles) {
+            ImportPicker { files in
+                model.uploadFiles(client: client, files: files, parentId: folderId, folderName: title)
+            }
+            .ignoresSafeArea()
+        }
+        .photosPicker(
+            isPresented: $pickingPhotos,
+            selection: $photos,
+            matching: .any(of: [.images, .videos]),
+            preferredItemEncoding: .current
+        )
+        .onChange(of: photos) {
+            guard !photos.isEmpty else { return }
+            model.uploadPhotos(client: client, photos: photos, parentId: folderId, folderName: title)
+            photos = []
+        }
         .task(id: model.reloadKey) { await load() }
+        .task(id: SearchRequest(text: searchText, reloadKey: model.reloadKey)) { await search() }
         // Updating and failed copies change while the folder is open, with nothing new on the server.
         .onChange(of: ClientHolder.shared.changes.generation) {
             Task {
@@ -278,8 +351,16 @@ private struct FolderView: View {
         }
     }
 
+    private var addMenu: some View {
+        Menu("Add", systemImage: "plus") {
+            Button("New Folder", systemImage: "folder.badge.plus") { action = .newFolder(folderId) }
+            Button("Upload Files", systemImage: "doc.badge.plus") { pickingFiles = true }
+            Button("Upload Photos", systemImage: "photo.badge.plus") { pickingPhotos = true }
+        }
+    }
+
     @ViewBuilder
-    private func row(_ entry: Entry) -> some View {
+    private func row(_ entry: Entry, location: String? = nil) -> some View {
         switch entry.kind {
         case .folder:
             NavigationLink {
@@ -291,24 +372,30 @@ private struct FolderView: View {
                     title: entry.name
                 )
             } label: {
-                rowLabel(entry)
+                rowLabel(entry, location: location)
             }
         case .file:
             if selecting {
-                rowLabel(entry)
+                rowLabel(entry, location: location)
             } else {
-                Button { model.openFile(client: client, entry: entry) } label: { rowLabel(entry) }
+                Button { model.openFile(client: client, entry: entry) } label: {
+                    rowLabel(entry, location: location)
+                }
                     .buttonStyle(.plain)
             }
         }
     }
 
-    private func rowLabel(_ entry: Entry) -> some View {
+    private func rowLabel(_ entry: Entry, location: String?) -> some View {
         HStack(spacing: 12) {
             EntryIconView(icon: entry.icon, state: entry.offlineState)
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.name)
-                if entry.kind == .file {
+                if let location {
+                    Text(location)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if entry.kind == .file {
                     Text("\(entry.sizeLabel) · \(localDate(entry.updatedAt))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -366,6 +453,29 @@ private struct FolderView: View {
         }
     }
 
+    /// Waits for typing to pause, as the desktop client does. A new request cancels this one, so a
+    /// late answer can't replace a newer one.
+    private func search() async {
+        guard searching else {
+            results = []
+            return
+        }
+        do {
+            try await Task.sleep(for: .milliseconds(250))
+            let found = try await client.search(query: searchText)
+            try Task.checkCancellation()
+            error = nil
+            results = found
+            answered = true
+        } catch is CancellationError {
+            // A newer search took over.
+        } catch CoreError.Unauthorized {
+            model.sessionEnded()
+        } catch {
+            self.error = fileMessage(for: error)
+        }
+    }
+
     private func load() async {
         do {
             let listed = try await client.list(parentId: folderId)
@@ -379,6 +489,57 @@ private struct FolderView: View {
             model.sessionEnded()
         } catch {
             self.error = fileMessage(for: error)
+        }
+    }
+}
+
+/// What makes the search run again.
+private struct SearchRequest: Equatable {
+    let text: String
+    let reloadKey: Int
+}
+
+/// The folder of a search result, to show it.
+private struct ShownFolder: Identifiable, Hashable {
+    let id: String?
+    let title: String
+}
+
+/// A file on its way up, shown in every folder so that a failure can't go unseen.
+private struct UploadRow: View {
+    let model: SessionModel
+    let client: CoreClient
+    let upload: PickedUpload
+
+    private var status: String {
+        if let progress = model.progress[upload.key] {
+            "Uploading to \(upload.folderName) · \(Int(progress * 100))%"
+        } else {
+            "Waiting to upload to \(upload.folderName)"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.up.doc")
+                .frame(width: 26, height: 26)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(upload.name).lineLimit(1)
+                Text(upload.error ?? status)
+                    .font(.caption)
+                    .foregroundStyle(upload.error == nil ? Color.secondary : Color.red)
+            }
+            Spacer()
+            if upload.error != nil {
+                Button("Retry") { model.retryUpload(client: client, upload: upload) }
+                    .buttonStyle(.borderless)
+            }
+            Button("Cancel Upload", systemImage: "xmark.circle.fill") {
+                model.cancelUpload(client: client, upload: upload)
+            }
+            .labelStyle(.iconOnly)
+            .foregroundStyle(.secondary)
+            .buttonStyle(.borderless)
         }
     }
 }

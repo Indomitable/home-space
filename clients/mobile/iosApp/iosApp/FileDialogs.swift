@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// A time in the device's locale and time zone.
 func localDate(_ time: Date) -> String {
@@ -16,6 +17,8 @@ enum FileAction: Identifiable {
     case rename(Entry)
     case move([Entry])
     case delete([Entry])
+    /// A new folder in the folder with this id, or Home when nil.
+    case newFolder(String?)
 
     var id: String {
         switch self {
@@ -23,6 +26,7 @@ enum FileAction: Identifiable {
         case .rename(let entry): "rename-\(entry.id)"
         case .move(let entries): "move-\(entries.map(\.id).joined())"
         case .delete(let entries): "delete-\(entries.map(\.id).joined())"
+        case .newFolder(let parent): "new-folder-\(parent ?? "")"
         }
     }
 }
@@ -39,7 +43,23 @@ struct FileDialog: View {
         case .details(let entry):
             DetailsSheet(entry: entry, model: model, client: client)
         case .rename(let entry):
-            RenameSheet(entry: entry, model: model, client: client, onDone: onDone)
+            NameSheet(
+                title: "Rename “\(entry.name)”",
+                confirm: "Rename",
+                initial: entry.name,
+                model: model,
+                onDone: onDone,
+                save: { _ = try await client.rename(id: entry.id, name: $0) }
+            )
+        case .newFolder(let parent):
+            NameSheet(
+                title: "New Folder",
+                confirm: "Create",
+                initial: "",
+                model: model,
+                onDone: onDone,
+                save: { _ = try await client.createFolder(parentId: parent, name: $0) }
+            )
         case .move(let entries):
             MoveSheet(entries: entries, model: model, client: client, onDone: onDone)
         case .delete(let entries):
@@ -93,23 +113,34 @@ private struct DetailsSheet: View {
     }
 }
 
-private struct RenameSheet: View {
-    let entry: Entry
+private struct NameSheet: View {
+    let title: String
+    let confirm: String
+    let initial: String
     let model: SessionModel
-    let client: CoreClient
     let onDone: () -> Void
+    let save: (String) async throws -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var saving = false
     @State private var error: String?
     @FocusState private var focused: Bool
 
-    init(entry: Entry, model: SessionModel, client: CoreClient, onDone: @escaping () -> Void) {
-        self.entry = entry
+    init(
+        title: String,
+        confirm: String,
+        initial: String,
+        model: SessionModel,
+        onDone: @escaping () -> Void,
+        save: @escaping (String) async throws -> Void
+    ) {
+        self.title = title
+        self.confirm = confirm
+        self.initial = initial
         self.model = model
-        self.client = client
         self.onDone = onDone
-        _name = State(initialValue: entry.name)
+        self.save = save
+        _name = State(initialValue: initial)
     }
 
     var body: some View {
@@ -125,14 +156,14 @@ private struct RenameSheet: View {
                     Text(error).foregroundStyle(.red)
                 }
             }
-            .navigationTitle("Rename “\(entry.name)”")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(saving ? "Working…" : "Rename", action: submit).disabled(saving)
+                    Button(saving ? "Working…" : confirm, action: submit).disabled(saving)
                 }
             }
         }
@@ -148,7 +179,7 @@ private struct RenameSheet: View {
     private func submit() {
         let typed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !saving else { return }
-        guard !typed.isEmpty, typed != entry.name else {
+        guard !typed.isEmpty, typed != initial else {
             dismiss()
             return
         }
@@ -156,7 +187,7 @@ private struct RenameSheet: View {
         error = nil
         Task {
             do {
-                _ = try await client.rename(id: entry.id, name: typed)
+                try await save(typed)
                 onDone()
             } catch CoreError.Unauthorized {
                 model.sessionEnded()
@@ -416,6 +447,35 @@ private struct MoveSheet: View {
 }
 
 /// The system's picker for where to save a file; it copies the file there.
+struct ImportPicker: UIViewControllerRepresentable {
+    let onPick: ([URL]) -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        // A copy, which stays readable after the picker closes and for a retry.
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        picker.allowsMultipleSelection = true
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: ([URL]) -> Void
+
+        init(onPick: @escaping ([URL]) -> Void) {
+            self.onPick = onPick
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            onPick(urls)
+        }
+    }
+}
+
+/// The system's screen for choosing where a file goes.
 struct ExportPicker: UIViewControllerRepresentable {
     let url: URL
     let onFinish: () -> Void

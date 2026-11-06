@@ -1,5 +1,7 @@
 import Foundation
 import Observation
+import PhotosUI
+import SwiftUI
 import UIKit
 
 enum Session {
@@ -30,6 +32,55 @@ private final class ProgressForwarder: DownloadListener {
 
     func progress(id: String, done: Int64, total: Int64) {
         report(id, total > 0 ? min(Double(done) / Double(total), 1) : 1)
+    }
+}
+
+/// Forwards upload progress to the main actor; reports come from the Rust runtime's threads.
+private final class UploadForwarder: UploadListener {
+    private let report: @Sendable (String, Double) -> Void
+
+    init(model: SessionModel) {
+        report = { [weak model] key, fraction in
+            Task { @MainActor in
+                model?.uploadProgressed(key: key, fraction: fraction)
+            }
+        }
+    }
+
+    func progress(key: String, done: UInt64, total: UInt64) {
+        report(key, total > 0 ? min(Double(done) / Double(total), 1) : 1)
+    }
+}
+
+/// A file the user picked to upload, until it is on the server or they give up on it.
+struct PickedUpload: Identifiable {
+    let key: String
+    var name: String
+    let parentId: String?
+    let folderName: String
+    /// A photo still to be fetched from the library; other files are copied here when picked.
+    var photo: PhotosPickerItem?
+    var error: String?
+
+    var id: String { key }
+}
+
+/// A photo or video from the library, as a file of its own. The file the system hands over goes
+/// away once this returns.
+private struct PickedPhoto: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .image) { try PickedPhoto(keeping: $0) }
+        FileRepresentation(importedContentType: .movie) { try PickedPhoto(keeping: $0) }
+    }
+
+    private init(keeping received: ReceivedTransferredFile) throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        url = folder.appendingPathComponent(received.file.lastPathComponent)
+        try FileManager.default.copyItem(at: received.file, to: url)
     }
 }
 
@@ -66,6 +117,8 @@ final class SessionModel {
     /// How far each running download is, from 0 to 1. Apart from `downloading` so that only the
     /// row backgrounds redraw on each report: redrawing a row would rebuild its open menu.
     private(set) var progress: [String: Double] = [:]
+    /// The files picked to upload, in the order they go up. Their progress is in `progress`.
+    private(set) var uploads: [PickedUpload] = []
     /// Changes when the folder on screen is out of date.
     private(set) var reloadKey = 0
     /// The file Quick Look is showing.
@@ -88,8 +141,11 @@ final class SessionModel {
     @ObservationIgnored private var probeGeneration = 0
     /// Only the file tapped last opens when its download ends.
     @ObservationIgnored private var lastTapped: String?
+    @ObservationIgnored private var uploadTask: Task<Void, Never>?
 
     init() {
+        // Whatever is here belongs to uploads of an earlier run, which are gone.
+        try? FileManager.default.removeItem(at: Self.uploadCopies)
         server = SessionStore().lastServer ?? Self.defaultServer
         if let saved = store.loadSession() {
             server = saved.server
@@ -241,6 +297,151 @@ final class SessionModel {
         }
     }
 
+    /// Adds picked files, which the picker copied for us, to the uploads. They go up one at a time,
+    /// whichever folder is on screen.
+    func uploadFiles(client: CoreClient, files: [URL], parentId: String?, folderName: String) {
+        try? FileManager.default.createDirectory(at: Self.uploadCopies, withIntermediateDirectories: true)
+        for file in files {
+            let key = UUID().uuidString
+            do {
+                try FileManager.default.moveItem(at: file, to: Self.uploadCopy(key))
+                uploads.append(
+                    PickedUpload(key: key, name: file.lastPathComponent, parentId: parentId, folderName: folderName)
+                )
+            } catch {
+                notice = "Could not read “\(file.lastPathComponent)”."
+            }
+        }
+        startUploads(client: client)
+    }
+
+    /// Adds photos and videos from the library to the uploads.
+    func uploadPhotos(client: CoreClient, photos: [PhotosPickerItem], parentId: String?, folderName: String) {
+        for photo in photos {
+            uploads.append(
+                PickedUpload(
+                    key: UUID().uuidString,
+                    name: "Photo",
+                    parentId: parentId,
+                    folderName: folderName,
+                    photo: photo
+                )
+            )
+        }
+        startUploads(client: client)
+    }
+
+    func retryUpload(client: CoreClient, upload: PickedUpload) {
+        updateUpload(upload.key) { $0.error = nil }
+        startUploads(client: client)
+    }
+
+    /// Gives up on an upload: the row goes now, and a running one stops at its next chunk.
+    func cancelUpload(client: CoreClient, upload: PickedUpload) {
+        uploads.removeAll { $0.key == upload.key }
+        progress[upload.key] = nil
+        client.cancelPickedUpload(key: upload.key)
+        try? FileManager.default.removeItem(at: Self.uploadCopy(upload.key))
+    }
+
+    private func startUploads(client: CoreClient) {
+        guard uploadTask == nil else { return }
+        uploadTask = Task {
+            // Some time to finish after the user leaves the app. A larger file then fails, and
+            // Retry continues it.
+            var background = UIBackgroundTaskIdentifier.invalid
+            background = UIApplication.shared.beginBackgroundTask(withName: "Uploads") {
+                UIApplication.shared.endBackgroundTask(background)
+                background = .invalid
+            }
+            while !Task.isCancelled, let next = uploads.first(where: { $0.error == nil }) {
+                await upload(client: client, next)
+            }
+            if background != .invalid {
+                UIApplication.shared.endBackgroundTask(background)
+            }
+            if !Task.isCancelled {
+                uploadTask = nil
+            }
+        }
+    }
+
+    private func upload(client: CoreClient, _ upload: PickedUpload) async {
+        let copy = Self.uploadCopy(upload.key)
+        do {
+            var name = upload.name
+            if let photo = upload.photo {
+                name = try await fetch(photo, to: copy)
+                updateUpload(upload.key) {
+                    $0.name = name
+                    $0.photo = nil
+                }
+            }
+            guard uploads.contains(where: { $0.key == upload.key }) else {
+                try? FileManager.default.removeItem(at: copy)
+                return
+            }
+            _ = try await client.uploadPickedFile(
+                key: upload.key,
+                parentId: upload.parentId,
+                name: name,
+                path: copy.path,
+                listener: UploadForwarder(model: self)
+            )
+            uploads.removeAll { $0.key == upload.key }
+            progress[upload.key] = nil
+            try? FileManager.default.removeItem(at: copy)
+            reload()
+        } catch CoreError.Cancelled {
+            uploads.removeAll { $0.key == upload.key }
+        } catch CoreError.Unauthorized {
+            sessionEnded()
+        } catch {
+            let message = fileMessage(for: error)
+            updateUpload(upload.key) { $0.error = message }
+        }
+    }
+
+    private func fetch(_ photo: PhotosPickerItem, to copy: URL) async throws -> String {
+        guard let picked = try await photo.loadTransferable(type: PickedPhoto.self) else {
+            throw CoreError.Failed(code: "photo", detail: "this photo can't be read")
+        }
+        defer { try? FileManager.default.removeItem(at: picked.url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: Self.uploadCopies, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: picked.url, to: copy)
+        return picked.url.lastPathComponent
+    }
+
+    private func updateUpload(_ key: String, change: (inout PickedUpload) -> Void) {
+        if let index = uploads.firstIndex(where: { $0.key == key }) {
+            change(&uploads[index])
+        }
+    }
+
+    fileprivate func uploadProgressed(key: String, fraction: Double) {
+        if uploads.contains(where: { $0.key == key }) {
+            progress[key] = fraction
+        }
+    }
+
+    private func forgetUploads(client: CoreClient?) {
+        uploadTask?.cancel()
+        uploadTask = nil
+        for upload in uploads {
+            client?.cancelPickedUpload(key: upload.key)
+        }
+        uploads = []
+        try? FileManager.default.removeItem(at: Self.uploadCopies)
+    }
+
+    private static var uploadCopies: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("uploads", isDirectory: true)
+    }
+
+    private static func uploadCopy(_ key: String) -> URL {
+        uploadCopies.appendingPathComponent(key)
+    }
+
     /// Downloads a file to a temporary place, then asks where to put it: iOS only lets an app
     /// export a file that already exists.
     func saveFile(client: CoreClient, entry: Entry) {
@@ -354,6 +555,9 @@ final class SessionModel {
         let current = session
         let auto = endSync()
         store.forgetSession()
+        if case .signedIn(let client, _) = current {
+            forgetUploads(client: client)
+        }
         forgetDownloads()
         backToForm()
         if case .signedIn(let client, _) = current {
@@ -370,6 +574,9 @@ final class SessionModel {
     func sessionEnded() {
         let auto = endSync()
         store.forgetSession()
+        if case .signedIn(let client, _) = session {
+            forgetUploads(client: client)
+        }
         forgetDownloads()
         backToForm()
         Task { try? await auto?.wipe() }

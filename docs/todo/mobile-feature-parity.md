@@ -38,7 +38,7 @@ per client, as of 2026-11-06 (checked in source, not by running the apps):
 | Quick upload of camera photos | No | No | Yes | Yes |
 | Transfers continue with the app closed | n/a | n/a | Auto-upload: yes | Auto-upload: when iOS allows |
 
-Sources: `clients/desktop/src/browser`, `clients/desktop/src/transfers.rs`, `clients/desktop/src/sync`,
+Sources: `clients/desktop/src/browser`, `clients/desktop/src/transfers.rs`, `clients/sync-core`,
 `clients/web/src/upload.rs`, `clients/web/src/pages/browser`, `clients/mobile/androidApp`,
 `clients/mobile/iosApp`, `clients/mobile-core/src/lib.rs`.
 

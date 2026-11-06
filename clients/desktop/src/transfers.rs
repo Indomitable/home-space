@@ -21,13 +21,13 @@ use protocol::{CreateUpload, ErrorCode, Node, NodeId, NodeKind};
 
 use crate::{
     icons::{Icon, Tint},
+    sync::{part_path, read_range},
     theme,
 };
 
 const CHANNEL_SIZE: usize = 64;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 const MAX_DEPTH: usize = 64;
-const PART_SUFFIX: &str = ".part";
 const TOO_DEEP: &str = "folder tree is too deep";
 const ALREADY_EXISTS: &str = "already exists";
 const MISSING_FOLDER: &str = "parent folder could not be created";
@@ -603,25 +603,6 @@ async fn upload_file(
 
 /// Reads `len` bytes of the file at `path` starting at `offset`, for one chunk of a
 /// resumable upload.
-pub(crate) async fn read_range(path: &Path, offset: u64, len: usize) -> io::Result<Vec<u8>> {
-    use tokio::io::{AsyncReadExt, AsyncSeekExt};
-
-    let mut file = fs::File::open(path).await?;
-    file.seek(io::SeekFrom::Start(offset)).await?;
-    let mut chunk = Vec::with_capacity(len);
-    file.take(u64::try_from(len).unwrap_or(u64::MAX))
-        .read_to_end(&mut chunk)
-        .await?;
-    if chunk.len() == len {
-        Ok(chunk)
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "the file got shorter during the upload",
-        ))
-    }
-}
-
 fn upload_body(path: &Path, id: TransferId, mut output: mpsc::Sender<Message>) -> reqwest::Body {
     match std::fs::File::open(path) {
         Ok(file) => {
@@ -710,12 +691,6 @@ async fn write_part(
         }
     }
     out.flush().await
-}
-
-pub(crate) fn part_path(target: &Path) -> PathBuf {
-    let mut name = target.as_os_str().to_owned();
-    name.push(PART_SUFFIX);
-    PathBuf::from(name)
 }
 
 struct Meter {

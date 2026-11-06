@@ -1267,7 +1267,6 @@ dependencies = [
  "api-client",
  "block2 0.6.2",
  "client-core",
- "hex",
  "iced",
  "iced_test",
  "icu_datetime",
@@ -1283,10 +1282,9 @@ dependencies = [
  "rand",
  "reqwest",
  "rfd",
- "rusqlite",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sync-core",
  "sys-locale",
  "time",
  "tokio",
@@ -5684,6 +5682,26 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "sync-core"
+version = "0.1.0"
+dependencies = [
+ "api-client",
+ "client-core",
+ "futures",
+ "hex",
+ "protocol",
+ "reqwest",
+ "rusqlite",
+ "serde_json",
+ "sha2 0.11.1",
+ "time",
+ "tokio",
+ "tokio-util",
+ "uuid",
+ "wiremock",
 ]
 
 [[package]]

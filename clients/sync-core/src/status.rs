@@ -101,7 +101,7 @@ mod tests {
     use protocol::NodeKind::{File, Folder};
 
     use super::*;
-    use crate::sync::{
+    use crate::{
         layout::tests::{id, node, tree},
         model::Mapping,
     };

@@ -9,7 +9,7 @@ use std::{
     time::SystemTime,
 };
 
-use iced::futures::{StreamExt, stream};
+use futures::{StreamExt, stream};
 use sha2::{Digest, Sha256};
 use tokio::{fs, io::AsyncWriteExt};
 use tokio_util::io::ReaderStream;
@@ -25,7 +25,36 @@ use super::{
     scan::{hash_file, is_ignored},
     store::Store,
 };
-use crate::transfers::{part_path, read_range};
+use crate::Platform;
+
+const PART_SUFFIX: &str = ".part";
+
+/// Where a download into `target` is written until it is complete.
+pub fn part_path(target: &Path) -> PathBuf {
+    let mut name = target.as_os_str().to_owned();
+    name.push(PART_SUFFIX);
+    PathBuf::from(name)
+}
+
+/// `len` bytes of the file at `path` from `offset`, for one chunk of an upload.
+pub async fn read_range(path: &Path, offset: u64, len: usize) -> io::Result<Vec<u8>> {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
+    let mut file = fs::File::open(path).await?;
+    file.seek(io::SeekFrom::Start(offset)).await?;
+    let mut chunk = Vec::with_capacity(len);
+    file.take(u64::try_from(len).unwrap_or(u64::MAX))
+        .read_to_end(&mut chunk)
+        .await?;
+    if chunk.len() == len {
+        Ok(chunk)
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "the file got shorter during the upload",
+        ))
+    }
+}
 
 /// What a finished action changed, for the engine to record.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +132,7 @@ pub type Folders = HashMap<PathBuf, Option<NodeId>>;
 pub async fn execute(
     client: &Client,
     store: &Store,
+    platform: &Arc<dyn Platform>,
     folders: &Folders,
     progress: &Progress,
     action: Action,
@@ -177,8 +207,8 @@ pub async fn execute(
         }
         Action::TrashLocal { node, path, expect } => {
             unchanged(&path, Some(&expect)).await?;
-            let target = path.clone();
-            tokio::task::spawn_blocking(move || trash::delete(target))
+            let (platform, target) = (Arc::clone(platform), path.clone());
+            tokio::task::spawn_blocking(move || platform.remove_file(&target))
                 .await
                 .map_err(|err| Failure::local(err.to_string()))?
                 .map_err(|err| Failure::local(err.to_string()))?;
@@ -201,24 +231,39 @@ pub async fn execute(
     }
 }
 
+/// What the transfers running at the same time share.
+#[derive(Clone, Copy)]
+pub struct Shared<'a> {
+    pub client: &'a Client,
+    pub store: &'a Store,
+    pub platform: &'a Arc<dyn Platform>,
+    pub folders: &'a Folders,
+    pub progress: &'a Progress,
+}
+
 /// Carries out `actions` at most `limit` at a time, yielding each with its outcome. Once
 /// `halt` is set, the actions not started yet fail as [`Failure::Halted`]; those running
 /// finish.
 pub fn execute_all<'a>(
-    client: &'a Client,
-    store: &'a Store,
-    folders: &'a Folders,
-    progress: &'a Progress,
+    with: Shared<'a>,
     halt: &'a AtomicBool,
     actions: Vec<Action>,
     limit: usize,
-) -> impl iced::futures::Stream<Item = (Action, Result<Vec<Effect>, Failure>)> + 'a {
+) -> impl futures::Stream<Item = (Action, Result<Vec<Effect>, Failure>)> + 'a {
     stream::iter(actions)
         .map(move |action| async move {
             let outcome = if halt.load(Ordering::Relaxed) {
                 Err(Failure::Halted)
             } else {
-                execute(client, store, folders, progress, action.clone()).await
+                execute(
+                    with.client,
+                    with.store,
+                    with.platform,
+                    with.folders,
+                    with.progress,
+                    action.clone(),
+                )
+                .await
             };
             (action, outcome)
         })

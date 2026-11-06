@@ -135,7 +135,7 @@ impl QueueItem {
     }
 
     /// An item for the interface's tests: not on the server, in Home.
-    #[cfg(test)]
+    #[doc(hidden)]
     pub fn test(
         path: PathBuf,
         operation: Operation,
@@ -267,7 +267,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::sync::model::{LocalEntry, RemoteNode};
+    use crate::model::{LocalEntry, RemoteNode};
 
     fn id(n: u128) -> NodeId {
         NodeId(Uuid::from_u128(n))

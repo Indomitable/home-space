@@ -141,8 +141,21 @@ pub enum Phase {
 /// local entry `scan` found and the `bases` recorded when both last agreed. A side that
 /// differs from its base changed; when both changed, the upload goes to the server with its
 /// modification time and the server keeps both, the later one current.
+#[cfg(test)]
 pub fn plan(layout: &Layout, scan: &Scan, bases: &[Base]) -> Vec<Action> {
+    plan_with(layout, scan, bases, false)
+}
+
+/// [`plan`], where with `restore_missing` a local path that went missing is brought back from
+/// the server instead of being taken for a delete or move by the user.
+pub fn plan_with(
+    layout: &Layout,
+    scan: &Scan,
+    bases: &[Base],
+    restore_missing: bool,
+) -> Vec<Action> {
     let mut work = Work {
+        restore_missing,
         layout,
         scan,
         remote: layout.entries.clone(),
@@ -151,8 +164,10 @@ pub fn plan(layout: &Layout, scan: &Scan, bases: &[Base]) -> Vec<Action> {
         actions: Vec::new(),
     };
     work.remote_moves();
-    work.local_folder_moves();
-    work.local_moves();
+    if !restore_missing {
+        work.local_folder_moves();
+        work.local_moves();
+    }
     work.compare();
     work.create_missing_parents();
     work.keep_needed_folders();
@@ -173,6 +188,7 @@ pub fn plan(layout: &Layout, scan: &Scan, bases: &[Base]) -> Vec<Action> {
 
 /// The state being planned on; moves update it so later rules see where things went.
 struct Work<'a> {
+    restore_missing: bool,
     layout: &'a Layout,
     scan: &'a Scan,
     remote: HashMap<PathBuf, RemoteNode>,
@@ -216,7 +232,9 @@ impl Work<'_> {
             };
             let unchanged = local.kind == base.kind
                 && (base.kind == NodeKind::Folder || local.sha256 == base.sha256);
-            if !unchanged || self.local.contains_key(&to) {
+            // A mapped file's folder holds only it, so an edit moves along and goes up to the node.
+            let follows = unchanged || self.layout.in_file_root(&from);
+            if !follows || self.local.contains_key(&to) {
                 continue;
             }
             self.actions.push(Action::MoveLocal {
@@ -416,6 +434,10 @@ impl Work<'_> {
             }
             let remote = self.remote.get(&path).cloned();
             let local = self.local.get(&path).cloned();
+            // Nothing can be uploaded from beside a mapped file: it has no folder on the server.
+            if remote.is_none() && base.is_none() && self.layout.in_file_root(&path) {
+                continue;
+            }
             let (same, other) = match (&base, &remote) {
                 (Some(base), Some(remote)) if base.node != remote.id => (None, Some(base.clone())),
                 _ => (base, None),
@@ -515,7 +537,9 @@ impl Work<'_> {
                     }
                 }
             }
-            (Some(remote), None, Some(base)) if remote.sha256 == base.sha256 => {
+            (Some(remote), None, Some(base))
+                if remote.sha256 == base.sha256 && !self.restore_missing =>
+            {
                 Action::DeleteRemote {
                     node: remote.id,
                     path,
@@ -559,11 +583,11 @@ impl Work<'_> {
                 local,
             },
             (Some(_), Some(_), Some(_)) | (None, None, None) => return,
-            (Some(remote), None, Some(_)) => Action::DeleteRemote {
+            (Some(remote), None, Some(_)) if !self.restore_missing => Action::DeleteRemote {
                 node: remote.id,
                 path,
             },
-            (Some(remote), None, None) => Action::CreateLocalDir {
+            (Some(remote), None, _) => Action::CreateLocalDir {
                 node: remote.id,
                 path,
             },
@@ -1323,5 +1347,99 @@ mod tests {
                 local: unhashed(),
             }]
         );
+    }
+
+    fn scan_of(entries: Vec<(PathBuf, LocalEntry)>) -> Scan {
+        Scan {
+            entries: entries.into_iter().collect(),
+            ..Scan::default()
+        }
+    }
+
+    #[test]
+    fn with_restore_a_missing_file_downloads_instead_of_deleting() {
+        let layout = home(vec![node(1, None, File, "a.txt")]);
+        let actions = plan_with(
+            &layout,
+            &Scan::default(),
+            &[base(1, "a.txt", "sha-1")],
+            true,
+        );
+        assert!(
+            matches!(actions.as_slice(), [Action::Download { expect: None, .. }]),
+            "{actions:?}"
+        );
+    }
+
+    #[test]
+    fn with_restore_a_missing_folder_is_created_instead_of_deleted() {
+        let layout = home(vec![node(1, None, Folder, "dir")]);
+        let actions = plan_with(&layout, &Scan::default(), &[folder_base(1, "dir")], true);
+        assert!(
+            matches!(actions.as_slice(), [Action::CreateLocalDir { .. }]),
+            "{actions:?}"
+        );
+    }
+
+    #[test]
+    fn with_restore_an_identical_file_elsewhere_is_not_a_move() {
+        let layout = home(vec![node(1, None, File, "a.txt")]);
+        let scan = scan_of(vec![(p("b.txt"), file("sha-1", 0))]);
+        let actions = plan_with(&layout, &scan, &[base(1, "a.txt", "sha-1")], true);
+        assert!(
+            !actions
+                .iter()
+                .any(|action| matches!(action, Action::MoveRemote { .. })),
+            "{actions:?}"
+        );
+    }
+
+    fn pinned(name: &str) -> Layout {
+        Layout::new(
+            &tree(vec![node(1, None, File, name)]),
+            &[Mapping {
+                remote: Some(id(1)),
+                local: Some(PathBuf::from("/pins/1")),
+            }],
+        )
+    }
+
+    fn pin_base(rel: &str, sha: &str) -> Base {
+        Base {
+            path: Path::new("/pins/1").join(rel),
+            ..base(1, rel, sha)
+        }
+    }
+
+    #[test]
+    fn an_edit_to_a_pinned_file_moves_along_with_a_rename_and_goes_to_the_node() {
+        let edited = file("edited", 5);
+        let scan = scan_of(vec![(PathBuf::from("/pins/1/old.txt"), edited)]);
+        let actions = plan_with(
+            &pinned("new.txt"),
+            &scan,
+            &[pin_base("old.txt", "sha-1")],
+            true,
+        );
+        assert!(
+            matches!(
+                actions.as_slice(),
+                [
+                    Action::MoveLocal { .. },
+                    Action::Upload { node: Some(_), .. }
+                ]
+            ),
+            "{actions:?}"
+        );
+    }
+
+    #[test]
+    fn a_stray_file_beside_a_pinned_file_is_left_alone() {
+        let scan = scan_of(vec![
+            (PathBuf::from("/pins/1/a.txt"), file("sha-1", 0)),
+            (PathBuf::from("/pins/1/stray.txt"), file("other", 0)),
+        ]);
+        let actions = plan_with(&pinned("a.txt"), &scan, &[pin_base("a.txt", "sha-1")], true);
+        assert!(actions.is_empty(), "{actions:?}");
     }
 }

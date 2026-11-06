@@ -21,7 +21,16 @@ use protocol::{Node, NodeId, NodeKind};
 
 use std::sync::Arc;
 
-use super::{Command, Engine, Mapping, PrivateFiles, Update, store::Store};
+use super::{Command, Engine, Mapping, Platform, PrivateFiles, Update, store::Store};
+
+/// The desktop client's rules: the user owns the local folders.
+struct UserFolders;
+
+impl Platform for UserFolders {
+    fn app_owned_copies(&self) -> bool {
+        false
+    }
+}
 
 const PASSES: usize = 4;
 
@@ -80,7 +89,7 @@ async fn setup(name: &str) -> Setup {
     let mut engine = Engine::load(
         mine,
         Store::in_memory().expect("store"),
-        Arc::new(PrivateFiles),
+        Arc::new(UserFolders),
     )
     .expect("engine");
     engine
@@ -347,4 +356,170 @@ async fn a_server_file_with_a_name_the_sync_ignores_is_left_alone() {
     assert_eq!(s.content(file.id).await, "keep me");
     assert!(s.remote_file("notes.tmp").await.is_some());
     assert!(!s.local.join("notes.tmp").exists());
+}
+
+/// An engine under the app's own rules, with `remote` as its rescue folder, and nothing mapped.
+async fn app_owned(name: &str) -> Setup {
+    let mine = client().await;
+    let other = client().await;
+    let remote = other
+        .create_folder(None, &format!("sync-e2e-{name}-{}", stamp()))
+        .await
+        .expect("remote folder")
+        .id;
+    let local = temp_dir(name);
+    let (output, updates) = mpsc::channel(4096);
+    let (sender, commands) = tokio::sync::mpsc::unbounded_channel();
+    let platform = PrivateFiles {
+        rescue: Some(remote),
+    };
+    let engine =
+        Engine::load(mine, Store::in_memory().expect("store"), Arc::new(platform)).expect("engine");
+    Setup {
+        engine,
+        other,
+        output,
+        commands,
+        _commands: sender,
+        _updates: updates,
+        remote,
+        local,
+    }
+}
+
+impl Setup {
+    async fn pin(&mut self, node: &Node) -> PathBuf {
+        let root = self.local.join(node.id.to_string());
+        fs::create_dir_all(&root).expect("root");
+        let known = (node.kind == NodeKind::File).then(|| node.clone().into());
+        let mapping = Mapping {
+            remote: Some(node.id),
+            local: Some(root.clone()),
+        };
+        self.engine
+            .handle(Command::Pin { mapping, known }, &mut self.output)
+            .await;
+        root
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs a running server, see the module docs"]
+async fn a_pinned_file_syncs_both_ways_and_follows_a_rename() {
+    let mut s = app_owned("pinned-file").await;
+    let file = s.upload(s.remote, "a.txt", "one").await;
+    let root = s.pin(&file).await;
+    s.sync().await;
+    assert_eq!(read(&root.join("a.txt")), "one");
+
+    s.upload(s.remote, "a.txt", "two").await;
+    s.sync().await;
+    assert_eq!(read(&root.join("a.txt")), "two");
+
+    write(&root.join("a.txt"), "three", Duration::ZERO);
+    s.other
+        .relocate(file.id, Some(s.remote), "b.txt")
+        .await
+        .expect("rename");
+    s.sync().await;
+    assert!(!root.join("a.txt").exists());
+    assert_eq!(read(&root.join("b.txt")), "three");
+    assert_eq!(s.content(file.id).await, "three");
+    assert_eq!(s.other.list(Some(s.remote)).await.expect("list").len(), 1);
+}
+
+#[tokio::test]
+#[ignore = "needs a running server, see the module docs"]
+async fn a_file_missing_from_a_pinned_folder_comes_back_and_stays_on_the_server() {
+    let mut s = app_owned("restore").await;
+    let folder = s
+        .other
+        .create_folder(Some(s.remote), "dir")
+        .await
+        .expect("folder");
+    let file = s.upload(folder.id, "a.txt", "content").await;
+    let root = s.pin(&folder).await;
+    s.sync().await;
+    assert_eq!(read(&root.join("a.txt")), "content");
+
+    fs::remove_file(root.join("a.txt")).expect("remove");
+    s.sync().await;
+    assert_eq!(read(&root.join("a.txt")), "content");
+    assert_eq!(s.content(file.id).await, "content");
+
+    fs::remove_dir_all(&root).expect("remove the whole folder");
+    s.sync().await;
+    assert_eq!(read(&root.join("a.txt")), "content");
+}
+
+#[tokio::test]
+#[ignore = "needs a running server, see the module docs"]
+async fn deleting_a_pinned_file_on_the_server_removes_the_copy() {
+    let mut s = app_owned("deleted").await;
+    let file = s.upload(s.remote, "a.txt", "content").await;
+    let root = s.pin(&file).await;
+    s.sync().await;
+    assert!(root.join("a.txt").exists());
+
+    s.other.delete(file.id).await.expect("delete");
+    s.sync().await;
+    assert!(!root.exists());
+    assert!(s.engine.mappings.is_empty());
+}
+
+#[tokio::test]
+#[ignore = "needs a running server, see the module docs"]
+async fn edits_to_a_pinned_file_deleted_on_the_server_go_to_the_rescue_folder() {
+    let mut s = app_owned("rescued").await;
+    let folder = s
+        .other
+        .create_folder(Some(s.remote), "dir")
+        .await
+        .expect("folder");
+    let file = s.upload(folder.id, "a.txt", "content").await;
+    let root = s.pin(&file).await;
+    s.sync().await;
+
+    write(&root.join("a.txt"), "edited", Duration::ZERO);
+    s.other.delete(file.id).await.expect("delete");
+    s.sync().await;
+
+    assert!(!root.exists());
+    let rescued = s.remote_file("a.txt").await.expect("rescued");
+    assert_eq!(s.content(rescued.id).await, "edited");
+}
+
+#[tokio::test]
+#[ignore = "needs a running server, see the module docs"]
+async fn purging_removes_the_folder_and_leaves_the_server_alone() {
+    let mut s = app_owned("purge").await;
+    let file = s.upload(s.remote, "a.txt", "content").await;
+    let root = s.pin(&file).await;
+    s.sync().await;
+
+    s.engine
+        .handle(Command::Purge(file.id), &mut s.output)
+        .await;
+    s.sync().await;
+
+    assert!(!root.exists());
+    assert_eq!(s.content(file.id).await, "content");
+    assert!(s.engine.store.bases().expect("bases").is_empty());
+}
+
+#[tokio::test]
+#[ignore = "needs a running server, see the module docs"]
+async fn a_closed_gate_stops_transfers_and_the_upload_continues_afterwards() {
+    let mut s = app_owned("gate").await;
+    let file = s.upload(s.remote, "a.txt", "content").await;
+    let root = s.pin(&file).await;
+    let gate = super::Gate::default();
+    s.engine.set_gate(gate.clone());
+    gate.set_closed(true);
+    s.sync().await;
+    assert!(!root.join("a.txt").exists());
+
+    gate.set_closed(false);
+    s.sync().await;
+    assert_eq!(read(&root.join("a.txt")), "content");
 }

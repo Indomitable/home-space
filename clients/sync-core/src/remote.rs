@@ -62,6 +62,14 @@ impl Mirror {
                     Err(err) => return Err(err),
                 };
             }
+            // A mapped file has nothing under it.
+            let is_file = mapping
+                .remote
+                .and_then(|id| nodes.get(&id))
+                .is_some_and(|node| node.kind == NodeKind::File);
+            if is_file {
+                continue;
+            }
             for node in walk(client, mapping.remote, &mapped).await? {
                 nodes.insert(node.id, node);
             }
@@ -83,6 +91,33 @@ impl Mirror {
             upserted: self.nodes.values().cloned().collect(),
             removed: Vec::new(),
         })
+    }
+
+    /// Adds the mapped node `id` and what is under it, not descending into other `mapped` folders.
+    /// A node gone from the server adds nothing.
+    pub async fn read_mapped(
+        &mut self,
+        client: &Client,
+        id: NodeId,
+        mapped: &HashSet<Option<NodeId>>,
+    ) -> Result<Delta, ApiError> {
+        let mut delta = Delta::default();
+        let node = match client.get(id).await {
+            Ok(node) => RemoteNode::from(node),
+            Err(ApiError::Api {
+                code: ErrorCode::NotFound,
+                ..
+            }) => return Ok(delta),
+            Err(err) => return Err(err),
+        };
+        let is_folder = node.kind == NodeKind::Folder;
+        delta.upserted.push(node);
+        if is_folder {
+            delta.upserted.extend(walk(client, Some(id), mapped).await?);
+        }
+        self.nodes
+            .extend(delta.upserted.iter().map(|node| (node.id, node.clone())));
+        Ok(delta)
     }
 
     async fn catch_up(&mut self, client: &Client, mut cursor: i64) -> Result<Delta, ApiError> {

@@ -13,7 +13,8 @@ Native UI on each platform, with the code that talks to the server in Rust:
 
 Both apps sign in with a password or single sign-on, whichever the server offers, stay signed in
 between runs, browse folders, and select several rows. They also manage files: details, rename,
-move, delete (to the recycle bin) and save to a chosen location. Tapping a file downloads it and
+move, delete (to the recycle bin), save to a chosen location, create folders, upload files and search
+by name. Tapping a file downloads it and
 opens it in the system's viewer.
 
 Routes, JSON, session refresh, error mapping, sorting and size labels all come from the Rust crates,
@@ -126,6 +127,36 @@ but on iOS only after the download, because the system's export picker needs a f
 The server has no Range support, so an interrupted download starts over. Uploads over the chunk size
 continue from what the server has. Requests are never aborted, because a token refresh in flight must
 finish or the rotated token is lost.
+
+## Search
+
+Search covers all of the user's files and folders, whichever folder is open. The query goes out once
+typing pauses for 250 ms, as in the desktop client. Tapping a file opens it, tapping a folder goes
+there, and **Show in folder** goes to the folder holding a file.
+
+## Uploading picked files
+
+The add button offers **New folder** and **Upload files**, plus **Upload Photos** on iOS, where the
+file picker doesn't list the photo library. The photo picker needs no permission, and uploads the
+original file.
+
+Files go into the folder that was open when they were picked, one at a time, as a resumable upload
+with up to 8 MiB per chunk. A row at the top of every folder shows each one, so a failure can't go
+unseen.
+
+- **A temporary copy goes first.** A picked document has no lasting path on either platform, and
+  not every Android provider can seek, so the app copies it (`cacheDir/uploads` on Android, the
+  temporary folder on iOS) and removes the copy when it finishes. Storage must hold a second copy
+  meanwhile.
+- **A name clash makes a new version**, as on desktop and web, because the user chose this file and
+  this folder. Identical content changes nothing. Auto-upload keeps both instead, since no one is
+  there to decide.
+- **Retry continues.** A failed upload stays open on the server, and Retry carries on from what the
+  server has. Cancelling ends it there too.
+- **Mobile data is allowed.** "Sync only on Wi-Fi" is for automatic transfers; this one was asked for.
+- **The app must stay alive.** On iOS, leaving the app gives a short time to finish; a larger file then
+  fails, and Retry continues it. Android carries on until the system ends the app, which loses the
+  rows. The server drops an abandoned upload on its own.
 
 ## Auto-upload
 

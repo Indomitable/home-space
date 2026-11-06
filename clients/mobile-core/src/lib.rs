@@ -19,6 +19,7 @@ mod android;
 mod autoupload;
 mod files;
 mod offline;
+mod uploads;
 
 pub use autoupload::{
     AutoUpload, AutoUploadListener, LocalItem, LocalSources, PassSummary, SourceKind, SyncSettings,
@@ -213,6 +214,14 @@ pub struct Entry {
     pub size_label: String,
 }
 
+/// A file or folder that matched a search.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SearchResult {
+    pub entry: Entry,
+    /// Where it is, such as `Home / Photos / 2026`.
+    pub location: String,
+}
+
 impl From<protocol::Node> for Entry {
     fn from(node: protocol::Node) -> Self {
         let kind = match node.kind {
@@ -309,6 +318,7 @@ pub struct CoreClient {
     /// The signed-in user's Lost & Found, which Home leaves out while it is empty.
     lost_and_found: Mutex<Option<NodeId>>,
     files: Arc<files::LocalFiles>,
+    picked_uploads: Arc<uploads::PickedUploads>,
 }
 
 #[uniffi::export]
@@ -442,6 +452,48 @@ impl CoreClient {
         .await
     }
 
+    /// Files and folders whose name matches `query`, best match first.
+    pub async fn search(&self, query: String) -> Result<Vec<SearchResult>, CoreError> {
+        let inner = self.inner.clone();
+        let files = self.files.clone();
+        off_ui_thread(async move {
+            let hits = inner.search(&query).await?;
+            let locations: Vec<String> = hits
+                .iter()
+                .map(|hit| labels::location_label(&hit.location))
+                .collect();
+            let mut entries: Vec<Entry> =
+                hits.into_iter().map(|hit| Entry::from(hit.node)).collect();
+            files.mark_copies(&inner, &mut entries).await;
+            Ok(entries
+                .into_iter()
+                .zip(locations)
+                .map(|(entry, location)| SearchResult { entry, location })
+                .collect())
+        })
+        .await
+    }
+
+    /// The folders above a file or folder, from the one under Home down to its parent.
+    pub async fn ancestors(&self, id: String) -> Result<Vec<Entry>, CoreError> {
+        let id = parse_id(&id)?;
+        let inner = self.inner.clone();
+        let nodes = off_ui_thread(async move { inner.ancestors(id).await }).await?;
+        Ok(nodes.into_iter().map(Entry::from).collect())
+    }
+
+    /// Creates a folder in `parent_id`, or in Home when `None`.
+    pub async fn create_folder(
+        &self,
+        parent_id: Option<String>,
+        name: String,
+    ) -> Result<Entry, CoreError> {
+        let parent = parent_id.as_deref().map(parse_id).transpose()?;
+        let inner = self.inner.clone();
+        let node = off_ui_thread(async move { inner.create_folder(parent, &name).await }).await?;
+        Ok(node.into())
+    }
+
     /// The fields of the details panel. The device is left out if the device list won't load.
     pub async fn details(&self, id: String) -> Result<EntryDetails, CoreError> {
         let id = parse_id(&id)?;
@@ -544,9 +596,12 @@ impl CoreClient {
     pub async fn logout(&self) -> Result<(), CoreError> {
         let inner = self.inner.clone();
         let files = self.files.clone();
+        let picked = self.picked_uploads.clone();
         off_ui_thread(async move {
             files.cancel_all();
-            for upload in files.wipe().await {
+            let mut unfinished = picked.stop_all();
+            unfinished.extend(files.wipe().await);
+            for upload in unfinished {
                 let _ = inner.cancel_upload(upload).await;
             }
             inner.logout().await
@@ -562,6 +617,7 @@ impl CoreClient {
             inner,
             lost_and_found: Mutex::new(None),
             files: Arc::default(),
+            picked_uploads: Arc::default(),
         }
     }
 
@@ -679,7 +735,7 @@ pub fn normalize_server_url(input: String) -> Result<String, CoreError> {
 mod tests {
     use std::sync::Mutex;
 
-    use wiremock::matchers::{body_partial_json, method, path, query_param};
+    use wiremock::matchers::{body_partial_json, header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
@@ -1651,5 +1707,220 @@ mod tests {
         assert!(!std::path::Path::new(&opened).exists());
         assert_eq!(listed_path(&client, &server, same).await, None);
         assert_eq!(client.offline_status().await.unwrap().kept, 0);
+    }
+
+    /// Every report of a picked upload, and a way to cancel it after the first.
+    #[derive(Default)]
+    struct UploadReports {
+        reports: Mutex<Vec<u64>>,
+        cancel: Mutex<Option<Arc<CoreClient>>>,
+    }
+
+    impl uploads::UploadListener for UploadReports {
+        fn progress(&self, key: String, done: u64, _total: u64) {
+            self.reports.lock().unwrap().push(done);
+            if let Some(client) = self.cancel.lock().unwrap().take() {
+                client.cancel_picked_upload(key);
+            }
+        }
+    }
+
+    const UPLOAD_ID: &str = "00000000-0000-0000-0000-0000000000bb";
+
+    fn upload_session(offset: u64, size: u64, chunk_size: u64) -> ResponseTemplate {
+        ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": UPLOAD_ID, "offset": offset, "size": size, "chunk_size": chunk_size,
+        }))
+    }
+
+    fn picked_file(content: &[u8]) -> String {
+        let path = std::path::Path::new(&test_dir()).join("picked");
+        std::fs::write(&path, content).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    async fn mount_upload_start(server: &MockServer, size: u64, chunk_size: u64) {
+        Mock::given(method("POST"))
+            .and(path(protocol::paths::UPLOADS))
+            .and(body_partial_json(serde_json::json!({
+                "name": "a.txt", "size": size,
+            })))
+            // The user chose this file, so a name clash makes a new version.
+            .and(|request: &wiremock::Request| {
+                let body: serde_json::Value = request.body_json().expect("json body");
+                body.get("keep_both").is_none() && body.get("auto_upload").is_none()
+            })
+            .respond_with(upload_session(0, size, chunk_size))
+            .expect(1)
+            .mount(server)
+            .await;
+    }
+
+    fn chunk_at(offset: &str, reply: ResponseTemplate) -> Mock {
+        Mock::given(method("PATCH"))
+            .and(path(format!("{}/{UPLOAD_ID}", protocol::paths::UPLOADS)))
+            .and(header(protocol::paths::UPLOAD_OFFSET, offset))
+            .respond_with(reply)
+    }
+
+    fn chunk_stored(offset: u64) -> ResponseTemplate {
+        ResponseTemplate::new(200).set_body_json(
+            serde_json::json!({ "offset": offset, "node": node("a.txt", "file", 6) }),
+        )
+    }
+
+    fn chunk_taken(offset: u64) -> ResponseTemplate {
+        ResponseTemplate::new(200).set_body_json(serde_json::json!({ "offset": offset }))
+    }
+
+    #[tokio::test]
+    async fn a_picked_file_goes_up_in_chunks_as_a_new_version_on_a_name_clash() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        mount_upload_start(&server, 6, 4).await;
+        chunk_at("0", chunk_taken(4)).expect(1).mount(&server).await;
+        chunk_at("4", chunk_stored(6))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let reports = Arc::new(UploadReports::default());
+        let entry = client
+            .upload_picked_file(
+                "k".into(),
+                None,
+                "a.txt".into(),
+                picked_file(b"abcdef"),
+                reports.clone(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(entry.name, "a.txt");
+        assert_eq!(*reports.reports.lock().unwrap(), [4, 6]);
+    }
+
+    #[tokio::test]
+    async fn trying_a_failed_upload_again_continues_where_it_stopped() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        mount_upload_start(&server, 6, 4).await;
+        chunk_at("0", chunk_taken(4)).expect(1).mount(&server).await;
+        let refused = ResponseTemplate::new(400).set_body_json(serde_json::json!({
+            "error": "bad_request", "message": "no",
+        }));
+        chunk_at("4", refused)
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&server)
+            .await;
+        chunk_at("4", chunk_stored(6))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("{}/{UPLOAD_ID}", protocol::paths::UPLOADS)))
+            .respond_with(upload_session(4, 6, 4))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let file = picked_file(b"abcdef");
+        let reports = Arc::new(UploadReports::default());
+        client
+            .upload_picked_file(
+                "k".into(),
+                None,
+                "a.txt".into(),
+                file.clone(),
+                reports.clone(),
+            )
+            .await
+            .unwrap_err();
+        let entry = client
+            .upload_picked_file("k".into(), None, "a.txt".into(), file, reports)
+            .await
+            .unwrap();
+
+        assert_eq!(entry.name, "a.txt");
+    }
+
+    #[tokio::test]
+    async fn cancelling_stops_at_the_next_chunk_and_ends_the_upload_on_the_server() {
+        let server = MockServer::start().await;
+        let client = Arc::new(signed_in(&server).await);
+        mount_upload_start(&server, 6, 4).await;
+        chunk_at("0", chunk_taken(4)).expect(1).mount(&server).await;
+        Mock::given(method("DELETE"))
+            .and(path(format!("{}/{UPLOAD_ID}", protocol::paths::UPLOADS)))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let reports = Arc::new(UploadReports {
+            cancel: Mutex::new(Some(client.clone())),
+            ..UploadReports::default()
+        });
+        let err = client
+            .upload_picked_file(
+                "k".into(),
+                None,
+                "a.txt".into(),
+                picked_file(b"abcdef"),
+                reports,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, CoreError::Cancelled), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn search_results_say_where_they_are() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        Mock::given(method("GET"))
+            .and(path(protocol::paths::SEARCH))
+            .and(query_param("q", "hol"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                { "node": node("beach.jpg", "file", 3), "location": ["Photos", "2026"] },
+                { "node": node("hol", "folder", 0), "location": [] },
+            ])))
+            .mount(&server)
+            .await;
+
+        let results = client.search("hol".into()).await.unwrap();
+
+        let found: Vec<_> = results
+            .iter()
+            .map(|result| (result.entry.name.as_str(), result.location.as_str()))
+            .collect();
+        assert_eq!(
+            found,
+            [("beach.jpg", "Home / Photos / 2026"), ("hol", "Home")]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_new_folder_goes_in_the_folder_asked_for() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        Mock::given(method("POST"))
+            .and(path(protocol::paths::FOLDERS))
+            .and(body_partial_json(serde_json::json!({
+                "name": "New", "parent_id": FILE_ID,
+            })))
+            .respond_with(ResponseTemplate::new(201).set_body_json(node("New", "folder", 0)))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let entry = client
+            .create_folder(Some(FILE_ID.into()), "New".into())
+            .await
+            .unwrap();
+
+        assert_eq!(entry.kind, EntryKind::Folder);
     }
 }

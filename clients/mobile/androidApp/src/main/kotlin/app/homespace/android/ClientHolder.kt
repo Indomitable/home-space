@@ -19,6 +19,16 @@ import uniffi.homespace_core.SignedInUser
 class ActiveSession(val client: CoreClient, val user: SignedInUser, context: Context) {
     private val appContext = context.applicationContext
 
+    init {
+        client.setOfflineListener(
+            object : AutoUploadListener {
+                override fun changed() {
+                    ClientHolder.syncChanged()
+                }
+            },
+        )
+    }
+
     val autoUpload: AutoUpload by lazy {
         AutoUpload.open(
             client,
@@ -48,7 +58,7 @@ object ClientHolder {
     var active: ActiveSession? = null
         private set
 
-    /** Changes whenever what auto-upload reports may have changed. */
+    /** Changes whenever what auto-upload or the offline copies report may have changed. */
     val syncChanges: StateFlow<Int> = changes
 
     internal fun syncChanged() {
@@ -58,6 +68,8 @@ object ClientHolder {
     fun newClient(context: Context, address: String): CoreClient {
         val appContext = context.applicationContext
         val store = SessionStore(appContext)
+        // Copies from before they were synced. They download again when opened.
+        Thread { File(appContext.filesDir, LEGACY_DOWNLOADS_DIR).deleteRecursively() }.start()
         return CoreClient.withSession(
             address,
             DeviceIdentity(store.deviceId, Build.MODEL),
@@ -70,7 +82,7 @@ object ClientHolder {
                     }
                 }
             },
-            File(appContext.filesDir, DOWNLOADS_DIR).path,
+            File(appContext.filesDir, OFFLINE_DIR).path,
         )
     }
 
@@ -103,7 +115,9 @@ object ClientHolder {
 }
 
 /** Under the app's files folder; `res/xml/file_paths.xml` shares this folder with viewers. */
-private const val DOWNLOADS_DIR = "downloads"
+private const val OFFLINE_DIR = "offline"
 
-/** Under the app's files folder; not shared, and not wiped with the downloads. */
+private const val LEGACY_DOWNLOADS_DIR = "downloads"
+
+/** Under the app's files folder; not shared, and not wiped with the offline copies. */
 private const val SYNC_DIR = "sync"

@@ -54,7 +54,10 @@ sealed interface Probe {
 data class Crumb(val id: String?, val name: String)
 
 /** A downloaded file waiting to be shown. */
-data class OpenRequest(val path: String, val mime: String)
+data class OpenRequest(val path: String, val mime: String, val edit: Boolean = false)
+
+/** A copy with edits not on the server yet, waiting for the user to say whether it may go. */
+data class RemovalWarning(val entry: Entry, val names: List<String>)
 
 /**
  * The session and the sign-in form. It outlives the activity, so the signed-in client survives
@@ -91,6 +94,12 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         private set
 
     /** A finished download for the screen to open. */
+    /** The copy waiting for the user to say whether its unsent edits may go. */
+    var removalWarning by mutableStateOf<RemovalWarning?>(null)
+
+    /** The names of the files whose unsent edits signing out would lose, while asking. */
+    var signOutWarning by mutableStateOf<List<String>?>(null)
+
     var pendingOpen by mutableStateOf<OpenRequest?>(null)
         private set
 
@@ -258,7 +267,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /** Shows a file: at once if the copy here is current, else after downloading it. */
-    fun openFile(session: Session.SignedIn, entry: Entry) {
+    fun openFile(session: Session.SignedIn, entry: Entry, edit: Boolean = false) {
         lastTapped = entry.id
         if (entry.id in downloads) return
         downloads[entry.id] = 0f
@@ -266,7 +275,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
             try {
                 val path = session.client.openCopy(entry.id, progressListener())
                 if (lastTapped == entry.id && foreground) {
-                    pendingOpen = OpenRequest(path, entry.mime)
+                    pendingOpen = OpenRequest(path, entry.mime, edit)
                 }
                 reload()
             } catch (e: CoreException) {
@@ -309,15 +318,41 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /** Deletes this phone's copy of a file. */
-    fun removeLocalCopy(session: Session.SignedIn, entry: Entry) {
+    /** Keeps a file or folder on this phone and in sync. */
+    fun makeAvailableOffline(session: Session.SignedIn, entry: Entry) {
         viewModelScope.launch {
             try {
-                session.client.removeLocalCopy(entry.id)
+                session.client.makeAvailableOffline(entry.id)
             } catch (e: CoreException) {
                 toast("Failed: ${e.fileMessage()}")
             }
             reload()
+        }
+    }
+
+    /** Deletes this phone's copy of a file or folder, after a warning if that loses edits. */
+    fun removeOfflineCopy(session: Session.SignedIn, entry: Entry, confirmed: Boolean = false) {
+        removalWarning = null
+        viewModelScope.launch {
+            try {
+                val unsent = if (confirmed) emptyList() else session.client.unsentEdits(entry.id)
+                if (unsent.isEmpty()) {
+                    session.client.removeOfflineCopy(entry.id)
+                } else {
+                    removalWarning = RemovalWarning(entry, unsent)
+                }
+            } catch (e: CoreException) {
+                toast("Failed: ${e.fileMessage()}")
+            }
+            reload()
+        }
+    }
+
+    /** Signs out, after a warning if that loses edits. */
+    fun requestSignOut(session: Session.SignedIn) {
+        viewModelScope.launch {
+            val unsent = runCatching { session.client.unsentEdits(null) }.getOrDefault(emptyList())
+            if (unsent.isEmpty()) signOut() else signOutWarning = unsent
         }
     }
 
@@ -349,6 +384,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun signOut() {
+        signOutWarning = null
         val current = session
         val active = ClientHolder.active
         store.forgetSession()

@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -39,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import uniffi.homespace_core.CoreException
+import uniffi.homespace_core.OfflineStatus
 import uniffi.homespace_core.SourceKind
 import uniffi.homespace_core.SyncSettings
 import uniffi.homespace_core.UploadSource
@@ -68,6 +70,9 @@ fun SyncSettingsScreen(session: Session.SignedIn, model: SessionViewModel) {
     var dialog by remember { mutableStateOf<SyncDialog?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val sources = remember(changes, refresh) { auto.sources() }
+    val offline by produceState<OfflineStatus?>(null, changes) {
+        value = runCatching { session.client.offlineStatus() }.getOrNull()
+    }
 
     val pickFolder = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
@@ -146,6 +151,28 @@ fun SyncSettingsScreen(session: Session.SignedIn, model: SessionViewModel) {
             },
         )
         HorizontalDivider()
+        offline?.let { status ->
+            ListItem(
+                headlineContent = { Text("Offline files") },
+                supportingContent = {
+                    Column {
+                        Text(offlineSummary(status))
+                        status.problems.forEach { problem ->
+                            Text(
+                                "${problem.name}: ${problem.reason}",
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                },
+                trailingContent = {
+                    if (status.problems.isNotEmpty()) {
+                        TextButton(onClick = { model.syncNow() }) { Text("Try again") }
+                    }
+                },
+            )
+            HorizontalDivider()
+        }
         Text(
             "Folders that upload to the server",
             style = MaterialTheme.typography.titleSmall,
@@ -305,6 +332,13 @@ fun SyncSettingsScreen(session: Session.SignedIn, model: SessionViewModel) {
     }
 
     LaunchedEffect(Unit) { model.syncNow() }
+}
+
+private fun offlineSummary(status: OfflineStatus): String = when {
+    status.unreachable -> "Can't reach the server. Trying again by itself."
+    status.pending > 0u -> "${status.pending} waiting to sync"
+    status.kept == 0uL -> "Files you open and folders you make available offline are kept here."
+    else -> "Up to date"
 }
 
 @Composable

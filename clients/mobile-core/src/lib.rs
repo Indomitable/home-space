@@ -18,12 +18,14 @@ use protocol::{DeviceInfo, NodeId, NodeKind, OnConflict, paths};
 mod android;
 mod autoupload;
 mod files;
+mod offline;
 
 pub use autoupload::{
     AutoUpload, AutoUploadListener, LocalItem, LocalSources, PassSummary, SourceKind, SyncSettings,
     UploadSource,
 };
 pub use files::DownloadListener;
+pub use offline::{OfflineProblem, OfflineState, OfflineStatus};
 
 uniffi::setup_scaffolding!();
 
@@ -203,6 +205,10 @@ pub struct Entry {
     pub sha256: Option<String>,
     /// The copy of the current content on this phone, for files that have one.
     pub local_path: Option<String>,
+    /// How its copy here stands; `None` when it isn't kept on this phone.
+    pub offline_state: Option<offline::OfflineState>,
+    /// Kept for its own sake, rather than for being in a folder that is, so its copy can be removed.
+    pub offline_kept: bool,
     /// Empty for folders, otherwise e.g. `1.5 MB`.
     pub size_label: String,
 }
@@ -235,6 +241,8 @@ impl From<protocol::Node> for Entry {
             version: node.version,
             sha256: node.sha256,
             local_path: None,
+            offline_state: None,
+            offline_kept: false,
         }
     }
 }
@@ -428,7 +436,7 @@ impl CoreClient {
             }?;
             listing::sort_nodes(&mut nodes, listing::Sort::default());
             let mut entries: Vec<Entry> = nodes.into_iter().map(Entry::from).collect();
-            files.mark_copies(&mut entries).await;
+            files.mark_copies(&inner, &mut entries).await;
             Ok(entries)
         })
         .await
@@ -453,7 +461,7 @@ impl CoreClient {
             };
             let created_at = node.created_at.into();
             let mut entries = [Entry::from(node)];
-            files.mark_copies(&mut entries).await;
+            files.mark_copies(&inner, &mut entries).await;
             let [entry] = entries;
             Ok(EntryDetails {
                 entry,
@@ -498,7 +506,7 @@ impl CoreClient {
         off_ui_thread(async move {
             let moved = inner.move_nodes(&ids, parent, on_conflict).await?;
             for skipped in &moved.skipped {
-                files.remove(*skipped).await;
+                files.remove(&inner, *skipped).await;
             }
             let location = moved.target.as_ref().map_or_else(
                 || format!("“{}”", labels::HOME),
@@ -524,7 +532,7 @@ impl CoreClient {
         off_ui_thread(async move {
             for id in ids {
                 inner.delete(id).await?;
-                files.remove(id).await;
+                files.remove(&inner, id).await;
             }
             Ok(())
         })
@@ -538,7 +546,9 @@ impl CoreClient {
         let files = self.files.clone();
         off_ui_thread(async move {
             files.cancel_all();
-            files.wipe().await;
+            for upload in files.wipe().await {
+                let _ = inner.cancel_upload(upload).await;
+            }
             inner.logout().await
         })
         .await
@@ -557,7 +567,7 @@ impl CoreClient {
 
     fn signed_in(&self, me: protocol::Me) -> SignedInUser {
         *self.lost_and_found.lock().expect("lost and found lock") = Some(me.lost_and_found_id);
-        self.files.set_user(me.id.to_string());
+        self.files.set_user(me.id.to_string(), me.lost_and_found_id);
         me.into()
     }
 }
@@ -1249,6 +1259,14 @@ mod tests {
         server: &MockServer,
         json: serde_json::Value,
     ) -> Option<String> {
+        listed_state(client, server, json).await.0
+    }
+
+    async fn listed_state(
+        client: &CoreClient,
+        server: &MockServer,
+        json: serde_json::Value,
+    ) -> (Option<String>, Option<offline::OfflineState>) {
         let folder = "00000000-0000-0000-0000-0000000000d1";
         server.reset().await;
         Mock::given(method("GET"))
@@ -1258,7 +1276,7 @@ mod tests {
             .mount(server)
             .await;
         let entries = client.list(Some(folder.to_owned())).await.unwrap();
-        entries[0].local_path.clone()
+        (entries[0].local_path.clone(), entries[0].offline_state)
     }
 
     #[tokio::test]
@@ -1285,7 +1303,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_listing_marks_the_copy_until_the_content_changes() {
+    async fn the_listing_marks_the_copy_as_behind_once_the_content_changes() {
         let server = MockServer::start().await;
         let client = signed_in(&server).await;
         let same = file_json("a.txt", CONTENT_SHA);
@@ -1298,9 +1316,17 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(listed_path(&client, &server, same).await, Some(opened));
+        let (path_of, state_of) = (Some(opened), Some(offline::OfflineState::Synced));
+        assert_eq!(
+            listed_state(&client, &server, same).await,
+            (path_of.clone(), state_of)
+        );
+        // Still there until the sync or the next open replaces it, and shown as behind.
         let replaced = file_json("a.txt", OTHER_SHA);
-        assert_eq!(listed_path(&client, &server, replaced).await, None);
+        assert_eq!(
+            listed_state(&client, &server, replaced).await,
+            (path_of, Some(offline::OfflineState::Updating))
+        );
     }
 
     #[tokio::test]
@@ -1320,8 +1346,8 @@ mod tests {
         mount_content(&server, OTHER).await;
         let new = client.open_copy(FILE_ID.into(), listener).await.unwrap();
 
+        assert_eq!(new, old, "it stays where it is");
         assert_eq!(std::fs::read(&new).unwrap(), OTHER);
-        assert!(!std::path::Path::new(&old).exists());
     }
 
     fn hex_sha(bytes: &[u8]) -> String {
@@ -1396,8 +1422,13 @@ mod tests {
         assert!(matches!(err, CoreError::Cancelled), "{err:?}");
         let same = file_json("a.txt", CONTENT_SHA);
 
-        let node_dir = client.files.node_dir(FILE_ID.parse().unwrap()).unwrap();
-        assert!(!node_dir.join("download.part").exists());
+        let offline = client.files.offline(&client.inner).await.unwrap();
+        assert!(
+            !offline
+                .part_path(FILE_ID.parse().unwrap())
+                .unwrap()
+                .exists()
+        );
         assert_eq!(listed_path(&client, &server, same.clone()).await, None);
 
         mount_file(&server, same).await;
@@ -1565,5 +1596,60 @@ mod tests {
         assert!(already_in(vec![entry(None)], None));
         assert!(!already_in(vec![entry(None)], Some(parent.to_owned())));
         assert!(!already_in(vec![entry(None), entry(Some(parent))], None));
+    }
+
+    #[tokio::test]
+    async fn an_edit_is_kept_when_the_file_opens_again_and_is_reported_as_unsent() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        mount_file(&server, file_json("a.txt", CONTENT_SHA)).await;
+        mount_content(&server, CONTENT).await;
+        let listener = Arc::new(Progress::default());
+        let opened = client
+            .open_copy(FILE_ID.into(), listener.clone())
+            .await
+            .unwrap();
+        assert!(client.unsent_edits(None).await.unwrap().is_empty());
+
+        std::fs::write(&opened, "edited").unwrap();
+        // Even with newer content on the server, the edit isn't overwritten here.
+        mount_file(&server, file_json("a.txt", OTHER_SHA)).await;
+        let again = client.open_copy(FILE_ID.into(), listener).await.unwrap();
+
+        assert_eq!(again, opened);
+        assert_eq!(std::fs::read(&again).unwrap(), b"edited");
+        assert_eq!(client.unsent_edits(None).await.unwrap(), ["a.txt"]);
+        assert_eq!(
+            client.unsent_edits(Some(FILE_ID.into())).await.unwrap(),
+            ["a.txt"]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_opened_file_is_kept_and_its_copy_can_be_removed() {
+        let server = MockServer::start().await;
+        let client = signed_in(&server).await;
+        let same = file_json("a.txt", CONTENT_SHA);
+        mount_file(&server, same.clone()).await;
+        mount_content(&server, CONTENT).await;
+        let opened = client
+            .open_copy(FILE_ID.into(), Arc::new(Progress::default()))
+            .await
+            .unwrap();
+        let offline = client.files.offline(&client.inner).await.unwrap();
+        let mut status = offline.status();
+        for _ in 0..200 {
+            if status.mapping(Some(FILE_ID.parse().unwrap())).is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            status = offline.status();
+        }
+        assert_eq!(client.offline_status().await.unwrap().kept, 1);
+
+        client.remove_offline_copy(FILE_ID.into()).await.unwrap();
+        assert!(!std::path::Path::new(&opened).exists());
+        assert_eq!(listed_path(&client, &server, same).await, None);
+        assert_eq!(client.offline_status().await.unwrap().kept, 0);
     }
 }

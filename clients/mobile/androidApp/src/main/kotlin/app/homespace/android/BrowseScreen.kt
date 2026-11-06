@@ -37,6 +37,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.material3.AlertDialog
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -64,6 +66,7 @@ import uniffi.homespace_core.CoreException
 import uniffi.homespace_core.Entry
 import uniffi.homespace_core.EntryIcon
 import uniffi.homespace_core.EntryKind
+import uniffi.homespace_core.OfflineState
 
 private val ICON_SIZE = 20.dp
 private val ICON_GAP = 8.dp
@@ -77,6 +80,7 @@ private val MENU_BUTTON_SIZE = 40.dp
 private val ROW_MIN_HEIGHT = 64.dp
 private const val PROGRESS_ALPHA = 0.25f
 private const val OCTET_STREAM = "application/octet-stream"
+private const val MAX_NAMES_SHOWN = 3
 
 // The web client's --color-accent.
 private val FOLDER_ACCENT_LIGHT = Color(0xFF2563EB)
@@ -86,7 +90,9 @@ private val SUCCESS_LIGHT = Color(0xFF15803D)
 private val SUCCESS_DARK = Color(0xFF5FD39A)
 
 /** What a row's menu can ask for. */
-private enum class RowAction { SAVE, DETAILS, RENAME, MOVE, DELETE, REMOVE_DOWNLOAD, CANCEL_DOWNLOAD }
+private enum class RowAction {
+    SAVE, EDIT, KEEP_OFFLINE, DETAILS, RENAME, MOVE, DELETE, REMOVE_OFFLINE, CANCEL_DOWNLOAD
+}
 
 /** Folder browsing through the Rust client (`clients/mobile-core`). */
 @Composable
@@ -154,6 +160,16 @@ fun BrowseScreen(
         }
     }
 
+    // Updating and failed copies change while the folder is open, with nothing new on the server.
+    val syncChanges by ClientHolder.syncChanges.collectAsState()
+    LaunchedEffect(session.client, syncChanges) {
+        if (entries.isEmpty()) return@LaunchedEffect
+        val marked = session.client.refreshOffline(entries.toList())
+        if (marked.map { it.id } == entries.map { it.id }) {
+            marked.forEachIndexed { index, entry -> entries[index] = entry }
+        }
+    }
+
     Column(
         modifier = modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -180,7 +196,7 @@ fun BrowseScreen(
                 AccountMenu(
                     username = session.user.username,
                     onOpenPage = onOpenPage,
-                    onSignOut = model::signOut,
+                    onSignOut = { model.requestSignOut(session) },
                 )
             }
         }
@@ -218,11 +234,13 @@ fun BrowseScreen(
                                 model.pendingSave = entry
                                 saveTo.launch(entry)
                             }
+                            RowAction.EDIT -> model.openFile(session, entry, edit = true)
+                            RowAction.KEEP_OFFLINE -> model.makeAvailableOffline(session, entry)
                             RowAction.DETAILS -> action = FileAction.Details(entry)
                             RowAction.RENAME -> action = FileAction.Rename(entry)
                             RowAction.MOVE -> action = FileAction.Move(listOf(entry))
                             RowAction.DELETE -> action = FileAction.Delete(listOf(entry))
-                            RowAction.REMOVE_DOWNLOAD -> model.removeLocalCopy(session, entry)
+                            RowAction.REMOVE_OFFLINE -> model.removeOfflineCopy(session, entry)
                             RowAction.CANCEL_DOWNLOAD -> session.client.cancelDownload(entry.id)
                         }
                     },
@@ -231,6 +249,25 @@ fun BrowseScreen(
                 HorizontalDivider(modifier = Modifier.padding(start = ICON_BOX + ICON_GAP))
             }
         }
+    }
+
+    model.removalWarning?.let { warning ->
+        UnsentEditsDialog(
+            title = "Remove “${warning.entry.name}” from this phone?",
+            names = warning.names,
+            confirm = "Remove",
+            onConfirm = { model.removeOfflineCopy(session, warning.entry, confirmed = true) },
+            onDismiss = { model.removalWarning = null },
+        )
+    }
+    model.signOutWarning?.let { names ->
+        UnsentEditsDialog(
+            title = "Sign out?",
+            names = names,
+            confirm = "Sign out",
+            onConfirm = model::signOut,
+            onDismiss = { model.signOutWarning = null },
+        )
     }
 
     action?.let { current ->
@@ -306,6 +343,31 @@ private fun CurrentFolder(path: List<Crumb>, onOpenParent: (Int) -> Unit, modifi
             }
         }
     }
+}
+
+/** Asks before something goes that holds edits not on the server yet. */
+@Composable
+private fun UnsentEditsDialog(
+    title: String,
+    names: List<String>,
+    confirm: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val shown = names.take(MAX_NAMES_SHOWN).joinToString(", ")
+    val more = names.size - MAX_NAMES_SHOWN
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Text(
+                "Edits to $shown${if (more > 0) " and $more more" else ""} aren't on the " +
+                    "server yet and will be lost.",
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(confirm) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** The header's menu: who is signed in, and where to go from here. */
@@ -391,7 +453,7 @@ private fun EntryRow(
     ) {
         // The whole row takes the tap, so the box only shows the state.
         if (selecting) Checkbox(checked = isSelected, onCheckedChange = null)
-        BadgedIcon(entry.icon, downloaded = entry.localPath != null && progress == null)
+        BadgedIcon(entry.icon, state = entry.offlineState.takeIf { progress == null })
         Column(modifier = Modifier.weight(1f)) {
             Text(entry.name)
             if (entry.kind == EntryKind.FILE) {
@@ -436,13 +498,16 @@ private fun RowMenu(
             }
             if (downloading) item("Cancel download", R.drawable.ic_close, RowAction.CANCEL_DOWNLOAD)
             if (entry.kind == EntryKind.FILE && !downloading) {
+                item("Edit in another app", R.drawable.ic_edit, RowAction.EDIT)
                 item("Save to…", R.drawable.ic_download, RowAction.SAVE)
             }
             item("Details", R.drawable.ic_info, RowAction.DETAILS)
             item("Rename", R.drawable.ic_edit, RowAction.RENAME)
             item("Move", R.drawable.ic_drive_file_move, RowAction.MOVE)
-            if (entry.localPath != null && !downloading) {
-                item("Remove download", R.drawable.ic_download_off, RowAction.REMOVE_DOWNLOAD)
+            if (entry.offlineKept && !downloading) {
+                item("Remove offline copy", R.drawable.ic_download_off, RowAction.REMOVE_OFFLINE)
+            } else if (entry.offlineState == null && !downloading) {
+                item("Make available offline", R.drawable.ic_download, RowAction.KEEP_OFFLINE)
             }
             if (canDelete) item("Delete", R.drawable.ic_delete, RowAction.DELETE)
         }
@@ -458,12 +523,25 @@ internal fun localDate(time: Instant): String = DateUtils.formatDateTime(
         DateUtils.FORMAT_SHOW_YEAR or DateUtils.FORMAT_ABBREV_MONTH,
 )
 
-/** A node's icon, with the desktop client's badge in the corner once the file is on the phone. */
+/** A node's icon, with the desktop client's badge in the corner once it is kept on the phone. */
 @Composable
-private fun BadgedIcon(icon: EntryIcon, downloaded: Boolean) {
+private fun BadgedIcon(icon: EntryIcon, state: OfflineState?) {
     Box(modifier = Modifier.size(ICON_BOX), contentAlignment = Alignment.CenterStart) {
         NodeIcon(icon)
-        if (downloaded) {
+        if (state != null) {
+            val (drawable, label, tint) = when (state) {
+                OfflineState.SYNCED -> Triple(
+                    R.drawable.ic_check_circle,
+                    "Available offline",
+                    if (isSystemInDarkTheme()) SUCCESS_DARK else SUCCESS_LIGHT,
+                )
+                OfflineState.UPDATING -> Triple(R.drawable.ic_sync, "Syncing", accentColor())
+                OfflineState.FAILED -> Triple(
+                    R.drawable.ic_error,
+                    "Sync failed",
+                    MaterialTheme.colorScheme.error,
+                )
+            }
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -471,9 +549,9 @@ private fun BadgedIcon(icon: EntryIcon, downloaded: Boolean) {
                     .padding(BADGE_PADDING),
             ) {
                 Icon(
-                    painterResource(R.drawable.ic_check_circle),
-                    contentDescription = "Downloaded",
-                    tint = if (isSystemInDarkTheme()) SUCCESS_DARK else SUCCESS_LIGHT,
+                    painterResource(drawable),
+                    contentDescription = label,
+                    tint = tint,
                     modifier = Modifier.size(BADGE_SIZE),
                 )
             }
@@ -515,16 +593,20 @@ private class SaveDocument : ActivityResultContract<Entry, Uri?>() {
         intent?.data.takeIf { resultCode == android.app.Activity.RESULT_OK }
 }
 
-/** Hands the file to whichever app shows its type, read-only; false when none does. */
+/**
+ * Hands the file to whichever app handles its type: read-only to look at it, with write access to
+ * edit it, which the sync then picks up. False when no app does.
+ */
 private fun openInViewer(context: Context, request: OpenRequest): Boolean {
     val file = File(request.path)
     val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
     val type = request.mime.takeUnless { it.isBlank() || it == OCTET_STREAM }
         ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase())
         ?: "*/*"
-    val intent = Intent(Intent.ACTION_VIEW)
+    val intent = Intent(if (request.edit) Intent.ACTION_EDIT else Intent.ACTION_VIEW)
         .setDataAndType(uri, type)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    if (request.edit) intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
     return try {
         context.startActivity(intent)
         true

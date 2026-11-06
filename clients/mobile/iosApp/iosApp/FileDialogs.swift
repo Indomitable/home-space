@@ -291,7 +291,7 @@ private struct MoveSheet: View {
                         trail.append(Crumb(id: folder.id, name: folder.name))
                     } label: {
                         pickerRow {
-                            EntryIconView(icon: .folder, downloaded: false)
+                            EntryIconView(icon: .folder, state: nil)
                             Text(folder.name).lineLimit(1)
                             Spacer()
                             // It opens the folder, as a row in the browser does.

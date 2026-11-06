@@ -41,6 +41,12 @@ struct PendingExport: Identifiable {
 
 /// The session and the sign-in form. A saved token is only ever spent once, because replaying a
 /// rotated refresh token ends the session; that is why resuming lives here and not in a view.
+/// A copy with edits not on the server yet, waiting for the user to say whether it may go.
+struct RemovalWarning {
+    let entry: Entry
+    let names: [String]
+}
+
 @MainActor
 @Observable
 final class SessionModel {
@@ -64,6 +70,10 @@ final class SessionModel {
     private(set) var reloadKey = 0
     /// The file Quick Look is showing.
     var preview: URL?
+    /// The copy waiting for the user to say whether its unsent edits may go.
+    var removalWarning: RemovalWarning?
+    /// The names of the files whose unsent edits signing out would lose, while asking.
+    var signOutWarning: [String]?
     /// The saved file waiting for the user to pick where it goes.
     private(set) var pendingExport: PendingExport?
     /// A failure with no dialog of its own to appear in.
@@ -267,16 +277,50 @@ final class SessionModel {
         try? client.cancelDownload(id: entry.id)
     }
 
-    /// Deletes this device's copy of a file.
-    func removeLocalCopy(client: CoreClient, entry: Entry) {
+    /// Keeps a file or folder on this device and in sync.
+    func makeAvailableOffline(client: CoreClient, entry: Entry) {
         Task {
             do {
-                try await client.removeLocalCopy(id: entry.id)
+                try await client.makeAvailableOffline(id: entry.id)
             } catch {
                 notice = fileMessage(for: error)
             }
             reload()
         }
+    }
+
+    /// Deletes this device's copy of a file or folder, after a warning if that loses edits.
+    func removeOfflineCopy(client: CoreClient, entry: Entry, confirmed: Bool = false) {
+        Task {
+            do {
+                let unsent = confirmed ? [] : try await client.unsentEdits(id: entry.id)
+                if unsent.isEmpty {
+                    try await client.removeOfflineCopy(id: entry.id)
+                } else {
+                    removalWarning = RemovalWarning(entry: entry, names: unsent)
+                }
+            } catch {
+                notice = fileMessage(for: error)
+            }
+            reload()
+        }
+    }
+
+    /// Signs out, after a warning if that loses edits.
+    func requestSignOut(client: CoreClient) {
+        Task {
+            let unsent = (try? await client.unsentEdits(id: nil)) ?? []
+            if unsent.isEmpty {
+                signOut()
+            } else {
+                signOutWarning = unsent
+            }
+        }
+    }
+
+    /// Quick Look closed, or saved a change to the file.
+    func previewEnded() {
+        foregroundSync?.checkOfflineCopies()
     }
 
     fileprivate func downloadProgressed(id: String, fraction: Double) {
@@ -306,6 +350,7 @@ final class SessionModel {
     }
 
     func signOut() {
+        signOutWarning = nil
         let current = session
         let auto = endSync()
         store.forgetSession()

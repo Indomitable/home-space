@@ -58,6 +58,7 @@ final class ActiveSession {
         self.client = client
         self.user = user
         self.changes = changes
+        client.setOfflineListener(listener: ChangeForwarder(changes: changes))
     }
 
     func autoUpload() throws -> AutoUpload {
@@ -92,11 +93,12 @@ final class ClientHolder {
     private init() {}
 
     func newClient(server: String) throws -> CoreClient {
-        try CoreClient.withSession(
+        Self.removeLegacyDownloads()
+        return try CoreClient.withSession(
             baseUrl: server,
             device: DeviceIdentity(id: store.deviceId, name: UIDevice.current.name),
             listener: TokenSaver(server: server, store: store),
-            filesDir: try Self.downloadsFolder().path
+            filesDir: try Self.offlineFolder().path
         )
     }
 
@@ -137,9 +139,18 @@ final class ClientHolder {
         active = nil
     }
 
-    /// Where opened files are kept. They can be downloaded again, so they stay out of backups.
-    private static func downloadsFolder() throws -> URL {
-        try privateFolder("downloads")
+    /// Where offline copies are kept. They can be downloaded again, so they stay out of backups.
+    private static func offlineFolder() throws -> URL {
+        try privateFolder("offline")
+    }
+
+    /// Copies from before they were synced. They download again when opened.
+    private static func removeLegacyDownloads() {
+        guard
+            let support = try? FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+        else { return }
+        try? FileManager.default.removeItem(at: support.appendingPathComponent("downloads", isDirectory: true))
     }
 
     /// What auto-upload remembers. It describes this phone's files, so it stays out of backups.

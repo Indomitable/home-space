@@ -17,10 +17,12 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.homespace_core.CoreException
 import uniffi.homespace_core.SyncSettings
 
@@ -55,13 +57,14 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 try {
                     // A new photo wakes this at once, and a pass leaves a file that changed just
                     // now for later. Without another pass, "later" would be the next period.
-                    repeat(SETTLE_PASSES) {
+                    for (attempt in 1..SETTLE_PASSES) {
                         val summary = auto.runPass(false)
-                        if (summary.pending == 0uL || summary.outage || summary.stopped) {
-                            return@coroutineScope
-                        }
+                        if (summary.pending == 0uL || summary.outage || summary.stopped) break
                         delay(SETTLE_MILLIS)
                     }
+                    session.client.offlinePass()
+                    // Nothing watches the network once this job ends. An open app allows it again.
+                    session.client.offlineAllow(false)
                 } finally {
                     notify.cancel()
                 }
@@ -70,6 +73,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         } catch (e: CancellationException) {
             // Android took back the constraint. A pass runs on regardless of this coroutine.
             auto.stop()
+            withContext(NonCancellable) { runCatching { session.client.offlineAllow(false) } }
             throw e
         } catch (_: CoreException) {
             Result.success() // The next run tries again, and the settings screen shows the problem.
@@ -79,7 +83,8 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     /** A notification only when there are files to send, not every 15 minutes. */
     private suspend fun showOnceThereIsWork(session: ActiveSession) {
         ClientHolder.syncChanges.first {
-            session.autoUpload.sources().any { source -> source.pending > 0u }
+            session.autoUpload.sources().any { source -> source.pending > 0u } ||
+                session.client.offlineStatus().pending > 0u
         }
         try {
             setForeground(getForegroundInfo())
@@ -91,10 +96,10 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     override suspend fun getForegroundInfo(): ForegroundInfo {
         val manager = applicationContext.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Uploads", NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel(CHANNEL, "Sync", NotificationManager.IMPORTANCE_LOW),
         )
         val notification = android.app.Notification.Builder(applicationContext, CHANNEL)
-            .setContentTitle("Uploading to Home Space")
+            .setContentTitle("Syncing with Home Space")
             .setSmallIcon(R.drawable.ic_settings)
             .setOngoing(true)
             .build()

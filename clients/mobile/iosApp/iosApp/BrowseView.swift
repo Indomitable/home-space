@@ -26,7 +26,40 @@ struct BrowseView: View {
         NavigationStack {
             FolderView(model: model, client: client, user: user, folderId: nil, title: "Home")
         }
-        .quickLookPreview(Binding(get: { model.preview }, set: { model.preview = $0 }))
+        .background(
+            QuickLookPresenter(
+                url: Binding(get: { model.preview }, set: { model.preview = $0 }),
+                onChange: { model.previewEnded() }
+            )
+        )
+        .alert(
+            "Remove “\(model.removalWarning?.entry.name ?? "")” from this iPhone?",
+            isPresented: Binding(
+                get: { model.removalWarning != nil },
+                set: { if !$0 { model.removalWarning = nil } }
+            ),
+            presenting: model.removalWarning
+        ) { warning in
+            Button("Remove", role: .destructive) {
+                model.removeOfflineCopy(client: client, entry: warning.entry, confirmed: true)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { warning in
+            Text(unsentEditsMessage(warning.names))
+        }
+        .alert(
+            "Sign out?",
+            isPresented: Binding(
+                get: { model.signOutWarning != nil },
+                set: { if !$0 { model.signOutWarning = nil } }
+            ),
+            presenting: model.signOutWarning
+        ) { _ in
+            Button("Sign Out", role: .destructive) { model.signOut() }
+            Button("Cancel", role: .cancel) {}
+        } message: { names in
+            Text(unsentEditsMessage(names))
+        }
         .sheet(
             item: Binding(
                 get: { model.pendingExport },
@@ -45,6 +78,76 @@ struct BrowseView: View {
             actions: { Button("OK") {} },
             message: { Text(model.notice ?? "") }
         )
+    }
+}
+
+private func unsentEditsMessage(_ names: [String]) -> String {
+    let shown = names.prefix(3).joined(separator: ", ")
+    let more = names.count > 3 ? " and \(names.count - 3) more" : ""
+    return "Edits to \(shown)\(more) aren't on the server yet and will be lost."
+}
+
+/// Shows a file in the system's Quick Look, whose markup tools save into the file. The sync then
+/// sends the change to the server. Presented by UIKit, because SwiftUI's `quickLookPreview` offers
+/// no way to allow editing.
+private struct QuickLookPresenter: UIViewControllerRepresentable {
+    @Binding var url: URL?
+    let onChange: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIViewController(context: Context) -> UIViewController { UIViewController() }
+
+    func updateUIViewController(_ host: UIViewController, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.onDismiss = {
+            url = nil
+            onChange()
+        }
+        coordinator.onChange = onChange
+        guard let url else {
+            coordinator.preview?.dismiss(animated: true)
+            coordinator.preview = nil
+            return
+        }
+        guard coordinator.url != url || coordinator.preview == nil else { return }
+        coordinator.url = url
+        let preview = QLPreviewController()
+        preview.dataSource = coordinator
+        preview.delegate = coordinator
+        coordinator.preview = preview
+        // Not while SwiftUI is updating the view.
+        DispatchQueue.main.async { host.present(preview, animated: true) }
+    }
+
+    final class Coordinator: NSObject, QLPreviewControllerDataSource, QLPreviewControllerDelegate {
+        var url: URL?
+        var preview: QLPreviewController?
+        var onDismiss: () -> Void = {}
+        var onChange: () -> Void = {}
+
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { url == nil ? 0 : 1 }
+
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+            (url ?? URL(fileURLWithPath: "/")) as NSURL
+        }
+
+        func previewController(
+            _ controller: QLPreviewController,
+            editingModeFor previewItem: QLPreviewItem
+        ) -> QLPreviewItemEditingMode {
+            .updateContents
+        }
+
+        func previewController(_ controller: QLPreviewController, didUpdateContentsOf previewItem: QLPreviewItem) {
+            onChange()
+        }
+
+        func previewControllerDidDismiss(_ controller: QLPreviewController) {
+            preview = nil
+            url = nil
+            onDismiss()
+        }
     }
 }
 
@@ -138,7 +241,7 @@ private struct FolderView: View {
                     AccountMenu(
                         username: user.username,
                         onOpen: { page = $0 },
-                        onSignOut: { model.signOut() }
+                        onSignOut: { model.requestSignOut(client: client) }
                     )
                 }
             }
@@ -164,6 +267,15 @@ private struct FolderView: View {
             }
         }
         .task(id: model.reloadKey) { await load() }
+        // Updating and failed copies change while the folder is open, with nothing new on the server.
+        .onChange(of: ClientHolder.shared.changes.generation) {
+            Task {
+                let marked = await client.refreshOffline(entries: entries)
+                if marked.map(\.id) == entries.map(\.id) {
+                    entries = marked
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -193,7 +305,7 @@ private struct FolderView: View {
 
     private func rowLabel(_ entry: Entry) -> some View {
         HStack(spacing: 12) {
-            EntryIconView(icon: entry.icon, downloaded: entry.localPath != nil)
+            EntryIconView(icon: entry.icon, state: entry.offlineState)
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.name)
                 if entry.kind == .file {
@@ -224,9 +336,13 @@ private struct FolderView: View {
         Button("Details", systemImage: "info.circle") { action = .details(entry) }
         Button("Rename", systemImage: "pencil") { action = .rename(entry) }
         Button("Move", systemImage: "folder") { action = .move([entry]) }
-        if entry.localPath != nil && !downloading {
-            Button("Remove download", systemImage: "arrow.down.circle.dotted") {
-                model.removeLocalCopy(client: client, entry: entry)
+        if entry.offlineKept && !downloading {
+            Button("Remove Offline Copy", systemImage: "arrow.down.circle.dotted") {
+                model.removeOfflineCopy(client: client, entry: entry)
+            }
+        } else if entry.offlineState == nil && !downloading {
+            Button("Make Available Offline", systemImage: "arrow.down.circle") {
+                model.makeAvailableOffline(client: client, entry: entry)
             }
         }
         if entry.id != user.lostAndFoundId {
@@ -289,7 +405,7 @@ private struct ProgressBackground: View {
 /// The same icons and colours as the web client: only folders are coloured.
 struct EntryIconView: View {
     let icon: EntryIcon
-    let downloaded: Bool
+    let state: OfflineState?
 
     private var asset: String {
         switch icon {
@@ -308,18 +424,37 @@ struct EntryIconView: View {
                 .resizable()
                 .frame(width: 20, height: 20)
                 .foregroundStyle(icon == .folder ? Color("FolderAccent") : Color.primary)
-            if downloaded {
-                Image(decorative: "sync-check")
-                    .renderingMode(.template)
-                    .resizable()
+            if let state {
+                badge(for: state)
                     .frame(width: 12, height: 12)
-                    .foregroundStyle(Color("SyncedBadge"))
                     .padding(1)
                     .background(Color(.systemBackground), in: Circle())
                     .frame(width: 26, height: 26, alignment: .bottomTrailing)
-                    .accessibilityLabel("Downloaded")
             }
         }
         .frame(width: 26, height: 26)
+    }
+
+    @ViewBuilder
+    private func badge(for state: OfflineState) -> some View {
+        switch state {
+        case .synced:
+            Image(decorative: "sync-check")
+                .renderingMode(.template)
+                .resizable()
+                .foregroundStyle(Color("SyncedBadge"))
+                .accessibilityLabel("Available offline")
+        case .updating:
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(Color("FolderAccent"))
+                .accessibilityLabel("Syncing")
+        case .failed:
+            Image(systemName: "exclamationmark.circle.fill")
+                .resizable()
+                .foregroundStyle(.red)
+                .accessibilityLabel("Sync failed")
+        }
     }
 }

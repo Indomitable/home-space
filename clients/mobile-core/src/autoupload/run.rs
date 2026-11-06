@@ -471,18 +471,23 @@ impl Pass<'_> {
 
     /// Carries out one step; `true` if something was sent.
     async fn step(&self, source: &SourceRow, step: Step) -> Result<bool, Failure> {
-        let (item, name, dir, keep_both) = match step {
+        let (item, name, dir, version_of) = match step {
             Step::First(item) => {
                 let (name, dir) = (item.name.clone(), item.dir.clone());
-                (item, name, dir, true)
+                (item, name, dir, None)
             }
-            Step::Again { item, name, dir } => (item, name, dir, false),
+            Step::Again {
+                item,
+                name,
+                dir,
+                node,
+            } => (item, name, dir, node),
         };
-        let node = match self.send(source, &item, &name, &dir, keep_both).await {
+        let node = match self.send(source, &item, &name, &dir, version_of).await {
             Err(Failure::Api(err)) if is_not_found(&err) => {
                 // A folder below the target went away, or the upload did. Once more from the top.
                 self.store.forget_folders(&source.id)?;
-                self.send(source, &item, &name, &dir, keep_both).await?
+                self.send(source, &item, &name, &dir, version_of).await?
             }
             other => other?,
         };
@@ -492,6 +497,7 @@ impl Pass<'_> {
             mtime: item.mtime,
             remote_name: Some(node.name),
             remote_dir: dir,
+            remote_node: Some(node.id),
         };
         self.store.save_record(&source.id, &record)?;
         Ok(true)
@@ -503,7 +509,7 @@ impl Pass<'_> {
         item: &Item,
         name: &str,
         dir: &str,
-        keep_both: bool,
+        version_of: Option<NodeId>,
     ) -> Result<Node, Failure> {
         let parent = self.folder(source, dir).await?;
         let wanted = SavedUpload {
@@ -526,7 +532,8 @@ impl Pass<'_> {
                         .ok(),
                     mime: item.mime.clone(),
                     node_id: None,
-                    keep_both,
+                    keep_both: true,
+                    version_of,
                     auto_upload: true,
                 };
                 let session = self.client.create_upload(&request).await?;
@@ -648,15 +655,17 @@ impl Pass<'_> {
         let key = item.key.clone();
         let (size, mtime, last) = (item.size, item.mtime, offset + len as u64 >= item.size);
         let read = tokio::task::spawn_blocking(move || {
+            let read = local.read(kind, handle.clone(), key.clone(), offset, len as u64);
+            // After reading: a change just before the read is seen too.
             if last {
-                let now = local.stat(kind, handle.clone(), key.clone())?;
+                let now = local.stat(kind, handle, key)?;
                 let same =
                     now.is_some_and(|now| now.size == size && nanos(now.modified_at) == mtime);
                 if !same {
                     return Ok(None);
                 }
             }
-            local.read(kind, handle, key, offset, len as u64).map(Some)
+            read.map(Some)
         })
         .await
         .map_err(std::io::Error::other)?

@@ -201,9 +201,10 @@ sent (SQLite in `<files>/sync/autoupload-<user id>.db`, excluded from backups).
 - The apps list and read files through the `LocalSources` trait, because Rust can't reach them by
   path: a folder on Android is a document tree, and a photo on iOS is a PhotoKit asset.
 - A file goes up by name through `/uploads`, always, even a small one. The first time it asks the
-  server to keep both (`keep_both`) if a different file has the name, and after that it goes to the
-  name the server gave it. That makes a new version if the name is still taken, and a new file if
-  the file was moved or deleted.
+  server to keep both (`keep_both`) if a different file has the name. It saves the id and name the
+  server gave it, and an edit goes to that name with the id (`version_of`). That makes a new version
+  if that file still has the name, keeps both if a different file took it, and makes a new file if
+  the name is free. A record from before the id was saved always keeps both.
 - An edit is noticed by size and modification time. Nothing is hashed on the phone.
 - Chunks are at most 8 MiB, and stopping takes effect between them. The upload session is saved, so
   the next pass continues from what the server has.

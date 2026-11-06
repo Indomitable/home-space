@@ -16,8 +16,9 @@ private func failed(_ detail: String) -> CoreError {
 /// Rust calls these on a background thread, and they may block.
 final class IOSSources: LocalSources, @unchecked Sendable {
     private let lock = NSLock()
-    /// The asset exported last, which the reads of one upload share.
-    private var exported: (key: String, url: URL)?
+    /// The asset exported last, which the reads of one upload share, as it was when exported. An
+    /// edit keeps the identifier, so the identifier alone would keep serving the old bytes.
+    private var exported: (key: String, revision: Date?, url: URL)?
     /// What an asset's resources said, as long as the asset doesn't change: asking takes long
     /// enough that a large library would make every pass slow.
     private var known: [String: (Date?, LocalItem)] = [:]
@@ -246,16 +247,15 @@ final class IOSSources: LocalSources, @unchecked Sendable {
     private func export(_ key: String) throws -> URL {
         lock.lock()
         defer { lock.unlock() }
-        if let exported, exported.key == key {
+        let asset = PHAsset.fetchAssets(withLocalIdentifiers: [key], options: nil).firstObject
+        if let exported, let asset, exported.key == key, exported.revision == asset.modificationDate {
             return exported.url
         }
         if let exported {
             try? FileManager.default.removeItem(at: exported.url)
         }
         exported = nil
-        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [key], options: nil).firstObject,
-            let resource = primaryResource(of: asset)
-        else {
+        guard let asset, let resource = primaryResource(of: asset) else {
             throw failed("The photo is no longer in the library.")
         }
         let url = FileManager.default.temporaryDirectory
@@ -273,7 +273,7 @@ final class IOSSources: LocalSources, @unchecked Sendable {
         if let failure {
             throw failed("The photo can't be read: \(failure.localizedDescription)")
         }
-        exported = (key, url)
+        exported = (key, asset.modificationDate, url)
         return url
     }
 }

@@ -85,6 +85,8 @@ class ForegroundSync(
 
     /** "Sync now", or a change of settings: tries at once what was waiting to be tried again. */
     fun syncNow() {
+        // Passes run one at a time, so the next can't stop one that the new settings don't allow.
+        applyNetworkRule()
         wake.trySend(true)
     }
 
@@ -109,14 +111,18 @@ class ForegroundSync(
 
     private fun onNetworkChanged() {
         runUploads()
+        if (applyNetworkRule()) wake.trySend(false)
+    }
+
+    /** Whether the network may be used, stopping what is under way if not. */
+    private fun applyNetworkRule(): Boolean {
         val allowed = runCatching { networkAllows() }.getOrDefault(false)
         onNetworkAllowed(allowed)
-        if (allowed) {
-            wake.trySend(false)
-        } else {
+        if (!allowed) {
             session.autoUpload.stop()
             scope.launch { allowOffline(false) }
         }
+        return allowed
     }
 
     /** Whether the current network may be used. */

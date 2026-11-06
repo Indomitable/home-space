@@ -33,6 +33,7 @@ const SCHEMA: &str = "
         mtime       INTEGER NOT NULL,
         remote_name TEXT,                   -- NULL: left out, never sent
         remote_dir  TEXT NOT NULL,
+        remote_node TEXT,                   -- the file on the server; NULL if left out
         PRIMARY KEY (source, key)
     );
     CREATE TABLE IF NOT EXISTS folders (
@@ -95,6 +96,9 @@ fn record_of(row: &rusqlite::Row<'_>) -> Result<Record> {
         mtime: row.get(2)?,
         remote_name: row.get(3)?,
         remote_dir: row.get(4)?,
+        remote_node: row
+            .get::<_, Option<String>>(5)?
+            .and_then(|id| id.parse().ok()),
     })
 }
 
@@ -110,6 +114,16 @@ impl Store {
         let db = Connection::open(path)?;
         db.execute_batch("PRAGMA journal_mode = WAL;")?;
         db.execute_batch(SCHEMA)?;
+        // Records from before the id was kept stay valid: see `Record::remote_node`.
+        let has_node: bool = db.query_row(
+            "SELECT EXISTS (SELECT 1 FROM pragma_table_info('records') \
+             WHERE name = 'remote_node')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_node {
+            db.execute_batch("ALTER TABLE records ADD COLUMN remote_node TEXT")?;
+        }
         Ok(Self { db: Mutex::new(db) })
     }
 
@@ -241,6 +255,7 @@ impl Store {
                     mtime: item.mtime,
                     remote_name: None,
                     remote_dir: item.dir.clone(),
+                    remote_node: None,
                 },
             )?;
         }
@@ -289,7 +304,8 @@ impl Store {
     pub fn records(&self, source: &str) -> Result<HashMap<String, Record>> {
         let db = self.db();
         let mut statement = db.prepare(
-            "SELECT key, size, mtime, remote_name, remote_dir FROM records WHERE source = ?1",
+            "SELECT key, size, mtime, remote_name, remote_dir, remote_node FROM records \
+             WHERE source = ?1",
         )?;
         let rows = statement.query_map([source], record_of)?;
         rows.map(|row| row.map(|record| (record.key.clone(), record)))
@@ -304,7 +320,7 @@ impl Store {
     ) -> Result<HashMap<String, Record>> {
         let db = self.db();
         let mut statement = db.prepare_cached(
-            "SELECT key, size, mtime, remote_name, remote_dir FROM records \
+            "SELECT key, size, mtime, remote_name, remote_dir, remote_node FROM records \
              WHERE source = ?1 AND key = ?2",
         )?;
         let mut records = HashMap::new();
@@ -398,11 +414,11 @@ impl Store {
 
 fn put_record(db: &Connection, source: &str, record: &Record) -> Result<()> {
     db.execute(
-        "INSERT INTO records (source, key, size, mtime, remote_name, remote_dir) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
+        "INSERT INTO records (source, key, size, mtime, remote_name, remote_dir, remote_node) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
          ON CONFLICT (source, key) DO UPDATE SET size = excluded.size, \
          mtime = excluded.mtime, remote_name = excluded.remote_name, \
-         remote_dir = excluded.remote_dir",
+         remote_dir = excluded.remote_dir, remote_node = excluded.remote_node",
         params![
             source,
             record.key,
@@ -410,6 +426,7 @@ fn put_record(db: &Connection, source: &str, record: &Record) -> Result<()> {
             record.mtime,
             record.remote_name,
             record.remote_dir,
+            record.remote_node.map(|id| id.to_string()),
         ],
     )?;
     Ok(())

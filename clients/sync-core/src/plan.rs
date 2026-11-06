@@ -230,11 +230,8 @@ impl Work<'_> {
             let Some(local) = self.local.get(&from) else {
                 continue;
             };
-            let unchanged = local.kind == base.kind
-                && (base.kind == NodeKind::Folder || local.sha256 == base.sha256);
-            // A mapped file's folder holds only it, so an edit moves along and goes up to the node.
-            let follows = unchanged || self.layout.in_file_root(&from);
-            if !follows || self.local.contains_key(&to) {
+            // An edit moves along too, and goes up to the node from the new path.
+            if local.kind != base.kind || self.local.contains_key(&to) {
                 continue;
             }
             self.actions.push(Action::MoveLocal {
@@ -1429,6 +1426,49 @@ mod tests {
                     Action::Upload { node: Some(_), .. }
                 ]
             ),
+            "{actions:?}"
+        );
+    }
+
+    #[test]
+    fn an_edit_in_a_folder_moves_along_with_a_rename_and_goes_to_the_node() {
+        let edited = file("edited", 5);
+        let actions = plan(
+            &home(vec![with_sha(node(2, None, File, "new.txt"), "sha-1")]),
+            &scan(vec![("old.txt", edited.clone())]),
+            &[base(2, "old.txt", "sha-1")],
+        );
+        assert_eq!(
+            actions,
+            [
+                Action::MoveLocal {
+                    node: id(2),
+                    from: p("old.txt"),
+                    to: p("new.txt"),
+                },
+                Action::Upload {
+                    node: Some(id(2)),
+                    path: p("new.txt"),
+                    local: edited,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn an_edit_stays_where_it_is_if_the_new_name_is_taken_here() {
+        let actions = plan(
+            &home(vec![with_sha(node(2, None, File, "new.txt"), "sha-1")]),
+            &scan(vec![
+                ("old.txt", file("edited", 5)),
+                ("new.txt", file("mine", 6)),
+            ]),
+            &[base(2, "old.txt", "sha-1")],
+        );
+        assert!(
+            !actions
+                .iter()
+                .any(|action| matches!(action, Action::MoveLocal { .. })),
             "{actions:?}"
         );
     }

@@ -115,7 +115,7 @@ The same applies to auto-upload's SQLite database (`mobile-core/src/autoupload`)
 ### Uploads
 
 - Use the resumable `/uploads` API (`Client::continue_upload`), for every size.
-- Writes go by name in a folder, as auto-upload's do: `keep_both` and `auto_upload` stay off. A new
+- Writes go by name in a folder: `keep_both` and `auto_upload` stay off. A new
   name creates a file, an existing name adds a version, and identical content changes nothing.
 - Leave `modified_at` out for these uploads. Content dated before the current file's `updated_at` is
   archived as a version rather than made current (`apply_content`), so saving an old attachment over

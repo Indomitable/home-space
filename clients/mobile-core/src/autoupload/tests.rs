@@ -452,8 +452,12 @@ async fn an_edit_goes_to_the_name_the_server_gave_and_may_become_a_version() {
     let edit = &w.uploads()[1];
     assert_eq!(edit.body["name"], "a (1).jpg");
     assert_eq!(edit.received, b"edited");
-    // Absent means false: a taken name makes a new version, and a free one a new file.
-    assert_eq!(edit.body.get("keep_both"), None);
+    // The server decides: a new version only if that file still has the name.
+    assert_eq!(edit.body["keep_both"], true);
+    assert_eq!(
+        edit.body["version_of"],
+        "0193a4a0-0000-7000-8000-0000000000cc"
+    );
     assert_eq!(edit.body["auto_upload"], true);
 }
 
@@ -553,6 +557,52 @@ async fn a_file_changed_during_its_upload_is_not_stored() {
     assert!(w.uploads()[0].cancelled);
     assert_eq!(w.source().pending, 1);
     assert_eq!(w.source().last_synced_at, None);
+}
+
+#[tokio::test]
+async fn a_file_changed_right_before_its_last_chunk_is_read_is_not_stored() {
+    let w = world().await;
+    w.add(true);
+    w.sources.put("a", "", b"0123", OLD);
+    *w.sources.on_read.lock().unwrap() = Some(Box::new(|count, sources| {
+        if count == 0 {
+            sources.put("a", "", b"4567", OLD - Duration::from_secs(1));
+        }
+    }));
+
+    let summary = w.auto.run_pass(false).await.expect("pass");
+
+    assert_eq!((summary.uploaded, summary.failed), (0, 1));
+    assert!(w.uploads()[0].cancelled);
+}
+
+#[test]
+fn records_from_before_the_id_was_kept_stay_and_have_no_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("auto.db");
+    rusqlite::Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE records (
+                source      TEXT NOT NULL,
+                key         TEXT NOT NULL,
+                size        INTEGER NOT NULL,
+                mtime       INTEGER NOT NULL,
+                remote_name TEXT,
+                remote_dir  TEXT NOT NULL,
+                PRIMARY KEY (source, key)
+            );
+            INSERT INTO records VALUES ('s', 'a', 1, 2, 'a.jpg', '2026');",
+        )
+        .unwrap();
+
+    let records = super::store::Store::open(&path)
+        .unwrap()
+        .records("s")
+        .unwrap();
+
+    assert_eq!(records["a"].remote_name.as_deref(), Some("a.jpg"));
+    assert_eq!(records["a"].remote_node, None);
 }
 
 #[tokio::test]
@@ -693,7 +743,7 @@ async fn a_changed_file_in_the_answer_goes_to_its_recorded_place() {
     let uploads = w.uploads();
     assert_eq!((uploads.len(), w.listings()), (2, 1));
     assert_eq!(uploads[1].received, b"changed");
-    assert!(uploads[1].body.get("keep_both").is_none());
+    assert!(uploads[1].body["version_of"].is_string());
 }
 
 #[tokio::test]

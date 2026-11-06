@@ -3,11 +3,14 @@
 //!
 //! Only size and modification time are compared with the record of what was last sent, and
 //! nothing on the server is looked at. So a file moved or deleted on the server is left alone until
-//! it changes here, and then goes up by name to where it was first put: the server makes that a new
-//! version if the name is still taken there, and a new file if not. A file gone from the source
-//! changes nothing, and a renamed one is a new file.
+//! it changes here, and then goes up by name to where it was first put, with the id it got: the
+//! server makes that a new version if that file still has the name, keeps both if a different file
+//! took it, and makes a new file if it is free. A file gone from the source changes nothing, and a
+//! renamed one is a new file.
 
 use std::collections::HashMap;
+
+use protocol::NodeId;
 
 /// A file a source lists; `mtime` is in nanoseconds since the Unix epoch.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,17 +33,22 @@ pub(super) struct Record {
     /// target. `None` for a file that was already there when the source was added and was left out.
     pub remote_name: Option<String>,
     pub remote_dir: String,
+    /// The file on the server, whose new version an edit is. `None` if left out, or sent before
+    /// the id was kept: then an edit never becomes a version of what has the name.
+    pub remote_node: Option<NodeId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Step {
     /// Has not been sent before. A different file with its name on the server is kept too.
     First(Item),
-    /// Changed since it was sent. It goes to the same name, which makes a new version if taken.
+    /// Changed since it was sent. It goes to the same name, as a new version of `node` if that
+    /// is still the file there.
     Again {
         item: Item,
         name: String,
         dir: String,
+        node: Option<NodeId>,
     },
 }
 
@@ -82,11 +90,13 @@ pub(super) fn plan(
             Some(Record {
                 remote_name: Some(name),
                 remote_dir,
+                remote_node,
                 ..
             }) => Step::Again {
                 item: item.clone(),
                 name: name.clone(),
                 dir: remote_dir.clone(),
+                node: *remote_node,
             },
             _ => Step::First(item.clone()),
         });
@@ -100,6 +110,7 @@ mod tests {
 
     const NOW: i64 = 1_000_000_000_000;
     const OLD: i64 = NOW - 60_000_000_000;
+    const NODE: &str = "0193a4a0-0000-7000-8000-000000000042";
 
     fn item(key: &str, size: u64, mtime: i64) -> Item {
         Item {
@@ -126,6 +137,7 @@ mod tests {
             mtime,
             remote_name: Some(name.to_owned()),
             remote_dir: "2026".to_owned(),
+            remote_node: Some(NODE.parse().expect("id")),
         }
     }
 
@@ -157,6 +169,7 @@ mod tests {
                 item: edited,
                 name: "a (1).jpg".to_owned(),
                 dir: "2026".to_owned(),
+                node: Some(NODE.parse().expect("id")),
             }]
         );
     }
@@ -194,6 +207,7 @@ mod tests {
     fn a_file_left_out_and_edited_later_goes_up_as_new() {
         let known = records(&[Record {
             remote_name: None,
+            remote_node: None,
             ..sent("a", 10, OLD, "")
         }]);
         let unchanged = plan(&[item("a", 10, OLD)], &known, false, NOW);

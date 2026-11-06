@@ -149,6 +149,8 @@ struct Sources {
     list_error: Mutex<Option<String>>,
     /// Full listings asked for.
     listings: AtomicUsize,
+    /// Called while listing.
+    on_list: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     changes: Mutex<ChangeFeed>,
 }
 
@@ -228,6 +230,9 @@ impl LocalSources for Sources {
 
     fn list(&self, _: SourceKind, _: String) -> Result<Vec<LocalItem>, CoreError> {
         self.listings.fetch_add(1, Ordering::SeqCst);
+        if let Some(on_list) = self.on_list.lock().unwrap().take() {
+            on_list();
+        }
         if let Some(detail) = self.list_error.lock().unwrap().clone() {
             return Err(CoreError::Failed {
                 code: "permission".to_owned(),
@@ -470,6 +475,22 @@ async fn existing_files_can_be_left_out_until_they_change() {
     let names: Vec<_> = w.uploads().iter().map(|u| u.body["name"].clone()).collect();
     assert!(names.contains(&json!("new.jpg")));
     assert!(names.contains(&json!("old.jpg")));
+}
+
+#[tokio::test]
+async fn a_first_pass_that_stops_early_still_leaves_existing_files_out() {
+    let w = world().await;
+    w.add(false);
+    w.sources.put("a", "", b"aa", OLD);
+    w.sources.put("b", "", b"bb", OLD);
+    let auto = w.auto.clone();
+    *w.sources.on_list.lock().unwrap() = Some(Box::new(move || auto.stop()));
+
+    w.auto.run_pass(false).await.expect("stopped");
+
+    let next = w.auto.run_pass(false).await.expect("next");
+    assert_eq!(next.uploaded, 0);
+    assert!(w.uploads().is_empty());
 }
 
 #[tokio::test]

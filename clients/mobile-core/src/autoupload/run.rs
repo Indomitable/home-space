@@ -241,9 +241,7 @@ impl Pass<'_> {
             let mut clean = plan.settling == 0;
             for step in plan.steps {
                 let key = match &step {
-                    Step::LeaveOut(item) | Step::First(item) | Step::Again { item, .. } => {
-                        item.key.clone()
-                    }
+                    Step::First(item) | Step::Again { item, .. } => item.key.clone(),
                 };
                 let waiting = self.backoff.lock().expect("backoff lock").file_waiting(
                     &source.id,
@@ -419,8 +417,9 @@ impl Pass<'_> {
             nanos(SystemTime::now()),
         );
         if source.leave_out_existing {
+            // All at once: a pass that ends early must not find some of them unrecorded next time.
             self.store
-                .existing_seen(&source.id)
+                .leave_out(&source.id, &plan.left_out)
                 .map_err(storage_error)?;
         }
         self.discard_stale(source, &plan).await?;
@@ -451,9 +450,8 @@ impl Pass<'_> {
         let wanted: HashSet<&str> = plan
             .steps
             .iter()
-            .filter_map(|step| match step {
-                Step::First(item) | Step::Again { item, .. } => Some(item.key.as_str()),
-                Step::LeaveOut(_) => None,
+            .map(|step| match step {
+                Step::First(item) | Step::Again { item, .. } => item.key.as_str(),
             })
             .collect();
         for saved in self
@@ -474,17 +472,6 @@ impl Pass<'_> {
     /// Carries out one step; `true` if something was sent.
     async fn step(&self, source: &SourceRow, step: Step) -> Result<bool, Failure> {
         let (item, name, dir, keep_both) = match step {
-            Step::LeaveOut(item) => {
-                let record = Record {
-                    key: item.key,
-                    size: item.size,
-                    mtime: item.mtime,
-                    remote_name: None,
-                    remote_dir: item.dir,
-                };
-                self.store.save_record(&source.id, &record)?;
-                return Ok(false);
-            }
             Step::First(item) => {
                 let (name, dir) = (item.name.clone(), item.dir.clone());
                 (item, name, dir, true)

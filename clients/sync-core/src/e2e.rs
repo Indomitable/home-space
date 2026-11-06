@@ -336,3 +336,15 @@ async fn verify_restores_a_mirror_that_lost_a_node() {
     assert_eq!(read(&s.local.join("e.txt")), "kept");
     assert_eq!(s.content(file.id).await, "kept");
 }
+
+#[tokio::test]
+#[ignore = "needs a running server, see the module docs"]
+async fn a_server_file_with_a_name_the_sync_ignores_is_left_alone() {
+    let mut s = setup("ignored-name").await;
+    let file = s.upload(s.remote, "notes.tmp", "keep me").await;
+    s.sync().await;
+    s.sync().await;
+    assert_eq!(s.content(file.id).await, "keep me");
+    assert!(s.remote_file("notes.tmp").await.is_some());
+    assert!(!s.local.join("notes.tmp").exists());
+}

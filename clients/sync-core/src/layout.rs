@@ -7,7 +7,10 @@ use protocol::{NodeId, NodeKind};
 
 use client_core::format::sanitize_component;
 
-use super::model::{Mapping, RemoteNode};
+use super::{
+    model::{Mapping, RemoteNode},
+    scan::is_ignored,
+};
 
 /// Where every synced remote node lives on disk.
 ///
@@ -75,7 +78,12 @@ impl Layout {
         let mut pending = vec![(top, root.to_path_buf())];
         while let Some((parent, dir)) = pending.pop() {
             for child in children.get(&parent).into_iter().flatten() {
-                let path = dir.join(sanitize_component(&child.name));
+                let name = sanitize_component(&child.name);
+                // The scan never sees such a file here, which would read as deleted locally.
+                if is_ignored(&name) && child.kind == NodeKind::File {
+                    continue;
+                }
+                let path = dir.join(name);
                 if mapped.contains(&Some(child.id)) {
                     self.skipped.insert(path);
                     continue;
@@ -231,6 +239,17 @@ pub(super) mod tests {
         assert!(conflict(Path::new("relative"), &[], None).is_some());
         let data = Path::new("/home/me/.local/share/home-space");
         assert!(conflict(Path::new("/home/me"), &[], Some(data)).is_some());
+    }
+
+    #[test]
+    fn files_with_names_the_scan_ignores_are_not_placed() {
+        let nodes = tree(vec![
+            node(1, None, NodeKind::File, "notes.tmp"),
+            node(2, None, NodeKind::File, "notes.txt"),
+        ]);
+        let layout = Layout::new(&nodes, &[map(None, Some("/sync"))]);
+        assert!(!layout.paths.contains_key(&id(1)));
+        assert!(layout.paths.contains_key(&id(2)));
     }
 
     #[test]

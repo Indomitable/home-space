@@ -155,6 +155,7 @@ private struct QuickLookPresenter: UIViewControllerRepresentable {
 /// The screens the header's menu leads to.
 private enum AccountPage: String, Identifiable {
     case profile = "Profile"
+    case transfers = "Transfers"
     case settings = "Settings"
 
     var id: Self { self }
@@ -170,6 +171,7 @@ private struct AccountMenu: View {
         Menu("Menu", systemImage: "ellipsis.circle") {
             Section(username) {
                 Button(AccountPage.profile.rawValue, systemImage: "person") { onOpen(.profile) }
+                Button(AccountPage.transfers.rawValue, systemImage: "arrow.up.arrow.down") { onOpen(.transfers) }
                 Button(AccountPage.settings.rawValue, systemImage: "gearshape") { onOpen(.settings) }
             }
             Section {
@@ -233,11 +235,15 @@ private struct FolderView: View {
                         .listRowBackground(ProgressBackground(model: model, id: result.entry.id))
                 }
             } else {
-                ForEach(model.uploads) { upload in
-                    UploadRow(model: model, client: client, upload: upload)
-                        .selectionDisabled()
-                        .fileRow()
-                        .listRowBackground(ProgressBackground(model: model, id: upload.key))
+                if !model.uploads.isEmpty {
+                    Button {
+                        page = .transfers
+                    } label: {
+                        UploadsSummaryRow(uploads: model.uploads)
+                    }
+                    .buttonStyle(.plain)
+                    .selectionDisabled()
+                    .fileRow()
                 }
                 ForEach(entries, id: \.id) { entry in
                     row(entry)
@@ -306,6 +312,8 @@ private struct FolderView: View {
             switch page {
             case .profile:
                 Color.clear.navigationTitle(page.rawValue)
+            case .transfers:
+                TransfersView(model: model, client: client)
             case .settings:
                 SettingsView(model: model, client: client)
             }
@@ -323,7 +331,7 @@ private struct FolderView: View {
         }
         .sheet(isPresented: $pickingFiles) {
             ImportPicker { files in
-                model.uploadFiles(client: client, files: files, parentId: folderId, folderName: title)
+                model.uploadFiles(files: files, parentId: folderId, folderName: title)
             }
             .ignoresSafeArea()
         }
@@ -335,7 +343,7 @@ private struct FolderView: View {
         )
         .onChange(of: photos) {
             guard !photos.isEmpty else { return }
-            model.uploadPhotos(client: client, photos: photos, parentId: folderId, folderName: title)
+            model.uploadPhotos(photos: photos, parentId: folderId, folderName: title)
             photos = []
         }
         .task(id: model.reloadKey) { await load() }
@@ -506,44 +514,6 @@ private struct ShownFolder: Identifiable, Hashable {
 }
 
 /// A file on its way up, shown in every folder so that a failure can't go unseen.
-private struct UploadRow: View {
-    let model: SessionModel
-    let client: CoreClient
-    let upload: PickedUpload
-
-    private var status: String {
-        if let progress = model.progress[upload.key] {
-            "Uploading to \(upload.folderName) · \(Int(progress * 100))%"
-        } else {
-            "Waiting to upload to \(upload.folderName)"
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "arrow.up.doc")
-                .frame(width: 26, height: 26)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(upload.name).lineLimit(1)
-                Text(upload.error ?? status)
-                    .font(.caption)
-                    .foregroundStyle(upload.error == nil ? Color.secondary : Color.red)
-            }
-            Spacer()
-            if upload.error != nil {
-                Button("Retry") { model.retryUpload(client: client, upload: upload) }
-                    .buttonStyle(.borderless)
-            }
-            Button("Cancel Upload", systemImage: "xmark.circle.fill") {
-                model.cancelUpload(client: client, upload: upload)
-            }
-            .labelStyle(.iconOnly)
-            .foregroundStyle(.secondary)
-            .buttonStyle(.borderless)
-        }
-    }
-}
-
 /// A row's background: it fills from the leading edge as the file downloads.
 private struct ProgressBackground: View {
     let model: SessionModel

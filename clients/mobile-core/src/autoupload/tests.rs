@@ -290,6 +290,7 @@ struct World {
     sources: Arc<Sources>,
     auto: Arc<AutoUpload>,
     _client: Arc<CoreClient>,
+    seen: Arc<Seen>,
 }
 
 async fn world() -> World {
@@ -319,20 +320,39 @@ async fn world() -> World {
         .await
         .expect("login");
     let sources = Arc::new(Sources::default());
+    let seen = Arc::new(Seen::default());
     let auto = AutoUpload::open(
         client.clone(),
         dir.join("sync").to_string_lossy().into_owned(),
         sources.clone(),
-        Arc::new(Quiet),
+        seen.clone(),
     )
     .expect("open");
+    seen.auto.set(Arc::downgrade(&auto)).expect("once");
     fake.lock().unwrap().requests = 0;
     World {
         _server: server,
         fake,
         sources,
         auto,
+        seen,
         _client: client,
+    }
+}
+
+/// What [`AutoUpload::current`] said each time the listener heard of a change.
+#[derive(Default)]
+struct Seen {
+    auto: std::sync::OnceLock<std::sync::Weak<AutoUpload>>,
+    current: Mutex<Vec<CurrentUpload>>,
+}
+
+impl AutoUploadListener for Seen {
+    fn changed(&self) {
+        let auto = self.auto.get().and_then(std::sync::Weak::upgrade);
+        if let Some(current) = auto.and_then(|auto| auto.current()) {
+            self.current.lock().unwrap().push(current);
+        }
     }
 }
 
@@ -784,4 +804,25 @@ async fn removing_a_source_forgets_its_token() {
     w.auto.remove_source(source.id.clone()).await.unwrap();
 
     assert!(w.auto.store.change_token(&source.id).unwrap().is_none());
+}
+
+#[tokio::test]
+async fn a_pass_says_which_file_it_is_sending_and_how_far_it_has_come() {
+    let w = world().await;
+    w.add(true);
+    w.sources
+        .put("a", "", b"0123456789", Duration::from_secs(60));
+
+    w.auto.run_pass(false).await.expect("pass");
+
+    let seen = w.seen.current.lock().unwrap();
+    let done: Vec<u64> = seen.iter().map(|current| current.done).collect();
+    assert_eq!(done.first(), Some(&0), "{seen:?}");
+    assert!(done.contains(&(CHUNK as u64)), "{seen:?}");
+    assert!(
+        seen.iter().all(|c| c.name == "a.jpg" && c.total == 10),
+        "{seen:?}"
+    );
+    drop(seen);
+    assert_eq!(w.auto.current(), None);
 }

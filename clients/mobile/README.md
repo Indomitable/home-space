@@ -141,22 +141,55 @@ file picker doesn't list the photo library. The photo picker needs no permission
 original file.
 
 Files go into the folder that was open when they were picked, one at a time, as a resumable upload
-with up to 8 MiB per chunk. A row at the top of every folder shows each one, so a failure can't go
-unseen.
+with up to 8 MiB per chunk. A row at the top of every folder sums them up, so a failure can't go
+unseen, and opens **Transfers**.
 
-- **A temporary copy goes first.** A picked document has no lasting path on either platform, and
-  not every Android provider can seek, so the app copies it (`cacheDir/uploads` on Android, the
-  temporary folder on iOS) and removes the copy when it finishes. Storage must hold a second copy
-  meanwhile.
+The queue lives in `mobile-core` (`uploads/`), in a SQLite file next to its copies under the app's
+private `sync/uploads-<user>/` folder. It runs on the Rust runtime, so no screen owns it, and it
+carries on whatever ended the app's last run: the next start continues from what the server has.
+
+- **Each file goes up from a copy of its own**, removed once it is on the server, because a picked
+  document has no lasting path. Storage must hold that second copy meanwhile.
+  - Android makes the copy when the file's turn comes, so only one exists at a time. It keeps access
+    to the original until then, and a provider that doesn't offer lasting access works only until
+    the app ends.
+  - iOS copies when picking: the document picker does so anyway, and a picked photo can't be reached
+    in the app's next run. So everything picked at once takes space at once. A photo the app was
+    still copying when it ended asks to be picked again.
 - **A name clash makes a new version**, as on desktop and web, because the user chose this file and
   this folder. Identical content changes nothing. Auto-upload keeps both instead, since no one is
   there to decide.
-- **Retry continues.** A failed upload stays open on the server, and Retry carries on from what the
-  server has. Cancelling ends it there too.
-- **Mobile data is allowed.** "Sync only on Wi-Fi" is for automatic transfers; this one was asked for.
-- **The app must stay alive.** On iOS, leaving the app gives a short time to finish; a larger file then
-  fails, and Retry continues it. Android carries on until the system ends the app, which loses the
-  rows. The server drops an abandoned upload on its own.
+- **Trying again is automatic when the server can't be reached:** on opening the app, every minute
+  while it is open and when the network changes. A file the server refuses waits for Retry or Cancel,
+  and the others go on. Cancelling ends the upload on the server too. The server drops an abandoned
+  upload on its own, after which the file starts over.
+- **Mobile data is allowed.** "Sync only on Wi-Fi" and "Sync in background" are for automatic
+  transfers; this was asked for.
+- **Signing out, or a session that ended, drops the queue** with its copies. The originals stay.
+
+### After leaving the app
+
+- **Android** runs `UploadWorker`, a WorkManager job with a `dataSync` foreground service and a
+  notification showing progress, scheduled while the app is in front. It comes back by itself when
+  Android ends the app, with up to a minute or more of backoff, and when the network returns. A
+  failure shows as a notification of its own. Force-stopping the app stops it until the app is opened.
+  Android limits `dataSync` services to 6 hours a day from Android 15; what is left then waits.
+  Without the notification permission, asked for on the first upload, it runs the same but doesn't show.
+- **iOS 26** runs a `BGContinuedProcessingTask` when the user picks files or taps Retry, with progress
+  shown by the system. iOS may end it, or the user may from there. Rows then wait for the app to open.
+  A queue that resumed by itself on opening the app doesn't get one, since it must start from something
+  the user did.
+- **iOS 17 to 25**, or when iOS won't run the task, gets only the short time any app gets (about 30
+  seconds). Uploads then wait for the app to open. A background `URLSession` isn't used: it can't
+  chunk through Rust, and it would outlive the short-lived access token.
+
+The task doesn't run in the simulator (`BGTaskSchedulerErrorDomain` 1), so it needs a real iPhone.
+
+## Transfers
+
+The header's menu opens **Transfers**: each picked file with its progress, Retry and Cancel; each
+auto-upload source, with the file on its way and how far along it is; and how offline copies stand.
+Downloads aren't listed, since they show on their rows and run only while the app is open.
 
 ## Auto-upload
 

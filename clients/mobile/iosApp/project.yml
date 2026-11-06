@@ -60,6 +60,7 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - app.homespace.ios.sync-refresh
           - app.homespace.ios.sync-processing
+          - app.homespace.ios.uploads.*
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.homespace.ios

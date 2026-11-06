@@ -63,8 +63,6 @@ table after each step.
 ## Open questions
 
 - Should picking a whole folder to upload be added? Desktop has it; auto-upload covers the ongoing case.
-- Should uploads of picked files continue with the app closed? Today they run while the app is alive,
-  and iOS gives them a short time after leaving it; Retry then continues them.
 - Is a delete from the phone a move to the bin, as now? (Yes, unless the trash UI makes it
   confusing.)
 - Should iOS and Android share one data flow for trash, or keep the native list state?

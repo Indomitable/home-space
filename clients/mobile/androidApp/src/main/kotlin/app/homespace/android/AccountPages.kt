@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 /** The screens the header's menu leads to. */
 enum class AccountPage(val title: String) {
     PROFILE("Profile"),
+    TRANSFERS("Transfers"),
     SETTINGS("Settings"),
 }
 
@@ -67,6 +68,7 @@ private fun AccountPageScreen(
         }
         when {
             showSync -> SyncSettingsScreen(session, model)
+            page == AccountPage.TRANSFERS -> TransfersScreen(session, model) { showSync = true }
             page == AccountPage.SETTINGS -> ListItem(
                 headlineContent = { Text("Sync") },
                 supportingContent = { Text("Wi-Fi, background and folders that upload") },

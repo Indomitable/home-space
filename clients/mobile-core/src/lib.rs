@@ -318,7 +318,6 @@ pub struct CoreClient {
     /// The signed-in user's Lost & Found, which Home leaves out while it is empty.
     lost_and_found: Mutex<Option<NodeId>>,
     files: Arc<files::LocalFiles>,
-    picked_uploads: Arc<uploads::PickedUploads>,
 }
 
 #[uniffi::export]
@@ -596,11 +595,9 @@ impl CoreClient {
     pub async fn logout(&self) -> Result<(), CoreError> {
         let inner = self.inner.clone();
         let files = self.files.clone();
-        let picked = self.picked_uploads.clone();
         off_ui_thread(async move {
             files.cancel_all();
-            let mut unfinished = picked.stop_all();
-            unfinished.extend(files.wipe().await);
+            let unfinished = files.wipe().await;
             for upload in unfinished {
                 let _ = inner.cancel_upload(upload).await;
             }
@@ -617,7 +614,6 @@ impl CoreClient {
             inner,
             lost_and_found: Mutex::new(None),
             files: Arc::default(),
-            picked_uploads: Arc::default(),
         }
     }
 
@@ -735,12 +731,12 @@ pub fn normalize_server_url(input: String) -> Result<String, CoreError> {
 mod tests {
     use std::sync::Mutex;
 
-    use wiremock::matchers::{body_partial_json, header, method, path, query_param};
+    use wiremock::matchers::{body_partial_json, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::*;
 
-    fn node(name: &str, kind: &str, size: i64) -> serde_json::Value {
+    pub(crate) fn node(name: &str, kind: &str, size: i64) -> serde_json::Value {
         serde_json::json!({
             "id": "00000000-0000-0000-0000-00000000000".to_owned() + &name.len().to_string(),
             "parent_id": null,
@@ -1289,7 +1285,7 @@ mod tests {
         mount_me(server).await;
     }
 
-    async fn signed_in(server: &MockServer) -> CoreClient {
+    pub(crate) async fn signed_in(server: &MockServer) -> CoreClient {
         mount_login(server).await;
         let (client, _) = session_client(server);
         client.login("me".into(), "secret".into()).await.unwrap();
@@ -1707,173 +1703,6 @@ mod tests {
         assert!(!std::path::Path::new(&opened).exists());
         assert_eq!(listed_path(&client, &server, same).await, None);
         assert_eq!(client.offline_status().await.unwrap().kept, 0);
-    }
-
-    /// Every report of a picked upload, and a way to cancel it after the first.
-    #[derive(Default)]
-    struct UploadReports {
-        reports: Mutex<Vec<u64>>,
-        cancel: Mutex<Option<Arc<CoreClient>>>,
-    }
-
-    impl uploads::UploadListener for UploadReports {
-        fn progress(&self, key: String, done: u64, _total: u64) {
-            self.reports.lock().unwrap().push(done);
-            if let Some(client) = self.cancel.lock().unwrap().take() {
-                client.cancel_picked_upload(key);
-            }
-        }
-    }
-
-    const UPLOAD_ID: &str = "00000000-0000-0000-0000-0000000000bb";
-
-    fn upload_session(offset: u64, size: u64, chunk_size: u64) -> ResponseTemplate {
-        ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "id": UPLOAD_ID, "offset": offset, "size": size, "chunk_size": chunk_size,
-        }))
-    }
-
-    fn picked_file(content: &[u8]) -> String {
-        let path = std::path::Path::new(&test_dir()).join("picked");
-        std::fs::write(&path, content).unwrap();
-        path.to_string_lossy().into_owned()
-    }
-
-    async fn mount_upload_start(server: &MockServer, size: u64, chunk_size: u64) {
-        Mock::given(method("POST"))
-            .and(path(protocol::paths::UPLOADS))
-            .and(body_partial_json(serde_json::json!({
-                "name": "a.txt", "size": size,
-            })))
-            // The user chose this file, so a name clash makes a new version.
-            .and(|request: &wiremock::Request| {
-                let body: serde_json::Value = request.body_json().expect("json body");
-                body.get("keep_both").is_none() && body.get("auto_upload").is_none()
-            })
-            .respond_with(upload_session(0, size, chunk_size))
-            .expect(1)
-            .mount(server)
-            .await;
-    }
-
-    fn chunk_at(offset: &str, reply: ResponseTemplate) -> Mock {
-        Mock::given(method("PATCH"))
-            .and(path(format!("{}/{UPLOAD_ID}", protocol::paths::UPLOADS)))
-            .and(header(protocol::paths::UPLOAD_OFFSET, offset))
-            .respond_with(reply)
-    }
-
-    fn chunk_stored(offset: u64) -> ResponseTemplate {
-        ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({ "offset": offset, "node": node("a.txt", "file", 6) }),
-        )
-    }
-
-    fn chunk_taken(offset: u64) -> ResponseTemplate {
-        ResponseTemplate::new(200).set_body_json(serde_json::json!({ "offset": offset }))
-    }
-
-    #[tokio::test]
-    async fn a_picked_file_goes_up_in_chunks_as_a_new_version_on_a_name_clash() {
-        let server = MockServer::start().await;
-        let client = signed_in(&server).await;
-        mount_upload_start(&server, 6, 4).await;
-        chunk_at("0", chunk_taken(4)).expect(1).mount(&server).await;
-        chunk_at("4", chunk_stored(6))
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        let reports = Arc::new(UploadReports::default());
-        let entry = client
-            .upload_picked_file(
-                "k".into(),
-                None,
-                "a.txt".into(),
-                picked_file(b"abcdef"),
-                reports.clone(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(entry.name, "a.txt");
-        assert_eq!(*reports.reports.lock().unwrap(), [4, 6]);
-    }
-
-    #[tokio::test]
-    async fn trying_a_failed_upload_again_continues_where_it_stopped() {
-        let server = MockServer::start().await;
-        let client = signed_in(&server).await;
-        mount_upload_start(&server, 6, 4).await;
-        chunk_at("0", chunk_taken(4)).expect(1).mount(&server).await;
-        let refused = ResponseTemplate::new(400).set_body_json(serde_json::json!({
-            "error": "bad_request", "message": "no",
-        }));
-        chunk_at("4", refused)
-            .up_to_n_times(1)
-            .expect(1)
-            .mount(&server)
-            .await;
-        chunk_at("4", chunk_stored(6))
-            .expect(1)
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path(format!("{}/{UPLOAD_ID}", protocol::paths::UPLOADS)))
-            .respond_with(upload_session(4, 6, 4))
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        let file = picked_file(b"abcdef");
-        let reports = Arc::new(UploadReports::default());
-        client
-            .upload_picked_file(
-                "k".into(),
-                None,
-                "a.txt".into(),
-                file.clone(),
-                reports.clone(),
-            )
-            .await
-            .unwrap_err();
-        let entry = client
-            .upload_picked_file("k".into(), None, "a.txt".into(), file, reports)
-            .await
-            .unwrap();
-
-        assert_eq!(entry.name, "a.txt");
-    }
-
-    #[tokio::test]
-    async fn cancelling_stops_at_the_next_chunk_and_ends_the_upload_on_the_server() {
-        let server = MockServer::start().await;
-        let client = Arc::new(signed_in(&server).await);
-        mount_upload_start(&server, 6, 4).await;
-        chunk_at("0", chunk_taken(4)).expect(1).mount(&server).await;
-        Mock::given(method("DELETE"))
-            .and(path(format!("{}/{UPLOAD_ID}", protocol::paths::UPLOADS)))
-            .respond_with(ResponseTemplate::new(204))
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        let reports = Arc::new(UploadReports {
-            cancel: Mutex::new(Some(client.clone())),
-            ..UploadReports::default()
-        });
-        let err = client
-            .upload_picked_file(
-                "k".into(),
-                None,
-                "a.txt".into(),
-                picked_file(b"abcdef"),
-                reports,
-            )
-            .await
-            .unwrap_err();
-
-        assert!(matches!(err, CoreError::Cancelled), "{err:?}");
     }
 
     #[tokio::test]

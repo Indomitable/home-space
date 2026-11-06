@@ -18,7 +18,6 @@ import androidx.lifecycle.viewModelScope
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
-import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -30,10 +29,10 @@ import uniffi.homespace_core.DeviceIdentity
 import uniffi.homespace_core.DownloadListener
 import uniffi.homespace_core.Entry
 import uniffi.homespace_core.EntryKind
+import uniffi.homespace_core.QueuedUpload
 import uniffi.homespace_core.SessionListener
 import uniffi.homespace_core.SignInOptions
 import uniffi.homespace_core.SignedInUser
-import uniffi.homespace_core.UploadListener
 import uniffi.homespace_core.normalizeServerUrl
 
 /** The server on the host machine, as seen from the emulator. */
@@ -62,18 +61,6 @@ data class OpenRequest(val path: String, val mime: String, val edit: Boolean = f
 
 /** A copy with edits not on the server yet, waiting for the user to say whether it may go. */
 data class RemovalWarning(val entry: Entry, val names: List<String>)
-
-/** A file the user picked to upload, until it is on the server or they give up on it. */
-data class PickedUpload(
-    val key: String,
-    val uri: Uri,
-    val name: String,
-    val parentId: String?,
-    val folderName: String,
-    /** How much the server has, from 0 to 1; null until it starts. */
-    val progress: Float? = null,
-    val error: String? = null,
-)
 
 /**
  * The session and the sign-in form. It outlives the activity, so the signed-in client survives
@@ -106,8 +93,8 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     val downloads = mutableStateMapOf<String, Float>()
 
     /** The files picked to upload, in the order they go up. */
-    val uploads = mutableStateListOf<PickedUpload>()
-    private var uploadJob: Job? = null
+    val uploads = mutableStateListOf<QueuedUpload>()
+    private var uploadWatch: Job? = null
 
     /** The folder on screen is reloaded whenever this changes. */
     var reloadKey by mutableIntStateOf(0)
@@ -140,8 +127,6 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     private var lastTapped: String? = null
 
     init {
-        // Whatever is here belongs to uploads of an earlier run, which are gone.
-        uploadCopies().deleteRecursively()
         val saved = store.loadSession()
         val pending = pendingSso
         if (saved != null) {
@@ -401,102 +386,59 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /** Adds the files to the uploads; they go up one at a time, whichever folder is on screen. */
-    fun uploadFiles(session: Session.SignedIn, files: List<Uri>, folder: Crumb) {
-        files.mapTo(uploads) { uri ->
-            PickedUpload(UUID.randomUUID().toString(), uri, displayName(uri), folder.id, folder.name)
+    /**
+     * Adds the files to the uploads; they go up one at a time, whichever folder is on screen, and
+     * carry on when the app next opens. Access to each is kept until it has been copied.
+     */
+    fun uploadFiles(files: List<Uri>, folder: Crumb) {
+        val active = ClientHolder.active ?: return
+        val resolver = getApplication<Application>().contentResolver
+        try {
+            for (uri in files) {
+                try {
+                    resolver.takePersistableUriPermission(uri, READ_GRANT)
+                } catch (_: SecurityException) {
+                    // Not every provider offers it. It works until the app ends.
+                }
+                active.uploads.add(folder.id, folder.name, displayName(uri), uri.toString())
+            }
+        } catch (e: CoreException) {
+            toast("The files can't be added: ${e.fileMessage()}")
         }
-        startUploads(session)
+        sync?.runUploads()
     }
 
-    fun retryUpload(session: Session.SignedIn, upload: PickedUpload) {
-        updateUpload(upload.key) { it.copy(error = null) }
-        startUploads(session)
+    fun retryUpload(upload: QueuedUpload) {
+        val active = ClientHolder.active ?: return
+        runCatching { active.uploads.retry(upload.key) }
+        sync?.runUploads()
     }
 
     /** Gives up on an upload: the row goes now, and a running one stops at its next chunk. */
-    fun cancelUpload(session: Session.SignedIn, upload: PickedUpload) {
-        uploads.removeAll { it.key == upload.key }
-        session.client.cancelPickedUpload(upload.key)
-        if (upload.key != runningUpload) uploadCopy(upload).delete()
+    fun cancelUpload(upload: QueuedUpload) {
+        val active = ClientHolder.active ?: return
+        runCatching { active.uploads.cancel(upload.key) }
     }
 
-    private var runningUpload: String? = null
-
-    private fun startUploads(session: Session.SignedIn) {
-        if (uploadJob?.isActive == true) return
-        uploadJob = viewModelScope.launch {
-            while (true) {
-                val next = uploads.firstOrNull { it.error == null } ?: break
-                runningUpload = next.key
-                upload(session, next)
-                runningUpload = null
-                if (uploads.none { it.key == next.key }) uploadCopy(next).delete()
+    private fun watchUploads(active: ActiveSession) {
+        uploadWatch?.cancel()
+        uploadWatch = viewModelScope.launch {
+            ClientHolder.uploadChanges.collect {
+                val items = withContext(Dispatchers.IO) {
+                    runCatching { active.uploads.items() }.getOrNull()
+                } ?: return@collect
+                val arrived = uploads.any { old -> items.none { it.key == old.key } }
+                uploads.clear()
+                uploads.addAll(items)
+                if (arrived) reload()
             }
         }
     }
 
-    private suspend fun upload(session: Session.SignedIn, upload: PickedUpload) {
-        val listener = object : UploadListener {
-            override fun progress(key: String, done: ULong, total: ULong) {
-                val fraction = if (total > 0u) done.toFloat() / total.toFloat() else 1f
-                viewModelScope.launch { updateUpload(key) { it.copy(progress = fraction) } }
-            }
-        }
-        try {
-            val copy = uploadCopy(upload)
-            copyForUpload(upload.uri, copy)
-            if (uploads.none { it.key == upload.key }) return
-            session.client.uploadPickedFile(upload.key, upload.parentId, upload.name, copy.path, listener)
-            uploads.removeAll { it.key == upload.key }
-            copy.delete()
-            reload()
-        } catch (_: CoreException.Cancelled) {
-            uploads.removeAll { it.key == upload.key }
-        } catch (_: CoreException.Unauthorized) {
-            if (session === this.session) onSessionEnded()
-        } catch (e: CoreException) {
-            updateUpload(upload.key) { it.copy(error = e.fileMessage()) }
-        } catch (e: IOException) {
-            updateUpload(upload.key) { it.copy(error = "The file can't be read: ${e.message}") }
-        } catch (_: SecurityException) {
-            updateUpload(upload.key) { it.copy(error = "Home Space can no longer read this file") }
-        }
-    }
-
-    private fun updateUpload(key: String, change: (PickedUpload) -> PickedUpload) {
-        val index = uploads.indexOfFirst { it.key == key }
-        if (index >= 0) uploads[index] = change(uploads[index])
-    }
-
-    private fun forgetUploads(session: Session?) {
-        uploadJob?.cancel()
-        uploadJob = null
-        runningUpload = null
-        if (session is Session.SignedIn) {
-            uploads.forEach { session.client.cancelPickedUpload(it.key) }
-        }
+    private fun forgetUploads() {
+        uploadWatch?.cancel()
+        uploadWatch = null
         uploads.clear()
-        uploadCopies().deleteRecursively()
-    }
-
-    private fun uploadCopies() = File(getApplication<Application>().cacheDir, "uploads")
-
-    private fun uploadCopy(upload: PickedUpload) = File(uploadCopies(), upload.key)
-
-    /** Takes a copy to read from, which a retry finds, since content URIs can't all seek. */
-    private suspend fun copyForUpload(source: Uri, copy: File) = withContext(Dispatchers.IO) {
-        if (copy.exists()) return@withContext
-        copy.parentFile?.mkdirs()
-        val part = File(copy.path + ".part")
-        try {
-            val input = getApplication<Application>().contentResolver.openInputStream(source)
-                ?: throw FileNotFoundException(source.toString())
-            input.use { from -> part.outputStream().use { to -> from.copyTo(to) } }
-            if (!part.renameTo(copy)) throw IOException("the copy can't be saved")
-        } finally {
-            part.delete()
-        }
     }
 
     private fun displayName(uri: Uri): String {
@@ -542,7 +484,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         val active = ClientHolder.active
         store.forgetSession()
         downloads.clear()
-        forgetUploads(current)
+        forgetUploads()
         endSync()
         backToForm()
         if (current is Session.SignedIn) {
@@ -550,6 +492,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                 // Already signed out here; this only revokes the token on the server. Auto-upload
                 // goes first, since cancelling its uploads takes the session.
                 try {
+                    active?.uploads?.wipe()
                     active?.autoUpload?.wipe()
                     current.client.logout()
                 } catch (_: CoreException) {
@@ -566,12 +509,13 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         val active = ClientHolder.active
         store.forgetSession()
         downloads.clear()
-        forgetUploads(current)
+        forgetUploads()
         endSync()
         backToForm()
         if (current is Session.SignedIn) {
             viewModelScope.launch {
                 try {
+                    active?.uploads?.wipe()
                     active?.autoUpload?.wipe()
                 } catch (_: CoreException) {
                 } finally {
@@ -589,7 +533,13 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     /** Called as the app comes to the front and leaves it. */
     fun onForegroundChanged(inFront: Boolean) {
         appInFront = inFront
-        if (inFront) sync?.start() else sync?.stop()
+        ClientHolder.appInFront = inFront
+        if (inFront) {
+            clearUploadFailureNotice(getApplication())
+            sync?.start()
+        } else {
+            sync?.stop()
+        }
     }
 
     /** Tries what can be tried at once, such as after the user asked. */
@@ -601,6 +551,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         sync?.stop()
         sync = null
         cancelBackgroundSync(getApplication())
+        cancelUploadWork(getApplication())
         // Only auto-upload keeps access to folders, and it forgets its sources now.
         val resolver = getApplication<Application>().contentResolver
         resolver.persistedUriPermissions.forEach {
@@ -624,6 +575,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         }.also {
             if (appInFront) it.start()
         }
+        watchUploads(active)
         runCatching { applyBackgroundSetting(getApplication(), active.autoUpload.settings()) }
     }
 

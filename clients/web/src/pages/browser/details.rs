@@ -14,6 +14,8 @@ struct Loaded {
     node: Node,
     versions: Vec<FileVersion>,
     devices: Vec<Device>,
+    /// The device that auto-uploaded the file.
+    source_device: Option<String>,
 }
 
 async fn fetch(id: NodeId) -> Result<Loaded, ApiError> {
@@ -24,10 +26,13 @@ async fn fetch(id: NodeId) -> Result<Loaded, ApiError> {
         NodeKind::Folder => Vec::new(),
     };
     let devices = client.devices().await?;
+    // Only a label, and an older server has none to give.
+    let properties = client.node_properties(id).await.unwrap_or_default();
     Ok(Loaded {
         node,
         versions,
         devices,
+        source_device: properties.source_device,
     })
 }
 
@@ -108,7 +113,7 @@ pub fn DetailsPanel(
             {move || {
                 state
                     .get()
-                    .map(|Loaded { node, versions, devices }| {
+                    .map(|Loaded { node, versions, devices, source_device }| {
                         let is_file = node.kind == NodeKind::File;
                         let device = edited_on(node.edited_on, &devices);
                         let device_label = if is_file { "Edited on" } else { "Created on" };
@@ -134,6 +139,13 @@ pub fn DetailsPanel(
                                     .map(|device| {
                                         view! {
                                             <dt>{device_label}</dt>
+                                            <dd>{device}</dd>
+                                        }
+                                    })}
+                                {source_device
+                                    .map(|device| {
+                                        view! {
+                                            <dt>"Uploaded from"</dt>
                                             <dd>{device}</dd>
                                         }
                                     })}

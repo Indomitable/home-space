@@ -8,8 +8,8 @@ use uuid::Uuid;
 
 use db::{
     BlobOp, Db, DeletedNodes, FOLDER_MIME, FileVersion, MoveBatch, MoveOutcome, NewContent,
-    NewNode, Node, NodeId, NodeKind, NodeUpdate, OnConflict, StoreOutcome, TrashOutcome,
-    TrashedNode, UserId,
+    NewNode, Node, NodeId, NodeKind, NodeProperties, NodeUpdate, OnConflict, StoreOutcome,
+    TrashOutcome, TrashedNode, UserId,
 };
 
 use crate::{BlobStore, FilesError, store::StagedBlob, uploads::Uploads};
@@ -197,6 +197,15 @@ impl FileService {
         } else {
             Err(FilesError::NotAFile)
         }
+    }
+
+    /// Returns a node's predefined properties.
+    pub async fn properties(
+        &self,
+        owner: UserId,
+        id: NodeId,
+    ) -> Result<NodeProperties, FilesError> {
+        Ok(self.db.node_properties(owner, id).await?)
     }
 
     /// Returns a node's metadata.

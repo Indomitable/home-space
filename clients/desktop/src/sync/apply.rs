@@ -292,6 +292,8 @@ async fn upload(
                     modified_at: modified,
                     mime: None,
                     node_id: wanted.node,
+                    keep_both: false,
+                    auto_upload: false,
                 };
                 let session = client.create_upload(&request).await?;
                 store.save_upload(&SavedUpload {

@@ -26,7 +26,7 @@ const FOLDER_LABEL: &str = "Folder";
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Loaded(NodeId, Result<Loaded, ApiError>),
+    Loaded(NodeId, Result<Box<Loaded>, ApiError>),
     Download(i32),
     Downloaded(Result<(), String>),
     AskDelete(i32),
@@ -42,6 +42,8 @@ pub struct Loaded {
     node: Node,
     versions: Vec<FileVersion>,
     devices: Vec<Device>,
+    /// The device that auto-uploaded the file.
+    source_device: Option<String>,
 }
 
 /// The details panel of one node.
@@ -49,6 +51,7 @@ pub struct State {
     node: Node,
     versions: Vec<FileVersion>,
     devices: Vec<Device>,
+    source_device: Option<String>,
     confirming: Option<i32>,
     error: Option<String>,
 }
@@ -61,6 +64,7 @@ impl State {
             node,
             versions: Vec::new(),
             devices: Vec::new(),
+            source_device: None,
             confirming: None,
             error: None,
         };
@@ -84,6 +88,7 @@ impl State {
                         self.node = loaded.node;
                         self.versions = loaded.versions;
                         self.devices = loaded.devices;
+                        self.source_device = loaded.source_device;
                         self.error = None;
                     }
                     Err(err) => self.error = Some(err.to_string()),
@@ -158,6 +163,9 @@ impl State {
         if let Some(device) = edited_on(node.edited_on, &self.devices) {
             let label = if is_file { "Edited on" } else { "Created on" };
             facts = facts.push(fact(label, device));
+        }
+        if let Some(device) = &self.source_device {
+            facts = facts.push(fact("Uploaded from", device.clone()));
         }
         if let Some(local) = synced_to {
             facts = facts.push(fact("Synced to", local));
@@ -248,11 +256,14 @@ fn load(client: &Client, id: NodeId) -> Task {
                 NodeKind::Folder => Vec::new(),
             };
             let devices = client.devices().await?;
-            Ok(Loaded {
+            // Only a label, and an older server has none to give.
+            let properties = client.node_properties(id).await.unwrap_or_default();
+            Ok(Box::new(Loaded {
                 node,
                 versions,
                 devices,
-            })
+                source_device: properties.source_device,
+            }))
         },
         move |result| Message::Loaded(id, result),
     )
@@ -344,12 +355,18 @@ mod tests {
             node,
             versions: Vec::new(),
             devices: vec![laptop()],
+            source_device: Some("Phone".to_owned()),
         };
-        let _ = state.update(&client, Message::Loaded(state.node_id(), Ok(loaded)));
+        let _ = state.update(
+            &client,
+            Message::Loaded(state.node_id(), Ok(Box::new(loaded))),
+        );
 
         let mut ui = simulator(state.view(None));
 
         assert!(ui.find("Edited on").is_ok());
         assert!(ui.find("Laptop").is_ok());
+        assert!(ui.find("Uploaded from").is_ok());
+        assert!(ui.find("Phone").is_ok());
     }
 }

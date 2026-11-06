@@ -7,8 +7,9 @@ use axum::{
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
+use uuid::Uuid;
 
-use common::{Response, TestApp, UPLOAD_CHUNK, setup};
+use common::{PASSWORD, Response, TestApp, UPLOAD_CHUNK, setup};
 
 async fn create(app: &TestApp, token: &str, request: Value) -> Response {
     app.json(Method::POST, "/api/v1/uploads", Some(token), request)
@@ -246,4 +247,235 @@ async fn a_cancelled_upload_is_gone(pool: PgPool) {
         .await;
     assert_eq!(cancel.status, StatusCode::NO_CONTENT);
     assert_eq!(app.get(&uri, &token).await.status, StatusCode::NOT_FOUND);
+}
+
+const PHONE: Uuid = Uuid::from_u128(0x0193_a4a0_0000_7000_8000_0000_0000_0001);
+const TABLET: Uuid = Uuid::from_u128(0x0193_a4a0_0000_7000_8000_0000_0000_0002);
+
+async fn sign_in_from(app: &TestApp, device: Uuid, name: &str) -> String {
+    app.state.auth.create_user("alice", PASSWORD).await.ok();
+    let response = app
+        .json(
+            Method::POST,
+            "/api/v1/auth/login",
+            None,
+            json!({
+                "username": "alice",
+                "password": PASSWORD,
+                "device": { "id": device, "name": name, "platform": "android" },
+            }),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK);
+    response.json()["access_token"]
+        .as_str()
+        .expect("access")
+        .to_owned()
+}
+
+/// Uploads `content` as `name` with the given fields added to the request.
+async fn upload_with(
+    app: &TestApp,
+    token: &str,
+    name: &str,
+    content: &[u8],
+    options: Value,
+) -> Response {
+    let mut request = json!({ "name": name, "size": content.len() });
+    request
+        .as_object_mut()
+        .expect("object")
+        .extend(options.as_object().expect("options").clone());
+    let created = create(app, token, request).await;
+    assert_eq!(created.status, StatusCode::CREATED);
+    let id = created.json()["id"].as_str().expect("id").to_owned();
+    upload_chunked(app, token, &id, content).await
+}
+
+async fn source_device(app: &TestApp, token: &str, node: &Value) -> Value {
+    let id = node["id"].as_str().expect("id");
+    let response = app
+        .get(&format!("/api/v1/nodes/{id}/properties"), token)
+        .await;
+    assert_eq!(response.status, StatusCode::OK);
+    response.json()["source_device"].clone()
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn keep_both_gives_different_content_a_free_name(pool: PgPool) {
+    let app = setup(pool).await;
+    let token = app.user_token("alice").await;
+    let both = json!({ "keep_both": true });
+
+    let first = upload_with(&app, &token, "a.txt", b"first", both.clone()).await;
+    let second = upload_with(&app, &token, "a.txt", b"second", both.clone()).await;
+    let third = upload_with(&app, &token, "a.txt", b"third", both).await;
+
+    assert_eq!(first.json()["node"]["name"], "a.txt");
+    assert_eq!(second.status, StatusCode::CREATED);
+    assert_eq!(second.json()["node"]["name"], "a (1).txt");
+    assert_eq!(third.json()["node"]["name"], "a (2).txt");
+    assert_eq!(first.json()["node"]["version"], 1);
+    let listed = app.get("/api/v1/nodes", &token).await.json();
+    let names: Vec<&str> = listed
+        .as_array()
+        .expect("nodes")
+        .iter()
+        .filter_map(|node| node["name"].as_str())
+        .filter(|name| name.starts_with("a"))
+        .collect();
+    assert_eq!(names.len(), 3, "{names:?}");
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn keep_both_recognises_the_same_file_arriving_again(pool: PgPool) {
+    let app = setup(pool).await;
+    let token = app.user_token("alice").await;
+    let both = json!({ "keep_both": true });
+    upload_with(&app, &token, "a.txt", b"first", both.clone()).await;
+    let second = upload_with(&app, &token, "a.txt", b"second", both.clone()).await;
+
+    let retried = upload_with(&app, &token, "a.txt", b"second", both).await;
+
+    assert_eq!(retried.status, StatusCode::OK);
+    assert_eq!(retried.json()["node"]["id"], second.json()["node"]["id"]);
+    assert_eq!(retried.json()["node"]["name"], "a (1).txt");
+    assert_eq!(retried.json()["node"]["version"], 1);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn without_keep_both_a_taken_name_still_becomes_a_version(pool: PgPool) {
+    let app = setup(pool).await;
+    let token = app.user_token("alice").await;
+    let first = upload_with(&app, &token, "a.txt", b"first", json!({})).await;
+
+    let second = upload_with(&app, &token, "a.txt", b"second", json!({})).await;
+
+    assert_eq!(second.json()["node"]["id"], first.json()["node"]["id"]);
+    assert_eq!(second.json()["node"]["name"], "a.txt");
+    assert_eq!(second.json()["node"]["version"], 2);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn an_auto_upload_records_the_name_of_the_device(pool: PgPool) {
+    let app = setup(pool).await;
+    let token = sign_in_from(&app, PHONE, "Phone").await;
+
+    let done = upload_with(
+        &app,
+        &token,
+        "a.txt",
+        b"first",
+        json!({ "auto_upload": true }),
+    )
+    .await;
+    let node = done.json()["node"].clone();
+    assert_eq!(source_device(&app, &token, &node).await, "Phone");
+
+    // A later rename of the device leaves what was recorded.
+    let renamed = app
+        .json(
+            Method::PATCH,
+            &format!("/api/v1/devices/{PHONE}"),
+            Some(&token),
+            json!({ "name": "Old phone" }),
+        )
+        .await;
+    assert!(renamed.status.is_success());
+    assert_eq!(source_device(&app, &token, &node).await, "Phone");
+
+    // New content from another device replaces it.
+    let tablet = sign_in_from(&app, TABLET, "Tablet").await;
+    upload_with(
+        &app,
+        &tablet,
+        "a.txt",
+        b"second",
+        json!({ "auto_upload": true }),
+    )
+    .await;
+    assert_eq!(source_device(&app, &tablet, &node).await, "Tablet");
+
+    // The same content again stores nothing, so it records nothing.
+    upload_with(
+        &app,
+        &token,
+        "a.txt",
+        b"second",
+        json!({ "auto_upload": true }),
+    )
+    .await;
+    assert_eq!(source_device(&app, &token, &node).await, "Tablet");
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn only_an_auto_upload_from_a_device_records_a_source(pool: PgPool) {
+    let app = setup(pool).await;
+    let on_phone = sign_in_from(&app, PHONE, "Phone").await;
+    let manual = upload_with(&app, &on_phone, "manual.txt", b"data", json!({})).await;
+    assert_eq!(
+        source_device(&app, &on_phone, &manual.json()["node"]).await,
+        Value::Null
+    );
+
+    let token = app.user_token("bob").await;
+    let no_device = upload_with(
+        &app,
+        &token,
+        "a.txt",
+        b"data",
+        json!({ "auto_upload": true }),
+    )
+    .await;
+    assert_eq!(
+        source_device(&app, &token, &no_device.json()["node"]).await,
+        Value::Null
+    );
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn the_properties_of_a_node_are_private_and_go_with_it(pool: PgPool) {
+    let app = setup(pool.clone()).await;
+    let token = sign_in_from(&app, PHONE, "Phone").await;
+    let done = upload_with(
+        &app,
+        &token,
+        "a.txt",
+        b"data",
+        json!({ "auto_upload": true }),
+    )
+    .await;
+    let id = done.json()["node"]["id"].as_str().expect("id").to_owned();
+    let uri = format!("/api/v1/nodes/{id}/properties");
+
+    let bob = app.user_token("bob").await;
+    assert_eq!(app.get(&uri, &bob).await.status, StatusCode::NOT_FOUND);
+
+    let binned = app
+        .send(
+            Method::DELETE,
+            &format!("/api/v1/nodes/{id}"),
+            Some(&token),
+            Body::empty(),
+            None,
+        )
+        .await;
+    assert!(binned.status.is_success());
+    assert_eq!(app.get(&uri, &token).await.status, StatusCode::NOT_FOUND);
+    let purged = app
+        .send(
+            Method::DELETE,
+            &format!("/api/v1/trash/{id}"),
+            Some(&token),
+            Body::empty(),
+            None,
+        )
+        .await;
+    assert!(purged.status.is_success(), "{}", purged.status);
+
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM node_properties")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(left, 0);
 }

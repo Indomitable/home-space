@@ -17,6 +17,10 @@ pub struct Upload {
     pub modified_at: Option<OffsetDateTime>,
     /// The device that started it, when the client named one.
     pub device_id: Option<Uuid>,
+    /// Keep a different file with the same name, rather than making this its new version.
+    pub keep_both: bool,
+    /// Record the device as the file's source.
+    pub auto_upload: bool,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
 }
@@ -32,12 +36,14 @@ pub struct NewUpload {
     pub mime: Option<String>,
     pub modified_at: Option<OffsetDateTime>,
     pub device_id: Option<Uuid>,
+    pub keep_both: bool,
+    pub auto_upload: bool,
 }
 
 macro_rules! upload_columns {
     () => {
-        "id, owner_id, parent_id, node_id, name, size, mime, modified_at, device_id, created_at, \
-         updated_at"
+        "id, owner_id, parent_id, node_id, name, size, mime, modified_at, device_id, keep_both, \
+         auto_upload, created_at, updated_at"
     };
 }
 
@@ -46,8 +52,9 @@ impl Db {
     pub async fn create_upload(&self, owner: UserId, new: NewUpload) -> Result<Upload, DbError> {
         let upload = sqlx::query_as::<_, Upload>(concat!(
             "INSERT INTO uploads \
-             (id, owner_id, parent_id, node_id, name, size, mime, modified_at, device_id) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING ",
+             (id, owner_id, parent_id, node_id, name, size, mime, modified_at, device_id, \
+              keep_both, auto_upload) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING ",
             upload_columns!()
         ))
         .bind(new.id)
@@ -59,6 +66,8 @@ impl Db {
         .bind(new.mime)
         .bind(new.modified_at)
         .bind(new.device_id)
+        .bind(new.keep_both)
+        .bind(new.auto_upload)
         .fetch_one(self.pool())
         .await?;
         Ok(upload)
@@ -148,6 +157,8 @@ mod tests {
             mime: None,
             modified_at: None,
             device_id: None,
+            keep_both: false,
+            auto_upload: false,
         }
     }
 

@@ -38,6 +38,14 @@ pub struct Node {
     pub edited_on: Option<Uuid>,
 }
 
+/// Predefined properties of a node, from `GET /nodes/{id}/properties`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeProperties {
+    /// The name of the device that last auto-uploaded the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_device: Option<String>,
+}
+
 /// A previous version of a file.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileVersion {

@@ -579,6 +579,8 @@ async fn upload_file(
             modified_at: None,
             mime: None,
             node_id: None,
+            keep_both: false,
+            auto_upload: false,
         };
         client
             .upload_resumable(

@@ -35,6 +35,15 @@ pub struct CreateUpload {
     /// The existing file whose content the upload replaces, like `PUT /files/{id}/content`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node_id: Option<NodeId>,
+    /// When different content already has this name, store the file as `name (1).ext` or the next
+    /// free name, rather than as a new version; identical content at any of those names changes
+    /// nothing. Ignored when `node_id` is set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep_both: bool,
+    /// Records the calling device as the file's source (`NodeProperties::source_device`). Ignored
+    /// when `node_id` is set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_upload: bool,
 }
 
 /// An upload in progress, returned by `POST /uploads` and `GET /uploads/{id}`.

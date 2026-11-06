@@ -34,7 +34,7 @@ pub use error::DbError;
 pub use models::{FileVersion, Node, RefreshToken, User};
 pub use nodes::{
     BlobOp, DeletedNodes, FOLDER_MIME, MoveBatch, MoveConflict, MoveOutcome, NewContent, NewNode,
-    NodeUpdate, StoreOutcome,
+    NodeProperties, NodeUpdate, StoreOptions, StoreOutcome,
 };
 pub use oidc::{OidcCode, OidcPending};
 pub use protocol::{NodeId, NodeKind, OnConflict, UserId};

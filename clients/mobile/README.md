@@ -206,8 +206,11 @@ app.homespace.android <job id>`.
 
 Known limits:
 
-- iOS lists the whole library on each pass. Results are cached per run, so the first pass after a
-  launch can take long with a large library. PhotoKit's persistent change token would avoid that.
+- The photo source lists everything until a pass has dealt with all of it, then asks only what
+  changed (MediaStore generations on Android 11+, PhotoKit's persistent change token on iOS), with a
+  listing every 7 days in case the platform missed something. It lists on every pass before Android
+  11 and with access to selected photos only. Picked folders have no way to tell, so they are always
+  listed.
 - iOS changes an asset's modification date for reasons other than edits. Such a photo is sent again,
   and the server finds it identical and changes nothing, so this costs only the transfer.
 - After a reinstall nothing is remembered. Files still in place on the server are recognised as

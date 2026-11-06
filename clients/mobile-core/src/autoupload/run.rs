@@ -1,5 +1,11 @@
 //! One pass over the sources: list, plan and upload, one file at a time.
 //!
+//! A source that can tell what changed, such as a phone's photo library, isn't listed every time. It
+//! gets a token once a pass has dealt with everything, and later passes ask only for what changed
+//! since. The token stays put while anything is unfinished, so a file that failed or was held back
+//! comes back in the next answer, with no separate queue of work. A listing every so often catches
+//! anything the platform failed to report.
+//!
 //! A file that fails waits longer after each failure. When the server can't be reached at all,
 //! the failures are not the files' fault: after a few in a row the pass stops, and the next one
 //! waits with a growing delay, as in the desktop client's sync. Stopping (the network or the
@@ -29,6 +35,8 @@ const MAX_BACKOFF: Duration = Duration::from_secs(10 * 60);
 /// Unreachable-server failures in a row that make a pass stop as an outage.
 const OUTAGE_FAILURES: u32 = 3;
 const MAX_OUTAGE_BACKOFF: Duration = Duration::from_secs(5 * 60);
+/// How long a source that reports its changes goes between listings, in nanoseconds.
+const FULL_SCAN_NANOS: i64 = 7 * 24 * 60 * 60 * 1_000_000_000;
 /// Why a source is paused when its server folder is gone.
 pub(super) const TARGET_GONE: &str = "The folder on the server no longer exists. Choose another.";
 
@@ -104,6 +112,50 @@ impl From<rusqlite::Error> for Failure {
     }
 }
 
+/// What a source's token becomes once everything in its plan is done.
+enum NextToken {
+    /// Asked what changed, and got this for next time.
+    Changes(String),
+    /// Listed it. `None` if this source can't tell what changed.
+    Listing(Option<String>),
+}
+
+/// The work on a source, and where that leaves it.
+struct Prepared {
+    plan: Plan,
+    next: NextToken,
+}
+
+/// What a source holds now, or what changed in it.
+struct Found {
+    items: Vec<LocalItem>,
+    next: NextToken,
+}
+
+/// Asks what changed if the token allows it, and lists the source otherwise.
+fn look_at(
+    local: &dyn LocalSources,
+    kind: SourceKind,
+    handle: &str,
+    token: Option<String>,
+) -> Result<Found, CoreError> {
+    if let Some(token) = token
+        && let Some(changes) = local.changes_since(kind, handle.to_owned(), token)?
+    {
+        return Ok(Found {
+            items: changes.items,
+            next: NextToken::Changes(changes.token),
+        });
+    }
+    // First, so that a change made during the listing shows up next time. Without a token the
+    // source is only listed again, so a failure here costs nothing.
+    let token = local.change_token(kind, handle.to_owned()).ok().flatten();
+    Ok(Found {
+        items: local.list(kind, handle.to_owned())?,
+        next: NextToken::Listing(token),
+    })
+}
+
 /// Everything a pass works with.
 pub(super) struct Pass<'a> {
     pub client: &'a Client,
@@ -175,7 +227,7 @@ impl Pass<'_> {
             if source.problem.as_deref() == Some(TARGET_GONE) {
                 continue;
             }
-            let Some(plan) = self.prepare(&source, &mut summary).await? else {
+            let Some(Prepared { plan, next }) = self.prepare(&source, &mut summary).await? else {
                 if summary.outage {
                     break;
                 }
@@ -263,6 +315,7 @@ impl Pass<'_> {
                 self.store
                     .set_last_synced(&source.id, nanos(SystemTime::now()))
                     .map_err(storage_error)?;
+                self.keep_token(&source.id, next).map_err(storage_error)?;
             }
         }
         Ok(summary)
@@ -292,7 +345,7 @@ impl Pass<'_> {
         &self,
         source: &SourceRow,
         summary: &mut PassSummary,
-    ) -> Result<Option<Plan>, CoreError> {
+    ) -> Result<Option<Prepared>, CoreError> {
         if let Some(target) = &source.target {
             let id = crate::parse_id(target)?;
             match self.client.get(id).await {
@@ -315,19 +368,30 @@ impl Pass<'_> {
                 Err(err) => return Err(err.into()),
             }
         }
-        let listed = {
+        let token = self
+            .store
+            .change_token(&source.id)
+            .map_err(storage_error)?
+            .filter(|(_, full_scan_at)| {
+                nanos(SystemTime::now()).saturating_sub(*full_scan_at) < FULL_SCAN_NANOS
+            })
+            .map(|(token, _)| token);
+        let found = {
             let local = self.local.clone();
             let handle = source.handle.clone();
             let kind = kind_of(source);
-            tokio::task::spawn_blocking(move || local.list(kind, handle))
+            tokio::task::spawn_blocking(move || look_at(local.as_ref(), kind, &handle, token))
                 .await
                 .map_err(|err| CoreError::Failed {
                     code: "local".to_owned(),
                     detail: err.to_string(),
                 })?
         };
-        let items: Vec<Item> = match listed {
-            Ok(items) => items.into_iter().map(to_item).collect(),
+        let (items, next) = match found {
+            Ok(found) => (
+                found.items.into_iter().map(to_item).collect::<Vec<Item>>(),
+                found.next,
+            ),
             Err(err) => {
                 // Such as a permission the user took back. Nothing is lost by waiting.
                 self.store
@@ -339,7 +403,13 @@ impl Pass<'_> {
         self.store
             .set_problem(&source.id, None)
             .map_err(storage_error)?;
-        let records = self.store.records(&source.id).map_err(storage_error)?;
+        let records = match next {
+            NextToken::Changes(_) => self
+                .store
+                .records_of(&source.id, items.iter().map(|item| item.key.as_str())),
+            NextToken::Listing(_) => self.store.records(&source.id),
+        }
+        .map_err(storage_error)?;
         let plan = plan::plan(
             &items,
             &records,
@@ -352,7 +422,26 @@ impl Pass<'_> {
                 .map_err(storage_error)?;
         }
         self.discard_stale(source, &plan).await?;
-        Ok(Some(plan))
+        Ok(Some(Prepared { plan, next }))
+    }
+
+    /// Everything the source held up to `next` is dealt with.
+    fn keep_token(&self, source: &str, next: NextToken) -> rusqlite::Result<()> {
+        match next {
+            NextToken::Changes(token) => {
+                // Only a listing that went through counts as one.
+                let full_scan_at = self
+                    .store
+                    .change_token(source)?
+                    .map_or(0, |(_, full_scan_at)| full_scan_at);
+                self.store.save_change_token(source, &token, full_scan_at)
+            }
+            NextToken::Listing(Some(token)) => {
+                self.store
+                    .save_change_token(source, &token, nanos(SystemTime::now()))
+            }
+            NextToken::Listing(None) => self.store.forget_change_token(source),
+        }
     }
 
     /// Cancels the saved uploads of files that no longer need sending, or that changed.

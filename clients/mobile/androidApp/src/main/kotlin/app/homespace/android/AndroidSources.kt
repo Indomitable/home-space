@@ -15,6 +15,9 @@ import java.io.IOException
 import java.nio.ByteBuffer
 import java.time.Instant
 import uniffi.homespace_core.CoreException
+import org.json.JSONException
+import org.json.JSONObject
+import uniffi.homespace_core.LocalChanges
 import uniffi.homespace_core.LocalItem
 import uniffi.homespace_core.LocalSources
 import uniffi.homespace_core.SourceKind
@@ -26,6 +29,8 @@ private const val CAMERA_FOLDER = "DCIM/"
 private const val IMAGE_PREFIX = "image:"
 private const val VIDEO_PREFIX = "video:"
 private const val MILLIS_PER_SECOND = 1000L
+private const val TOKEN_VERSION = "version"
+private const val TOKEN_GENERATION = "generation"
 
 private fun failed(detail: String) = CoreException.Failed("local", detail)
 
@@ -44,6 +49,14 @@ class AndroidSources(context: Context) : LocalSources {
             SourceKind.FOLDER -> listTree(Uri.parse(handle))
             SourceKind.PHOTOS -> listCamera()
         }
+    }
+
+    override fun changeToken(kind: SourceKind, handle: String): String? = guarded {
+        if (kind == SourceKind.PHOTOS) cameraToken()?.toString() else null
+    }
+
+    override fun changesSince(kind: SourceKind, handle: String, token: String): LocalChanges? = guarded {
+        if (kind == SourceKind.PHOTOS) cameraChanges(token) else null
     }
 
     override fun stat(kind: SourceKind, handle: String, key: String): LocalItem? = guarded {
@@ -149,9 +162,74 @@ class AndroidSources(context: Context) : LocalSources {
         return listMedia(IMAGE_PREFIX, imagesUri()) + listMedia(VIDEO_PREFIX, videosUri())
     }
 
-    private fun listMedia(prefix: String, collection: Uri): List<LocalItem> {
+    /**
+     * Each volume's database version and generation, or null if the changes can't be told: before
+     * Android 11, or with access to only the photos the user selected, since a photo added to that
+     * selection hasn't changed and wouldn't be reported.
+     */
+    private fun cameraToken(): JSONObject? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || !hasFullMediaAccess()) return null
+        val token = JSONObject()
+        for (volume in MediaStore.getExternalVolumeNames(appContext)) {
+            token.put(
+                volume,
+                JSONObject()
+                    .put(TOKEN_VERSION, MediaStore.getVersion(appContext, volume))
+                    .put(TOKEN_GENERATION, MediaStore.getGeneration(appContext, volume)),
+            )
+        }
+        return token
+    }
+
+    /** Null means a listing is needed: a card came or went, or a database was rebuilt. */
+    private fun cameraChanges(saved: String): LocalChanges? {
+        if (!hasMediaAccess()) throw failed("Home Space no longer has access to your photos.")
+        val now = cameraToken() ?: return null
+        val since = try {
+            JSONObject(saved)
+        } catch (_: JSONException) {
+            return null
+        }
+        val volumes = now.keys().asSequence().toSet()
+        if (volumes != since.keys().asSequence().toSet()) return null
         val items = mutableListOf<LocalItem>()
-        val cursor = resolver.query(collection, mediaColumns(), mediaFilter(), null, null)
+        for (volume in volumes) {
+            val was = since.getJSONObject(volume)
+            if (was.getString(TOKEN_VERSION) != now.getJSONObject(volume).getString(TOKEN_VERSION)) {
+                return null
+            }
+            // A generation only means something within its volume.
+            val generation = was.getLong(TOKEN_GENERATION)
+            items += listMedia(IMAGE_PREFIX, MediaStore.Images.Media.getContentUri(volume), generation)
+            items += listMedia(VIDEO_PREFIX, MediaStore.Video.Media.getContentUri(volume), generation)
+        }
+        return LocalChanges(items, now.toString())
+    }
+
+    private fun hasFullMediaAccess(): Boolean {
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            listOf(
+                android.Manifest.permission.READ_MEDIA_IMAGES,
+                android.Manifest.permission.READ_MEDIA_VIDEO,
+            )
+        } else {
+            listOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        return needed.all { appContext.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+    }
+
+    private fun listMedia(
+        prefix: String,
+        collection: Uri,
+        afterGeneration: Long? = null,
+    ): List<LocalItem> {
+        val items = mutableListOf<LocalItem>()
+        val filter = if (afterGeneration == null) {
+            mediaFilter()
+        } else {
+            "${mediaFilter()} AND ${MediaStore.MediaColumns.GENERATION_MODIFIED} > $afterGeneration"
+        }
+        val cursor = resolver.query(collection, mediaColumns(), filter, null, null)
             ?: throw failed("Your photos can't be read")
         cursor.use {
             while (it.moveToNext()) mediaItem(prefix, it)?.let(items::add)

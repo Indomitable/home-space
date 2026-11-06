@@ -29,6 +29,14 @@ final class IOSSources: LocalSources, @unchecked Sendable {
         }
     }
 
+    func changeToken(kind: SourceKind, handle: String) throws -> String? {
+        kind == .photos ? photosToken() : nil
+    }
+
+    func changesSince(kind: SourceKind, handle: String, token: String) throws -> LocalChanges? {
+        kind == .photos ? try photoChanges(since: token) : nil
+    }
+
     func stat(kind: SourceKind, handle: String, key: String) throws -> LocalItem? {
         switch kind {
         case .folder: try statFile(handle, key)
@@ -133,6 +141,52 @@ final class IOSSources: LocalSources, @unchecked Sendable {
             }
         }
         return items
+    }
+
+    /// Nil with access to only the photos the user selected: a photo added to that selection hasn't
+    /// changed and wouldn't be reported.
+    private func photosToken() -> String? {
+        guard PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized,
+            let data = try? NSKeyedArchiver.archivedData(
+                withRootObject: PHPhotoLibrary.shared().currentChangeToken,
+                requiringSecureCoding: true
+            )
+        else { return nil }
+        return data.base64EncodedString()
+    }
+
+    /// Nil means a listing is needed, such as when the token is too old for iOS to answer.
+    private func photoChanges(since saved: String) throws -> LocalChanges? {
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard status == .authorized || status == .limited else {
+            throw failed("Home Space no longer has access to your photos.")
+        }
+        // Taken before asking, so that a change made meanwhile shows up again rather than not at all.
+        guard let next = photosToken(),
+            let data = Data(base64Encoded: saved),
+            let since = try? NSKeyedUnarchiver.unarchivedObject(
+                ofClass: PHPersistentChangeToken.self,
+                from: data
+            ),
+            let changes = try? PHPhotoLibrary.shared().fetchPersistentChanges(since: since)
+        else { return nil }
+        var changed = Set<String>()
+        for change in changes {
+            guard let details = try? change.changeDetails(for: .asset) else { return nil }
+            changed.formUnion(details.insertedLocalIdentifiers)
+            changed.formUnion(details.updatedLocalIdentifiers)
+        }
+        var items: [LocalItem] = []
+        guard !changed.isEmpty else { return LocalChanges(items: items, token: next) }
+        PHAsset.fetchAssets(withLocalIdentifiers: Array(changed), options: nil)
+            .enumerateObjects { asset, _, _ in
+                // What a listing leaves out, which asking by identifier doesn't.
+                guard !asset.isHidden, asset.burstIdentifier == nil || asset.representsBurst else { return }
+                if let item = self.assetItem(asset) {
+                    items.append(item)
+                }
+            }
+        return LocalChanges(items: items, token: next)
     }
 
     private func statAsset(_ key: String) throws -> LocalItem? {

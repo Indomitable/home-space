@@ -50,12 +50,34 @@ pub struct LocalItem {
     pub mime: Option<String>,
 }
 
+/// What changed in a source since a token, from [`LocalSources::changes_since`].
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct LocalChanges {
+    /// Files added or changed since the token, leaving out any still being written. Files that went
+    /// away need no mention, as nothing on the server follows them.
+    pub items: Vec<LocalItem>,
+    /// For next time. Taken before looking, so that a change made meanwhile shows up again rather
+    /// than not at all.
+    pub token: String,
+}
+
 /// How Rust gets at the files of a source. Called on a background thread and may block.
 #[uniffi::export(with_foreign)]
 pub trait LocalSources: Send + Sync {
     /// Every file of the source, leaving out any still being written. Throws if the source can't
     /// be read at all, such as when the user took back the permission.
     fn list(&self, kind: SourceKind, handle: String) -> Result<Vec<LocalItem>, CoreError>;
+    /// A token for how the source stands now, to ask later what changed. `None` if changes can't
+    /// be told for this source, which is then listed on every pass. Rust asks before it lists.
+    fn change_token(&self, kind: SourceKind, handle: String) -> Result<Option<String>, CoreError>;
+    /// What changed since `token`. `None` if that can't be told, such as when the token has expired
+    /// or access has narrowed, and Rust then lists the source. Throws like [`LocalSources::list`].
+    fn changes_since(
+        &self,
+        kind: SourceKind,
+        handle: String,
+        token: String,
+    ) -> Result<Option<LocalChanges>, CoreError>;
     /// The file as it is now, `None` if it is gone.
     fn stat(
         &self,

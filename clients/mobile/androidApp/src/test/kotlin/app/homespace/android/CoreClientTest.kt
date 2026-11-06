@@ -12,6 +12,7 @@ import uniffi.homespace_core.CoreClient
 import uniffi.homespace_core.CoreException
 import uniffi.homespace_core.DeviceIdentity
 import uniffi.homespace_core.DownloadListener
+import uniffi.homespace_core.LocalChanges
 import uniffi.homespace_core.LocalItem
 import uniffi.homespace_core.LocalSources
 import uniffi.homespace_core.SessionListener
@@ -55,6 +56,8 @@ class CoreClientTest {
     @Test
     fun autoUploadNeedsSomeoneSignedIn() {
         val sources = object : LocalSources {
+            override fun changeToken(kind: SourceKind, handle: String): String? = null
+            override fun changesSince(kind: SourceKind, handle: String, token: String): LocalChanges? = null
             override fun list(kind: SourceKind, handle: String) = emptyList<LocalItem>()
             override fun stat(kind: SourceKind, handle: String, key: String): LocalItem? = null
             override fun read(

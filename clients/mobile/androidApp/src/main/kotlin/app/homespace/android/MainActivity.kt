@@ -50,7 +50,7 @@ class MainActivity : ComponentActivity() {
                     when (val session = model.session) {
                         is Session.Resuming -> ResumingScreen(session, model, screen)
                         Session.SignedOut -> LoginScreen(model, screen)
-                        is Session.SignedIn -> BrowseScreen(session, model, screen)
+                        is Session.SignedIn -> SignedInScreen(session, model, screen)
                     }
                 }
             }

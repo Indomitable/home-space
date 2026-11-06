@@ -73,24 +73,26 @@ import uniffi.homespace_core.Entry
 import uniffi.homespace_core.EntryIcon
 import uniffi.homespace_core.EntryKind
 import uniffi.homespace_core.OfflineState
+import uniffi.homespace_core.QueuedUpload
+import uniffi.homespace_core.QueuedUploadState
 
-private val ICON_SIZE = 20.dp
-private val ICON_GAP = 8.dp
+internal val ICON_SIZE = 20.dp
+internal val ICON_GAP = 8.dp
 // Room for the badge in the icon's corner, as in the desktop client.
-private val ICON_BOX = ICON_SIZE + 6.dp
+internal val ICON_BOX = ICON_SIZE + 6.dp
 private val BADGE_SIZE = 12.dp
 private val BADGE_PADDING = 1.dp
-private val MENU_BUTTON_SIZE = 40.dp
+internal val MENU_BUTTON_SIZE = 40.dp
 // So that the add button doesn't cover the last row's menu.
 private val LIST_END_PADDING = 88.dp
 
 /** The same as the iOS app's rows, which match the Files app. */
-private val ROW_MIN_HEIGHT = 64.dp
-private const val PROGRESS_ALPHA = 0.25f
+internal val ROW_MIN_HEIGHT = 64.dp
+internal const val PROGRESS_ALPHA = 0.25f
 private const val OCTET_STREAM = "application/octet-stream"
 private const val MAX_NAMES_SHOWN = 3
 private const val ANY_FILE = "*/*"
-private const val PERCENT = 100
+internal const val PERCENT = 100
 
 // The web client's --color-accent.
 private val FOLDER_ACCENT_LIGHT = Color(0xFF2563EB)
@@ -122,11 +124,20 @@ fun BrowseScreen(
     var searching by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // The upload goes ahead either way. Without this, the app's progress can't show outside it.
+    val askNotifications = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
     val pickFiles = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { files ->
         val folder = path.lastOrNull()
-        if (files.isNotEmpty() && folder != null) model.uploadFiles(session, files, folder)
+        if (files.isNotEmpty() && folder != null) {
+            model.uploadFiles(files, folder)
+            if (needsNotificationPermission(context)) {
+                askNotifications.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
     }
     val saveTo = rememberLauncherForActivityResult(SaveDocument()) { destination ->
         val entry = model.pendingSave
@@ -263,15 +274,12 @@ fun BrowseScreen(
                     )
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                // Above the list, not in it: it stays in view however far the list is scrolled.
+                if (model.uploads.isNotEmpty()) {
+                    UploadsSummaryRow(model.uploads) { onOpenPage(AccountPage.TRANSFERS) }
+                    HorizontalDivider(modifier = Modifier.padding(start = ICON_BOX + ICON_GAP))
+                }
                 LazyColumn(contentPadding = PaddingValues(bottom = LIST_END_PADDING)) {
-                    items(model.uploads, key = { it.key }) { upload ->
-                        UploadRow(
-                            upload = upload,
-                            onRetry = { model.retryUpload(session, upload) },
-                            onCancel = { model.cancelUpload(session, upload) },
-                        )
-                        HorizontalDivider(modifier = Modifier.padding(start = ICON_BOX + ICON_GAP))
-                    }
                     items(entries, key = { it.id }) { entry ->
                         val toggle = {
                             selected = if (entry.id in selected) selected - entry.id else selected + entry.id
@@ -457,6 +465,16 @@ private fun AccountMenu(
                 },
             )
             DropdownMenuItem(
+                text = { Text(AccountPage.TRANSFERS.title) },
+                leadingIcon = {
+                    Icon(painterResource(R.drawable.ic_upload_file), contentDescription = null)
+                },
+                onClick = {
+                    expanded = false
+                    onOpenPage(AccountPage.TRANSFERS)
+                },
+            )
+            DropdownMenuItem(
                 text = { Text(AccountPage.SETTINGS.title) },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_settings), contentDescription = null) },
                 onClick = {
@@ -506,14 +524,32 @@ private fun AddButton(onNewFolder: () -> Unit, onUpload: () -> Unit, modifier: M
     }
 }
 
-/** A file on its way up, shown in every folder so that a failure can't go unseen. */
+/** The uploads as one row in every folder, so that a failure can't go unseen. Opens Transfers. */
 @Composable
-private fun UploadRow(upload: PickedUpload, onRetry: () -> Unit, onCancel: () -> Unit) {
-    val fill = accentColor().copy(alpha = PROGRESS_ALPHA)
+private fun UploadsSummaryRow(uploads: List<QueuedUpload>, onClick: () -> Unit) {
+    val failed = uploads.count { it.state == QueuedUploadState.FAILED }
+    val going = uploads.filter { it.state != QueuedUploadState.FAILED }
+    val total = going.sumOf { it.total.toLong() }
+    val progress = if (total > 0) going.sumOf { it.done.toLong() }.toFloat() / total else null
+    val title = when {
+        going.isEmpty() && failed == 1 -> "1 file couldn't be uploaded"
+        going.isEmpty() -> "$failed files couldn't be uploaded"
+        going.size == 1 -> "Uploading ${going[0].name}"
+        else -> "Uploading ${going.size} files"
+    }
+    val detail = buildList {
+        if (going.isNotEmpty() && failed > 0) add("$failed failed")
+        if (going.any { it.state == QueuedUploadState.OFFLINE }) {
+            add("Waiting for the connection")
+        } else if (progress != null) {
+            add("${(progress * PERCENT).toInt()}%")
+        }
+    }.joinToString(" · ")
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .progressFill(upload.progress, fill)
+            .progressFill(progress, accentColor().copy(alpha = PROGRESS_ALPHA))
+            .clickable(onClick = onClick)
             .heightIn(min = ROW_MIN_HEIGHT)
             .padding(vertical = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(ICON_GAP),
@@ -527,24 +563,20 @@ private fun UploadRow(upload: PickedUpload, onRetry: () -> Unit, onCancel: () ->
             )
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(upload.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val status = upload.progress?.let { "Uploading to ${upload.folderName} · ${(it * PERCENT).toInt()}%" }
-                ?: "Waiting to upload to ${upload.folderName}"
-            Text(
-                upload.error ?: status,
-                style = MaterialTheme.typography.bodySmall,
-                color = if (upload.error != null) MaterialTheme.colorScheme.error else Color.Unspecified,
-            )
-        }
-        if (upload.error != null) TextButton(onClick = onRetry) { Text("Retry") }
-        IconButton(onClick = onCancel, modifier = Modifier.size(MENU_BUTTON_SIZE)) {
-            Icon(painterResource(R.drawable.ic_close), contentDescription = "Cancel upload of ${upload.name}")
+            Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (detail.isNotEmpty()) {
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (failed > 0) MaterialTheme.colorScheme.error else Color.Unspecified,
+                )
+            }
         }
     }
 }
 
 /** Fills the background from the leading edge, as far as `progress` has come. */
-private fun Modifier.progressFill(progress: Float?, fill: Color): Modifier = drawBehind {
+internal fun Modifier.progressFill(progress: Float?, fill: Color): Modifier = drawBehind {
     if (progress != null) {
         val width = size.width * progress
         val left = if (layoutDirection == LayoutDirection.Rtl) size.width - width else 0f
@@ -692,7 +724,7 @@ private fun BadgedIcon(icon: EntryIcon, state: OfflineState?) {
 }
 
 @Composable
-private fun accentColor(): Color =
+internal fun accentColor(): Color =
     if (isSystemInDarkTheme()) FOLDER_ACCENT_DARK else FOLDER_ACCENT_LIGHT
 
 /** The same icons and colours as the web client: only folders are coloured. */

@@ -16,14 +16,17 @@ final class ForegroundSync: NSObject {
 
     @ObservationIgnored private let session: ActiveSession
     @ObservationIgnored private let onSessionEnded: () -> Void
+    /// Each time a pass is due, and when the network changes, whatever "Sync only on Wi-Fi" says.
+    @ObservationIgnored private let onWake: () -> Void
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private var monitor: NWPathMonitor?
     @ObservationIgnored private var path: NWPath?
     @ObservationIgnored private var observingPhotos = false
 
-    init(session: ActiveSession, onSessionEnded: @escaping () -> Void) {
+    init(session: ActiveSession, onSessionEnded: @escaping () -> Void, onWake: @escaping () -> Void) {
         self.session = session
         self.onSessionEnded = onSessionEnded
+        self.onWake = onWake
     }
 
     func start() {
@@ -83,6 +86,7 @@ final class ForegroundSync: NSObject {
 
     private func networkChanged(_ path: NWPath) {
         self.path = path
+        onWake()
         let allowed = networkAllows()
         waitingForWifi = !allowed
         if allowed {
@@ -99,6 +103,7 @@ final class ForegroundSync: NSObject {
     }
 
     private func pass(retryNow: Bool) async {
+        onWake()
         guard networkAllows(), let auto = try? session.autoUpload() else { return }
         do {
             try? await session.client.offlineAllow(allowed: true)
@@ -149,7 +154,9 @@ enum BackgroundSync {
         guard let auto = try? ClientHolder.shared.active?.autoUpload(),
             (try? auto.settings().background) == true
         else {
-            BGTaskScheduler.shared.cancelAllTaskRequests()
+            // Only these two: an upload the user started goes on, whatever this setting says.
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: refresh)
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: processing)
             return
         }
         let quick = BGAppRefreshTaskRequest(identifier: refresh)
@@ -194,5 +201,133 @@ enum BackgroundSync {
             monitor.start(queue: .global(qos: .utility))
         }
         return networkAllowsUse(of: path, session: session)
+    }
+}
+
+/// Lets the picked files carry on after the user leaves the app, where iOS 26 offers it: the system
+/// shows the progress and may end the task, and the user can end it from there. It must start from
+/// something the user did, so it starts on picking files or on Retry, not when the app opens. On
+/// earlier versions, and when it can't start, uploads get only the short time any app gets.
+enum ContinuedUploads {
+    /// Whether the task is keeping the app running, so its short background time doesn't matter.
+    @MainActor
+    static var isRunning: Bool {
+        if #available(iOS 26.0, *) {
+            return ContinuedUploadTask.shared.isRunning
+        }
+        return false
+    }
+
+    /// Call it when the user has just asked for an upload.
+    @MainActor
+    static func begin(queue: UploadQueue) {
+        if #available(iOS 26.0, *) {
+            ContinuedUploadTask.shared.begin(queue: queue)
+        }
+    }
+
+    /// Call it when the queue has changed, to update what the system shows.
+    @MainActor
+    static func report(_ items: [QueuedUpload]) {
+        if #available(iOS 26.0, *) {
+            ContinuedUploadTask.shared.report(items)
+        }
+    }
+}
+
+@available(iOS 26.0, *)
+@MainActor
+private final class ContinuedUploadTask {
+    static let shared = ContinuedUploadTask()
+
+    // Under the wildcard listed in `project.yml`, as BGTaskSchedulerPermittedIdentifiers.
+    private static let identifier = "app.homespace.ios.uploads.picked"
+    private static let unitsPerFile: Int64 = 1000
+
+    private(set) var isRunning = false
+    private var isRegistered = false
+    private var task: BGContinuedProcessingTask?
+    private var queue: UploadQueue?
+    /// The files this task has seen, and how many of them have gone.
+    private var known = Set<String>()
+    private var finished = 0
+
+    func begin(queue: UploadQueue) {
+        guard !isRunning else { return }
+        register()
+        self.queue = queue
+        known = []
+        finished = 0
+        let request = BGContinuedProcessingTaskRequest(
+            identifier: Self.identifier,
+            title: "Uploading files",
+            subtitle: "Home Space"
+        )
+        // If it can't run now, the upload goes on while the app is open, with nothing left pending.
+        request.strategy = .fail
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            isRunning = true
+        } catch {
+            self.queue = nil
+        }
+    }
+
+    /// Only once in a run, or the system ends the app. It may come after launch for this kind of task.
+    private func register() {
+        guard !isRegistered else { return }
+        isRegistered = true
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.identifier, using: nil) { task in
+            guard let task = task as? BGContinuedProcessingTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            Task { @MainActor in await ContinuedUploadTask.shared.run(task) }
+        }
+    }
+
+    private func run(_ task: BGContinuedProcessingTask) async {
+        guard let queue else {
+            task.setTaskCompleted(success: false)
+            isRunning = false
+            return
+        }
+        self.task = task
+        var expired = false
+        // The rows stay, and carry on when the app next opens.
+        task.expirationHandler = {
+            queue.stop()
+            Task { @MainActor in expired = true }
+        }
+        report((try? queue.items()) ?? [])
+        var succeeded = false
+        while !expired {
+            let summary = try? await queue.run()
+            succeeded = summary?.remaining == 0 && summary?.failed == 0
+            // A photo still being fetched goes up once it is here.
+            let fetching = (try? queue.items())?.contains { $0.state == .preparing } ?? false
+            guard !expired, fetching, summary?.stopped == false, summary?.offline == false else { break }
+            try? await Task.sleep(for: .seconds(1))
+        }
+        self.task = nil
+        self.queue = nil
+        isRunning = false
+        task.setTaskCompleted(success: succeeded && !expired)
+    }
+
+    /// Each file counts the same, so that the bar doesn't jump when a copy's size becomes known.
+    func report(_ items: [QueuedUpload]) {
+        guard let task else { return }
+        let going = items.filter { $0.state != .failed }
+        guard !going.isEmpty else { return }
+        finished = max(finished, known.subtracting(going.map(\.key)).count)
+        known.formUnion(going.map(\.key))
+        let part = going.first { $0.state == .uploading }
+        let fraction = part.map { $0.total > 0 ? Double($0.done) / Double($0.total) : 0 } ?? 0
+        task.progress.totalUnitCount = Int64(known.count) * Self.unitsPerFile
+        task.progress.completedUnitCount =
+            Int64(finished) * Self.unitsPerFile + Int64(fraction * Double(Self.unitsPerFile))
+        let title = going.count == 1 ? "Uploading \(going[0].name)" : "Uploading \(going.count) files"
+        task.updateTitle(title, subtitle: "To \(going[0].folderName)")
     }
 }

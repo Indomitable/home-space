@@ -46,6 +46,22 @@ private final class ChangeForwarder: AutoUploadListener {
     }
 }
 
+/// Tells the session's screens that the upload queue may have changed.
+private final class UploadsForwarder: AutoUploadListener {
+    func changed() {
+        Task { @MainActor in ClientHolder.shared.onUploadsChanged?() }
+    }
+}
+
+/// The app copies a picked file itself when adding it, so the queue never asks.
+private final class NoPickedSources: PickedFiles {
+    func copyFile(source: String, dest: String) throws {
+        throw CoreError.Failed(code: "file", detail: "this file can't be read")
+    }
+
+    func release(source: String) {}
+}
+
 /// The signed-in client and what hangs off it.
 @MainActor
 final class ActiveSession {
@@ -53,12 +69,28 @@ final class ActiveSession {
     let user: SignedInUser
     private let changes: SyncChanges
     private var opened: AutoUpload?
+    private var openedQueue: UploadQueue?
 
     init(client: CoreClient, user: SignedInUser, changes: SyncChanges) {
         self.client = client
         self.user = user
         self.changes = changes
         client.setOfflineListener(listener: ChangeForwarder(changes: changes))
+    }
+
+    /// Opened once in this run, so that it can tell what the app ended in the middle of.
+    func uploadQueue() throws -> UploadQueue {
+        if let openedQueue {
+            return openedQueue
+        }
+        let queue = try UploadQueue.open(
+            client: client,
+            dataDir: try ClientHolder.syncFolder().path,
+            files: NoPickedSources(),
+            listener: UploadsForwarder()
+        )
+        openedQueue = queue
+        return queue
     }
 
     func autoUpload() throws -> AutoUpload {
@@ -86,6 +118,8 @@ final class ClientHolder {
     static let shared = ClientHolder()
 
     let changes = SyncChanges()
+    /// Called when the upload queue may have changed.
+    var onUploadsChanged: (() -> Void)?
     private(set) var active: ActiveSession?
     private let store = SessionStore()
     private var restoring: Task<ActiveSession?, Error>?

@@ -342,14 +342,14 @@ private fun offlineSummary(status: OfflineStatus): String = when {
 }
 
 @Composable
-private fun sourceStatus(source: UploadSource): String = when {
+internal fun sourceStatus(source: UploadSource): String = when {
     source.problem != null -> source.problem!!
     source.lastError != null -> "${source.pending} to go. ${source.lastError}"
     source.pending > 0u -> "${source.pending} to go"
     else -> source.lastSyncedAt?.let { "Up to date, ${localDate(it)}" } ?: "Waiting to sync"
 }
 
-private fun needsNotificationPermission(context: Context): Boolean =
+internal fun needsNotificationPermission(context: Context): Boolean =
     Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
         context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
         PackageManager.PERMISSION_GRANTED

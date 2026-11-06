@@ -5,6 +5,7 @@ import android.os.Build
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import uniffi.homespace_core.AutoUpload
@@ -14,6 +15,7 @@ import uniffi.homespace_core.CoreException
 import uniffi.homespace_core.DeviceIdentity
 import uniffi.homespace_core.SessionListener
 import uniffi.homespace_core.SignedInUser
+import uniffi.homespace_core.UploadQueue
 
 /** The signed-in client and what hangs off it. */
 class ActiveSession(val client: CoreClient, val user: SignedInUser, context: Context) {
@@ -24,6 +26,20 @@ class ActiveSession(val client: CoreClient, val user: SignedInUser, context: Con
             object : AutoUploadListener {
                 override fun changed() {
                     ClientHolder.syncChanged()
+                }
+            },
+        )
+    }
+
+    /** Opened once in this process, so that it can tell what the app ended in the middle of. */
+    val uploads: UploadQueue by lazy {
+        UploadQueue.open(
+            client,
+            File(appContext.filesDir, SYNC_DIR).path,
+            AndroidPickedFiles(appContext),
+            object : AutoUploadListener {
+                override fun changed() {
+                    ClientHolder.uploadsChanged()
                 }
             },
         )
@@ -53,6 +69,7 @@ class ActiveSession(val client: CoreClient, val user: SignedInUser, context: Con
 object ClientHolder {
     private val restoring = Mutex()
     private val changes = MutableStateFlow(0)
+    private val queueChanges = MutableStateFlow(0)
 
     @Volatile
     var active: ActiveSession? = null
@@ -60,6 +77,17 @@ object ClientHolder {
 
     /** Changes whenever what auto-upload or the offline copies report may have changed. */
     val syncChanges: StateFlow<Int> = changes
+
+    /** Whether an activity is on screen. */
+    @Volatile
+    var appInFront = false
+
+    /** Changes whenever the upload queue may have changed. */
+    val uploadChanges: StateFlow<Int> = queueChanges
+
+    internal fun uploadsChanged() {
+        queueChanges.update { it + 1 }
+    }
 
     internal fun syncChanged() {
         changes.value += 1

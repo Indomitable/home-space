@@ -131,6 +131,16 @@ pub struct UploadSource {
     pub last_error: Option<String>,
 }
 
+/// The file a pass is sending now.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct CurrentUpload {
+    pub source_id: String,
+    pub name: String,
+    /// What the server has.
+    pub done: u64,
+    pub total: u64,
+}
+
 /// How a pass went.
 #[derive(Debug, Clone, Default, PartialEq, Eq, uniffi::Record)]
 pub struct PassSummary {
@@ -162,6 +172,7 @@ pub struct AutoUpload {
     backoff: Arc<Mutex<Backoff>>,
     pending: Arc<Mutex<HashMap<String, u64>>>,
     errors: Arc<Mutex<HashMap<String, String>>>,
+    current: Arc<Mutex<Option<CurrentUpload>>>,
 }
 
 #[uniffi::export]
@@ -188,7 +199,13 @@ impl AutoUpload {
             backoff: Arc::default(),
             pending: Arc::default(),
             errors: Arc::default(),
+            current: Arc::default(),
         }))
+    }
+
+    /// The file being sent now, if any. The listener hears when this changes.
+    pub fn current(&self) -> Option<CurrentUpload> {
+        self.current.lock().expect("current upload lock").clone()
     }
 
     pub fn settings(&self) -> Result<SyncSettings, CoreError> {
@@ -301,6 +318,7 @@ impl AutoUpload {
         let backoff = self.backoff.clone();
         let pending = self.pending.clone();
         let errors = self.errors.clone();
+        let current = self.current.clone();
         off_ui_thread(async move {
             let Ok(_pass) = running.try_lock() else {
                 return Ok(PassSummary {
@@ -327,6 +345,8 @@ impl AutoUpload {
                 backoff: &backoff,
                 errors: &errors,
                 report: &report,
+                current: &current,
+                changed: &|| listener.changed(),
             };
             let summary = pass.run().await;
             listener.changed();

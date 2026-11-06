@@ -56,7 +56,7 @@ Feature: Search, new folders and uploads on mobile
       Given alice is in "Docs"
       When alice picks "a.txt" and "b.txt" and opens another folder
       Then both end up in "Docs"
-      And until then every folder shows a row for each
+      And until then every folder shows a row summing them up
 
     Scenario: An empty file
       When alice picks an empty file
@@ -83,15 +83,33 @@ Feature: Search, new folders and uploads on mobile
       When alice uploads the same "note.txt" to "Docs"
       Then "Docs" holds only "note.txt", at the same version
 
-  Rule: An upload that stops can continue, and giving up leaves nothing behind
+  Rule: An upload that stops continues by itself, and giving up leaves nothing behind
 
     Scenario: The server goes away
       Given an upload that is part way through
       When the server stays out of reach
-      Then the row says so and offers Retry
-      When the server is back and alice taps Retry
-      Then the upload continues from what the server has
+      Then Transfers says it is waiting for the connection and offers Retry
+      When the server is back
+      Then the upload continues from what the server has, with or without Retry
       And the stored file is identical to the picked one
+
+    Scenario: The app ends
+      Given two files waiting to upload, one of them part way through
+      When the app ends, whatever the reason
+      And the app opens again
+      Then the upload continues from what the server has, and the other file follows
+
+    Scenario: A photo that wasn't copied in time on iOS
+      Given a picked photo still being copied out of the library
+      When the app ends
+      Then the next run shows that it must be picked again, with no Retry
+
+    Scenario: The server refuses a file
+      Given two files waiting to upload
+      When the folder the first goes to has been deleted
+      Then the first waits for Retry or Cancel, saying why
+      And the other file goes up
+      And it stays that way after the app ends
 
     Scenario: Cancelling
       Given an upload that is part way through
@@ -101,4 +119,62 @@ Feature: Search, new folders and uploads on mobile
     Scenario: Signing out
       Given an upload that is part way through
       When alice signs out
-      Then the server ends the upload, and the temporary copy is removed
+      Then the server ends the upload, the queue is deleted, and the file doesn't reach the server
+
+  Rule: On Android, uploads carry on after leaving the app, whatever "Sync in background" says
+
+    Scenario: Leaving the app
+      Given an upload that is part way through
+      When alice leaves the app
+      Then the upload goes on, with its progress in a notification
+
+    Scenario: Android ends the app
+      Given an upload that is part way through, with the app out of sight
+      When Android ends the app
+      Then the upload continues by itself from what the server has
+
+    Scenario: The server goes away with the app out of sight
+      Given an upload that is part way through, with the app out of sight
+      When the server is out of reach for a while, then back
+      Then the upload continues by itself
+
+    Scenario: A failure with the app out of sight
+      Given an upload with the app out of sight
+      When the server refuses the file
+      Then a notification says so, and it goes when the app opens
+
+  Rule: On iOS 26, uploads the user started carry on after leaving the app
+
+    Scenario: Picking files, then leaving
+      Given iOS 26 or later
+      When alice picks a file, then leaves the app
+      Then the upload goes on, with its progress shown by the system
+
+    Scenario: iOS ends the task, or alice does
+      Given an upload going on out of sight
+      When the task ends before the upload does
+      Then the file waits, and continues when the app opens
+
+    Scenario: A version or a moment without the task
+      Given iOS 17 to 25, or iOS won't run the task now
+      When alice leaves the app during an upload
+      Then it goes on for the short time any app gets, then waits for the app to open
+
+  Rule: Transfers shows everything on its way
+
+    Scenario: A row in every folder
+      Given files on their way up
+      When alice is in any folder
+      Then a row at the top sums them up, and tapping it opens Transfers
+
+    Scenario: What it lists
+      Given picked files, an auto-upload source and offline copies
+      When alice opens Transfers
+      Then each picked file shows its progress, with Retry where it helps, and Cancel
+      And the source shows the file on its way and how far along it is, or else where it stands
+      And the offline copies show how they stand
+
+    Scenario: Nothing to show
+      Given nothing to transfer and nothing set up to sync
+      When alice opens Transfers
+      Then it says there are no transfers

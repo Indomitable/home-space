@@ -13,6 +13,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import uniffi.homespace_core.CoreException
+import uniffi.homespace_core.QueuedUploadState
 
 private const val INTERVAL_MILLIS = 60_000L
 
@@ -32,6 +33,7 @@ class ForegroundSync(
     private val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
     private val wake = Channel<Boolean>(Channel.CONFLATED)
     private var jobs = emptyList<Job>()
+    private var uploads: Job? = null
 
     private val network = object : ConnectivityManager.NetworkCallback() {
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
@@ -86,7 +88,27 @@ class ForegroundSync(
         wake.trySend(true)
     }
 
+    /** Sends the picked files, whatever "Sync only on Wi-Fi" says: the user asked for these. */
+    fun runUploads() {
+        val waiting = runCatching { session.uploads.items() }.getOrNull().orEmpty()
+        if (waiting.any { it.state != QueuedUploadState.FAILED }) scheduleUploads(appContext)
+        if (uploads?.isActive == true) {
+            session.uploads.start()
+            return
+        }
+        uploads = scope.launch {
+            try {
+                session.uploads.run()
+            } catch (_: CoreException.Unauthorized) {
+                onSessionEnded()
+            } catch (_: CoreException) {
+                // The rows show it, and the next try is a minute away at most.
+            }
+        }
+    }
+
     private fun onNetworkChanged() {
+        runUploads()
         val allowed = runCatching { networkAllows() }.getOrDefault(false)
         onNetworkAllowed(allowed)
         if (allowed) {
@@ -111,6 +133,7 @@ class ForegroundSync(
     }
 
     private suspend fun pass(retryNow: Boolean) {
+        runUploads()
         try {
             val allowed = networkAllows()
             onNetworkAllowed(allowed)

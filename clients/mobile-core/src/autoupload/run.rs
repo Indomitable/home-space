@@ -24,7 +24,7 @@ use uuid::Uuid;
 
 use super::plan::{self, Item, Plan, Record, Step};
 use super::store::{SavedUpload, SourceRow, Store};
-use super::{LocalItem, LocalSources, PassSummary, SourceKind};
+use super::{CurrentUpload, LocalItem, LocalSources, PassSummary, SourceKind};
 use crate::CoreError;
 
 /// Largest chunk sent, whatever the server allows: a chunk is held in memory, and it is what is
@@ -167,6 +167,8 @@ pub(super) struct Pass<'a> {
     pub errors: &'a Mutex<HashMap<String, String>>,
     /// Told after each thing worth showing; takes the files still to go per source.
     pub report: &'a (dyn Fn(&str, u64) + Send + Sync),
+    pub current: &'a Mutex<Option<CurrentUpload>>,
+    pub changed: &'a (dyn Fn() + Send + Sync),
 }
 
 pub(super) fn nanos(time: SystemTime) -> i64 {
@@ -587,15 +589,29 @@ impl Pass<'_> {
     ) -> Result<Node, Failure> {
         session.chunk_size = session.chunk_size.min(MAX_CHUNK_BYTES);
         let reading = Reading::default();
+        self.show_current(Some(CurrentUpload {
+            source_id: source.id.clone(),
+            name: item.name.clone(),
+            done: session.offset,
+            total: item.size,
+        }));
         let sent = self
             .client
             .continue_upload(
                 session,
                 item.size,
                 |offset, len| self.read(source, item, offset, len, &reading),
-                |_| {},
+                |done| {
+                    if let Some(current) =
+                        self.current.lock().expect("current upload lock").as_mut()
+                    {
+                        current.done = done;
+                    }
+                    (self.changed)();
+                },
             )
             .await;
+        self.show_current(None);
         match sent {
             Ok(node) => {
                 self.store.forget_upload(&source.id, &item.key)?;
@@ -618,6 +634,11 @@ impl Pass<'_> {
                 Err(err.into())
             }
         }
+    }
+
+    fn show_current(&self, current: Option<CurrentUpload>) {
+        *self.current.lock().expect("current upload lock") = current;
+        (self.changed)();
     }
 
     /// Reads `len` bytes of the file. Fails on being told to stop, or if the file is no longer the

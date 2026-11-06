@@ -3,6 +3,7 @@ package app.homespace.android
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
@@ -10,7 +11,11 @@ import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import android.provider.MediaStore
+import android.system.ErrnoException
+import android.system.OsConstants
+import java.io.File
 import java.io.FileInputStream
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.time.Instant
@@ -20,7 +25,39 @@ import org.json.JSONObject
 import uniffi.homespace_core.LocalChanges
 import uniffi.homespace_core.LocalItem
 import uniffi.homespace_core.LocalSources
+import uniffi.homespace_core.PickedFiles
 import uniffi.homespace_core.SourceKind
+
+/** Reads the files picked to upload, by their content URIs. */
+class AndroidPickedFiles(context: Context) : PickedFiles {
+    private val resolver = context.applicationContext.contentResolver
+
+    override fun copyFile(source: String, dest: String) {
+        try {
+            val input = resolver.openInputStream(Uri.parse(source)) ?: throw FileNotFoundException(source)
+            input.use { from -> File(dest).outputStream().use { to -> from.copyTo(to) } }
+        } catch (_: SecurityException) {
+            throw CoreException.Failed("file", "Home Space can no longer read this file. Pick it again.")
+        } catch (_: FileNotFoundException) {
+            throw CoreException.Failed("file", "This file can no longer be found. Pick it again.")
+        } catch (e: IOException) {
+            val full = (e.cause as? ErrnoException)?.errno == OsConstants.ENOSPC
+            throw CoreException.Failed(
+                "file",
+                if (full) "There isn't enough free space on this phone to prepare this file." else
+                    "The file can't be read: ${e.message}",
+            )
+        }
+    }
+
+    override fun release(source: String) {
+        try {
+            resolver.releasePersistableUriPermission(Uri.parse(source), Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: SecurityException) {
+            // It was never kept, since not every provider offers it.
+        }
+    }
+}
 
 /** The handle of the camera source, which has only one place to look. */
 const val CAMERA_HANDLE = "camera"

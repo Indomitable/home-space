@@ -11,6 +11,7 @@ use std::{
 
 use futures::{StreamExt, stream};
 use sha2::{Digest, Sha256};
+use time::OffsetDateTime;
 use tokio::{fs, io::AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 use uuid::Uuid;
@@ -25,15 +26,20 @@ use super::{
     scan::{hash_file, is_ignored},
     store::Store,
 };
-use crate::Platform;
+use crate::{Platform, layout::MAX_NAME_BYTES};
 
 const PART_SUFFIX: &str = ".part";
 
 /// Where a download into `target` is written until it is complete.
 pub fn part_path(target: &Path) -> PathBuf {
-    let mut name = target.as_os_str().to_owned();
-    name.push(PART_SUFFIX);
-    PathBuf::from(name)
+    let mut name = target
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    // A name at the file system's limit leaves no room for the suffix.
+    name.truncate(name.floor_char_boundary(MAX_NAME_BYTES - PART_SUFFIX.len()));
+    name.push_str(PART_SUFFIX);
+    target.with_file_name(name)
 }
 
 /// `len` bytes of the file at `path` from `offset`, for one chunk of an upload.
@@ -252,7 +258,7 @@ pub fn execute_all<'a>(
 ) -> impl futures::Stream<Item = (Action, Result<Vec<Effect>, Failure>)> + 'a {
     stream::iter(actions)
         .map(move |action| async move {
-            let outcome = if halt.load(Ordering::Relaxed) {
+            let outcome = if halt.load(Ordering::Relaxed) || queue::halted(with.progress) {
                 Err(Failure::Halted)
             } else {
                 execute(
@@ -309,7 +315,7 @@ async fn upload(
             sha256
         }
     };
-    let modified = Some(datetime(local.mtime));
+    let modified = Some(upload_time(store, node, &local)?);
     let saved = store.saved_upload(&path)?;
     let stored = if local.size > client.upload_chunk_bytes() {
         let (parent, name) = match node {
@@ -353,7 +359,15 @@ async fn upload(
             .continue_upload(
                 session,
                 local.size,
-                |offset, len| read_range(&path, offset, len),
+                |offset, len| {
+                    let path = &path;
+                    async move {
+                        if queue::halted(progress) {
+                            return Err(io::ErrorKind::Interrupted.into());
+                        }
+                        read_range(path, offset, len).await
+                    }
+                },
                 |done| queue::set(progress, &path, done),
             )
             .await;
@@ -362,6 +376,8 @@ async fn upload(
                 store.forget_upload(&path)?;
                 stored
             }
+            // Told to stop, not refused: the next pass continues from what the server has.
+            Err(_) if queue::halted(progress) => return Err(Failure::Halted),
             Err(err) if is_passing(&err) => return Err(err.into()),
             Err(err) => {
                 // The server will not take the rest; the next pass starts over.
@@ -393,6 +409,30 @@ async fn upload(
         download(client, progress, &stored, &path, Some(&local)).await?
     };
     Ok(vec![Effect::Remote(stored), Effect::Base(base)])
+}
+
+/// The modification time to send a file with. The server keeps the later content as current, and
+/// a rename or move there counts as later too. So when the server's content is still what this
+/// edit started from, the edit goes as later than that: it is the only change to the content.
+fn upload_time(
+    store: &Store,
+    node: Option<NodeId>,
+    local: &LocalEntry,
+) -> Result<OffsetDateTime, Failure> {
+    let edited = datetime(local.mtime);
+    let Some(id) = node else {
+        return Ok(edited);
+    };
+    let (Some(base), Some(remote)) = (store.base(id)?, store.remote_node(id)?) else {
+        return Ok(edited);
+    };
+    Ok(
+        if base.sha256 == remote.sha256 && remote.updated_at >= edited {
+            remote.updated_at + time::Duration::seconds(1)
+        } else {
+            edited
+        },
+    )
 }
 
 /// The session of `saved` to continue, when it still sends `wanted` and the server still has
@@ -456,7 +496,11 @@ async fn download(
         Ok(sha256) => sha256,
         Err(err) => {
             let _ = fs::remove_file(&part).await;
-            return Err(err.into());
+            return Err(if err.kind() == io::ErrorKind::Interrupted {
+                Failure::Halted
+            } else {
+                err.into()
+            });
         }
     };
     if let Err(failure) = unchanged(path, expect).await {
@@ -487,6 +531,9 @@ async fn write_part(
     let mut hasher = Sha256::new();
     let mut body = response.bytes_stream();
     while let Some(chunk) = body.next().await {
+        if queue::halted(progress) {
+            return Err(io::ErrorKind::Interrupted.into());
+        }
         let chunk = chunk.map_err(io::Error::other)?;
         hasher.update(&chunk);
         out.write_all(&chunk).await?;
@@ -522,7 +569,7 @@ async fn unchanged(path: &Path, expect: Option<&LocalEntry>) -> Result<(), Failu
 }
 
 /// The body that sends the file at `path`, counting what has gone out in `progress`.
-fn file_body(path: &Path, progress: &Progress) -> reqwest::Body {
+pub fn file_body(path: &Path, progress: &Progress) -> reqwest::Body {
     match std::fs::File::open(path) {
         Ok(file) => {
             // A retried request sends the file again from the start.
@@ -580,6 +627,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).expect("temp dir");
         path
+    }
+
+    #[test]
+    fn a_part_path_fits_beside_a_name_at_the_limit() {
+        assert_eq!(
+            part_path(Path::new("/tmp/a.pdf")),
+            PathBuf::from("/tmp/a.pdf.part")
+        );
+        let long = "é".repeat(120) + "xxxxxxxxxxxxxxx";
+        let part = part_path(&Path::new("/tmp").join(&long));
+        assert!(part.file_name().expect("name").len() <= MAX_NAME_BYTES);
+        assert!(is_ignored(
+            part.file_name().expect("name").to_str().expect("text")
+        ));
     }
 
     #[test]

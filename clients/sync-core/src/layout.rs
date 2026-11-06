@@ -12,6 +12,9 @@ use super::{
     scan::is_ignored,
 };
 
+/// The longest file name, in bytes, on the file systems the clients run on.
+pub const MAX_NAME_BYTES: usize = 255;
+
 /// Where every synced remote node lives on disk.
 ///
 /// A node belongs to its nearest mapped ancestor: it sits under that mapping's local folder,
@@ -29,6 +32,8 @@ pub struct Layout {
     pub folders: HashMap<PathBuf, Option<NodeId>>,
     /// The local folders of the mappings.
     pub roots: Vec<PathBuf>,
+    /// Those of them that hold a single mapped file rather than stand for a remote folder.
+    pub file_roots: HashSet<PathBuf>,
     /// Local paths that would hold a folder mapped elsewhere or set to not sync, which the
     /// mapping they are in leaves alone.
     pub skipped: HashSet<PathBuf>,
@@ -54,18 +59,33 @@ impl Layout {
                 layout.disabled.extend(mapping.remote);
                 continue;
             };
-            let is_folder = mapping.remote.is_none_or(|id| {
-                nodes
-                    .get(&id)
-                    .is_some_and(|node| node.kind == NodeKind::Folder)
-            });
-            if is_folder {
-                layout.roots.push(root.clone());
-                layout.folders.insert(root.clone(), mapping.remote);
-                layout.place(&children, &mapped, mapping.remote, root);
+            let node = mapping.remote.and_then(|id| nodes.get(&id));
+            match (mapping.remote, node.map(|node| node.kind)) {
+                (Some(_), Some(NodeKind::File)) => {
+                    layout.place_file(node.expect("the kind came from it"), root);
+                }
+                (None, _) | (Some(_), Some(NodeKind::Folder)) => {
+                    layout.roots.push(root.clone());
+                    layout.folders.insert(root.clone(), mapping.remote);
+                    layout.place(&children, &mapped, mapping.remote, root);
+                }
+                (Some(_), None) => {}
             }
         }
         layout
+    }
+
+    /// A mapped file sits alone in its local folder under its current name.
+    fn place_file(&mut self, node: &RemoteNode, root: &Path) {
+        let name = local_name(&node.name);
+        if is_ignored(&name) {
+            return;
+        }
+        let path = root.join(name);
+        self.roots.push(root.to_path_buf());
+        self.file_roots.insert(root.to_path_buf());
+        self.paths.insert(node.id, path.clone());
+        self.entries.insert(path, node.clone());
     }
 
     fn place(
@@ -78,7 +98,7 @@ impl Layout {
         let mut pending = vec![(top, root.to_path_buf())];
         while let Some((parent, dir)) = pending.pop() {
             for child in children.get(&parent).into_iter().flatten() {
-                let name = sanitize_component(&child.name);
+                let name = local_name(&child.name);
                 // The scan never sees such a file here, which would read as deleted locally.
                 if is_ignored(&name) && child.kind == NodeKind::File {
                     continue;
@@ -110,6 +130,12 @@ impl Layout {
             .collect()
     }
 
+    /// Whether `path` is inside the folder of a mapped file.
+    pub fn in_file_root(&self, path: &Path) -> bool {
+        path.parent()
+            .is_some_and(|parent| self.file_roots.contains(parent))
+    }
+
     /// Whether `path` is synced: under a mapping's folder and not left out of it.
     pub fn covers(&self, path: &Path) -> bool {
         self.roots
@@ -117,6 +143,23 @@ impl Layout {
             .any(|root| path.starts_with(root) && path != root)
             && !self.skipped.iter().any(|skipped| path.starts_with(skipped))
     }
+}
+
+/// `name` as a file name here: nothing the file system forbids, and short enough for it, keeping
+/// the extension that apps go by.
+pub fn local_name(name: &str) -> String {
+    let name = sanitize_component(name);
+    if name.len() <= MAX_NAME_BYTES {
+        return name;
+    }
+    let (stem, extension) = match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() && extension.len() < MAX_NAME_BYTES / 2 => {
+            (stem, format!(".{extension}"))
+        }
+        _ => (name.as_str(), String::new()),
+    };
+    let end = stem.floor_char_boundary(MAX_NAME_BYTES - extension.len());
+    format!("{}{extension}", &stem[..end])
 }
 
 /// Why `local` cannot be the folder of a new mapping next to `others`: local folders may not
@@ -228,6 +271,42 @@ pub(super) mod tests {
         assert!(!layout.covers(Path::new("/docs")));
         assert!(layout.covers(Path::new("/docs/a.txt")));
         assert!(!layout.covers(Path::new("/elsewhere/a.txt")));
+    }
+
+    #[test]
+    fn a_mapped_file_sits_alone_in_its_folder() {
+        let layout = Layout::new(&home(), &[map(Some(2), Some("/pins/2"))]);
+        assert_eq!(layout.paths[&id(2)], Path::new("/pins/2/a.txt"));
+        assert_eq!(layout.paths.len(), 1);
+        assert!(layout.covers(Path::new("/pins/2/a.txt")));
+        assert!(layout.in_file_root(Path::new("/pins/2/a.txt")));
+        assert!(layout.folders.is_empty(), "it stands for no remote folder");
+    }
+
+    #[test]
+    fn a_file_mapped_on_its_own_is_left_out_of_its_folder() {
+        let layout = Layout::new(
+            &home(),
+            &[map(Some(1), Some("/docs")), map(Some(2), Some("/pins/2"))],
+        );
+        assert_eq!(layout.paths[&id(2)], Path::new("/pins/2/a.txt"));
+        assert!(layout.skipped.contains(Path::new("/docs/a.txt")));
+    }
+
+    #[test]
+    fn a_mapping_of_a_node_not_known_places_nothing() {
+        let layout = Layout::new(&home(), &[map(Some(99), Some("/pins/99"))]);
+        assert!(layout.roots.is_empty());
+    }
+
+    #[test]
+    fn local_names_fit_the_file_system_and_keep_their_extension() {
+        assert_eq!(local_name("a/b.txt"), "a_b.txt");
+        let long = format!("{}.pdf", "é".repeat(200));
+        let name = local_name(&long);
+        assert!(name.len() <= MAX_NAME_BYTES, "{}", name.len());
+        assert!(name.ends_with(".pdf"));
+        assert!(local_name(&"x".repeat(300)).len() <= MAX_NAME_BYTES);
     }
 
     #[test]

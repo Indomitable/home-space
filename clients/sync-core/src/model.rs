@@ -86,6 +86,15 @@ pub struct Base {
 }
 
 impl Base {
+    /// Whether a file that is still there differs from what was agreed, going by its size and
+    /// modification time. A file that isn't there has no edits to lose.
+    pub fn is_edited(&self) -> bool {
+        self.kind == NodeKind::File
+            && std::fs::metadata(&self.path).is_ok_and(|meta| {
+                meta.len() != self.size || meta.modified().map(nanos).unwrap_or(0) != self.mtime
+            })
+    }
+
     pub fn new(node: NodeId, path: PathBuf, local: &LocalEntry) -> Self {
         Self {
             node,

@@ -3,7 +3,10 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{
+        Arc, Mutex, MutexGuard, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use time::OffsetDateTime;
@@ -12,11 +15,52 @@ use protocol::NodeId;
 
 use super::{apply::Folders, plan::Action};
 
-/// Bytes moved so far by each transfer running, by local path.
-pub type Progress = Arc<Mutex<HashMap<PathBuf, u64>>>;
+/// The transfers running: the bytes moved so far by each, by local path, and the gate that can
+/// stop them.
+#[derive(Debug, Default)]
+pub struct Transfers {
+    moved: Mutex<HashMap<PathBuf, u64>>,
+    gate: Gate,
+}
+
+impl Transfers {
+    pub fn new(gate: Gate) -> Self {
+        Self {
+            moved: Mutex::default(),
+            gate,
+        }
+    }
+}
+
+pub type Progress = Arc<Transfers>;
+
+/// Lets the app hold back transfers, such as when the network may no longer be used.
+///
+/// While it is closed no pass starts and the transfers running stop at their next chunk. What was
+/// uploaded stays on the server, so the upload continues from there.
+#[derive(Debug, Clone, Default)]
+pub struct Gate(Arc<AtomicBool>);
+
+impl Gate {
+    pub fn set_closed(&self, closed: bool) {
+        self.0.store(closed, Ordering::Relaxed);
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+}
 
 fn lock(progress: &Progress) -> MutexGuard<'_, HashMap<PathBuf, u64>> {
-    progress.lock().unwrap_or_else(PoisonError::into_inner)
+    progress
+        .moved
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Whether the transfers running should stop.
+pub fn halted(progress: &Progress) -> bool {
+    progress.gate.is_closed()
 }
 
 /// A copy of the bytes moved so far.

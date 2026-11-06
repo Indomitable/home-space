@@ -108,6 +108,7 @@ impl Syncing {
             Message::Engine(update) => match update {
                 sync::Update::Ready(commands) => self.commands = Some(commands),
                 sync::Update::Status(status) => self.status = status,
+                sync::Update::Settled(_) => {}
                 sync::Update::Rejected(reason) => {
                     self.notice = Some(reason.clone());
                     return Outcome::Error(format!("Could not sync there: {reason}"));

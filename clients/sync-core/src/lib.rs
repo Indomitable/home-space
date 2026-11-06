@@ -58,8 +58,10 @@ use self::{
 };
 pub use self::{
     apply::{part_path, read_range},
-    model::Mapping,
-    queue::{Fault, ItemState, Operation, QueueItem as Item, Summary},
+    layout::local_name,
+    model::{Base, Mapping, RemoteNode, nanos},
+    queue::{Fault, Gate, ItemState, Operation, QueueItem as Item, Summary, Transfers},
+    scan::{hash_file, is_ignored},
     status::Badge,
     store::Store,
 };
@@ -80,8 +82,22 @@ const UNREADABLE_CODE: &str = "unreadable";
 const PROGRESS: Duration = Duration::from_millis(500);
 
 /// What the engine needs from the platform it runs on. The defaults suit an app that keeps its
-/// synced files to itself: nothing else changes them and there is no recycle bin to use.
+/// synced files to itself: the user can't reach them to delete or move them, and there is no
+/// system trash to use.
 pub trait Platform: Send + Sync + 'static {
+    /// Whether the local copies belong to the app, not the user. A path that goes missing was
+    /// then not deleted by anyone, so it is brought back rather than deleted on the server. A
+    /// mapping whose node is gone from the server goes too, along with its local folder.
+    fn app_owned_copies(&self) -> bool {
+        true
+    }
+
+    /// Where edits go whose file is gone from the server, along with the mapping that held them,
+    /// so that they aren't lost. Without it the mapping stays.
+    fn rescue_folder(&self) -> Option<NodeId> {
+        None
+    }
+
     /// The app's own data, which no local folder of a mapping may overlap.
     fn protected_dir(&self) -> Option<PathBuf> {
         None
@@ -105,9 +121,15 @@ pub trait Platform: Send + Sync + 'static {
 
 /// A [`Platform`] that relies on all the defaults.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct PrivateFiles;
+pub struct PrivateFiles {
+    pub rescue: Option<NodeId>,
+}
 
-impl Platform for PrivateFiles {}
+impl Platform for PrivateFiles {
+    fn rescue_folder(&self) -> Option<NodeId> {
+        self.rescue
+    }
+}
 
 /// What the sync reports to the app.
 #[derive(Debug, Clone)]
@@ -117,6 +139,9 @@ pub enum Update {
     Status(Arc<Status>),
     /// A requested mapping was not made.
     Rejected(String),
+    /// Work is done for now, for a pass that started after [`Command::Wake`] with this ticket:
+    /// everything is in sync, waiting to be tried again, or held back by the [`Gate`].
+    Settled(u64),
 }
 
 /// What the engine is busy with.
@@ -231,6 +256,18 @@ pub enum Command {
     RemoteChanged(Event),
     /// Tries the failed paths again now: these ones, or all of them with `None`.
     Retry(Option<Vec<PathBuf>>),
+    /// Like [`Command::Map`], without reading everything mapped again: `known` holds what is
+    /// already known of the node, and only a folder not told about here is read.
+    Pin {
+        mapping: Mapping,
+        known: Option<RemoteNode>,
+    },
+    /// Removes a mapping along with its local folder and what was recorded about it.
+    Purge(NodeId),
+    /// Runs a pass now, unless the [`Gate`] is closed.
+    Wake(u64),
+    /// Ends the engine.
+    Shutdown,
     /// Reads the synced folder `node` (`None` for Home) from scratch on both sides: the
     /// server's tree again, and every local file hashed again, catching what the caches
     /// missed.
@@ -250,8 +287,9 @@ impl Commands {
 /// Runs the sync until the session ends or the app stops listening. Reports to `output`.
 pub async fn run(
     client: Client,
-    store: Store,
+    store: impl Into<Arc<Store>>,
     platform: Arc<dyn Platform>,
+    gate: Gate,
     mut output: Sender<Update>,
 ) {
     let mut engine = match Engine::load(client, store, platform) {
@@ -271,10 +309,13 @@ pub async fn run(
     {
         return;
     }
+    engine.set_gate(gate.clone());
+    engine.report_now(&mut output).await;
     let (changed, mut local_changes) = mpsc::unbounded_channel();
     let mut watcher = engine.watch(&changed);
     let mut due = Some(Instant::now());
     let mut interrupted: Option<Command> = None;
+    let mut ticket = 0;
     loop {
         let wake = due.unwrap_or_else(|| Instant::now() + RESCAN);
         tokio::select! {
@@ -288,6 +329,11 @@ pub async fn run(
                 if engine.is_echo(&command) {
                     continue;
                 }
+                match command {
+                    Command::Shutdown => break,
+                    Command::Wake(asked) => ticket = asked,
+                    _ => {}
+                }
                 if engine.handle(command, &mut output).await {
                     watcher = engine.watch(&changed);
                     engine.activity = Activity::Checking;
@@ -299,8 +345,20 @@ pub async fn run(
                 due.get_or_insert_with(|| Instant::now() + SETTLE);
             }
             () = tokio::time::sleep_until(wake) => {
+                if gate.is_closed() {
+                    // [`Command::Wake`] brings it back once the gate opens.
+                    due = None;
+                    let _ = output.send(Update::Settled(ticket)).await;
+                    continue;
+                }
+                let started = ticket;
                 match engine.pass(&mut output, &mut received).await {
-                    Ok(next) => due = next.map(|delay| Instant::now() + delay),
+                    Ok(next) => {
+                        due = next.map(|delay| Instant::now() + delay);
+                        if next.is_none_or(|delay| delay > SETTLE) {
+                            let _ = output.send(Update::Settled(started)).await;
+                        }
+                    }
                     Err(SignedOut) => break,
                 }
                 interrupted = engine.interrupted.take();
@@ -341,6 +399,9 @@ struct Engine {
     mappings: Vec<Mapping>,
     /// Set when the mapped folders must be read from scratch.
     reload: bool,
+    /// Mapped nodes still to be read, while the rest of what is mapped is known.
+    unread: HashSet<NodeId>,
+    gate: Gate,
     /// Synced folders whose local files are hashed again on the next scan.
     verify: HashSet<Option<NodeId>>,
     problems: HashMap<PathBuf, Problem>,
@@ -367,7 +428,12 @@ impl Drop for Engine {
 }
 
 impl Engine {
-    fn load(client: Client, store: Store, platform: Arc<dyn Platform>) -> rusqlite::Result<Self> {
+    fn load(
+        client: Client,
+        store: impl Into<Arc<Store>>,
+        platform: Arc<dyn Platform>,
+    ) -> rusqlite::Result<Self> {
+        let store: Arc<Store> = store.into();
         let mirror = Mirror {
             nodes: store
                 .remote_nodes()?
@@ -376,14 +442,28 @@ impl Engine {
                 .collect(),
             cursor: store.cursor()?,
         };
+        let mappings = store.mappings()?;
+        // Mapped just before the app last stopped, so never read.
+        let unread = if platform.app_owned_copies() {
+            mappings
+                .iter()
+                .filter(|m| m.local.is_some())
+                .filter_map(|m| m.remote)
+                .filter(|id| !mirror.nodes.contains_key(id))
+                .collect()
+        } else {
+            HashSet::new()
+        };
         Ok(Self {
             client,
             platform,
-            mappings: store.mappings()?,
+            mappings,
             reload: mirror.cursor.is_none(),
+            unread,
+            gate: Gate::default(),
             verify: HashSet::new(),
             mirror,
-            store: Arc::new(store),
+            store,
             problems: HashMap::new(),
             outage: None,
             unreadable: Vec::new(),
@@ -393,6 +473,11 @@ impl Engine {
             stop: Arc::new(AtomicBool::new(false)),
             interrupted: None,
         })
+    }
+
+    fn set_gate(&mut self, gate: Gate) {
+        self.progress = Arc::new(queue::Transfers::new(gate.clone()));
+        self.gate = gate;
     }
 
     /// Watches the mapped local folders; changes are reported as `()` on `changed`.
@@ -408,7 +493,22 @@ impl Engine {
     /// Applies a command; returns whether the watched folders changed.
     async fn handle(&mut self, command: Command, output: &mut Sender<Update>) -> bool {
         match command {
-            Command::RemoteChanged(_) => false,
+            Command::RemoteChanged(_) | Command::Wake(_) | Command::Shutdown => false,
+            Command::Pin { mapping, known } => {
+                if let Err(err) = self.pin(&mapping, known) {
+                    let _ = output.send(Update::Rejected(err.to_string())).await;
+                    return false;
+                }
+                self.mappings.retain(|m| m.remote != mapping.remote);
+                self.mappings.push(mapping);
+                true
+            }
+            Command::Purge(remote) => {
+                if let Err(err) = self.purge(remote).await {
+                    let _ = output.send(Update::Rejected(err.to_string())).await;
+                }
+                true
+            }
             Command::Retry(paths) => {
                 let now = Instant::now();
                 self.problems
@@ -463,6 +563,127 @@ impl Engine {
         }
     }
 
+    fn pin(&mut self, mapping: &Mapping, known: Option<RemoteNode>) -> rusqlite::Result<()> {
+        match known {
+            Some(node) => {
+                self.store
+                    .update_remote(false, std::slice::from_ref(&node), &[])?;
+                self.mirror.nodes.insert(node.id, node);
+            }
+            None => self.unread.extend(mapping.remote),
+        }
+        self.store.set_mapping(mapping)
+    }
+
+    /// Forgets the mapping of `remote` and removes its local folder.
+    async fn purge(&mut self, remote: NodeId) -> Result<(), String> {
+        let Some(root) = self
+            .mappings
+            .iter()
+            .find(|m| m.remote == Some(remote))
+            .and_then(|m| m.local.clone())
+        else {
+            return Ok(());
+        };
+        self.store
+            .remove_mapping(Some(remote))
+            .map_err(|err| err.to_string())?;
+        self.mappings.retain(|m| m.remote != Some(remote));
+        self.unread.remove(&remote);
+        self.forget_folder(&root).await;
+        Ok(())
+    }
+
+    /// Removes a local folder no mapping uses any more, and what was recorded under it.
+    async fn forget_folder(&mut self, root: &Path) {
+        for upload in self.store.saved_uploads().unwrap_or_default() {
+            if upload.path.starts_with(root) {
+                let _ = apply::discard(&self.client, &self.store, &upload).await;
+            }
+        }
+        for base in self.store.bases().unwrap_or_default() {
+            if base.path.starts_with(root)
+                && let Err(err) = self.store.forget_base(base.node, Some(&base.path))
+            {
+                eprintln!("could not record sync state: {err}");
+            }
+        }
+        self.problems.retain(|path, _| !path.starts_with(root));
+        self.unreadable.retain(|(path, _)| !path.starts_with(root));
+        let target = root.to_path_buf();
+        let removed = tokio::task::spawn_blocking(move || std::fs::remove_dir_all(target)).await;
+        if let Ok(Err(err)) = removed
+            && err.kind() != io::ErrorKind::NotFound
+        {
+            eprintln!("could not remove {}: {err}", root.display());
+        }
+    }
+
+    /// Reads the mapped nodes that are still unread.
+    async fn read_unread(&mut self) -> Result<(), ApiError> {
+        let mapped: HashSet<Option<NodeId>> = self.mappings.iter().map(|m| m.remote).collect();
+        for id in self.unread.clone() {
+            let delta = self.mirror.read_mapped(&self.client, id, &mapped).await?;
+            self.record_remote(&delta);
+            self.unread.remove(&id);
+        }
+        Ok(())
+    }
+
+    /// Lets go of the mappings whose node is gone from the server, sending edits still in them
+    /// to the rescue folder first. One whose edits can't be sent now stays for a later pass.
+    async fn drop_gone_mappings(&mut self) -> Result<(), SignedOut> {
+        let gone: Vec<(NodeId, PathBuf)> = self
+            .mappings
+            .iter()
+            .filter_map(|m| Some((m.remote?, m.local.clone()?)))
+            .filter(|(id, _)| !self.mirror.nodes.contains_key(id) && !self.unread.contains(id))
+            .collect();
+        for (id, root) in gone {
+            match self.rescue_edits(&root).await {
+                Ok(true) => {
+                    if let Err(err) = self.purge(id).await {
+                        eprintln!("could not remove a mapping: {err}");
+                    }
+                }
+                Ok(false) => {}
+                Err(ApiError::Unauthorized) => return Err(SignedOut),
+                Err(err) => eprintln!("could not rescue edits: {err}"),
+            }
+        }
+        Ok(())
+    }
+
+    /// Sends the files under `root` that differ from their base to the rescue folder. Returns
+    /// whether nothing is left to lose.
+    async fn rescue_edits(&self, root: &Path) -> Result<bool, ApiError> {
+        let bases = self.store.bases().unwrap_or_default();
+        let edited: Vec<Base> = bases
+            .into_iter()
+            .filter(|base| base.path.starts_with(root) && base.is_edited())
+            .collect();
+        if edited.is_empty() {
+            return Ok(true);
+        }
+        let Some(folder) = self.platform.rescue_folder() else {
+            return Ok(false);
+        };
+        for base in edited {
+            let Some(name) = base.path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let modified = std::fs::metadata(&base.path)
+                .and_then(|meta| meta.modified())
+                .ok()
+                .map(OffsetDateTime::from);
+            let body = || apply::file_body(&base.path, &self.progress);
+            self.client
+                .upload_modified(Some(folder), name, modified, body)
+                .await?;
+        }
+        Ok(true)
+    }
+
     /// Where the folder `remote` syncs to, if it does.
     fn synced_root(&self, remote: Option<NodeId>) -> Option<&Path> {
         self.mappings
@@ -492,11 +713,16 @@ impl Engine {
         } else {
             self.mirror.refresh(&self.client, &self.mappings).await
         };
-        match refreshed {
+        let refreshed = match refreshed {
             Ok(delta) => {
                 self.reload = false;
                 self.record_remote(&delta);
+                self.read_unread().await
             }
+            Err(err) => Err(err),
+        };
+        match refreshed {
+            Ok(()) => {}
             Err(ApiError::Unauthorized) => return Err(SignedOut),
             Err(err) => {
                 self.activity = Activity::Idle;
@@ -513,6 +739,15 @@ impl Engine {
                 return Ok(Some(delay));
             }
         }
+        let private = self.platform.app_owned_copies();
+        if private {
+            self.drop_gone_mappings().await?;
+            for root in self.mappings.iter().filter_map(|m| m.local.as_deref()) {
+                if let Err(err) = tokio::fs::create_dir_all(root).await {
+                    eprintln!("could not create {}: {err}", root.display());
+                }
+            }
+        }
         let layout = Layout::new(&self.mirror.nodes, &self.mappings);
         let bases = self.store.bases().unwrap_or_default();
         self.activity = Activity::Scanning;
@@ -524,7 +759,7 @@ impl Engine {
         self.verify.clear();
         self.unreadable = self.faults_of(&scan.unreadable);
         let now = Instant::now();
-        let planned = plan::plan(&layout, &scan, &bases);
+        let planned = plan::plan_with(&layout, &scan, &bases, private);
         self.discard_uploads(&planned).await;
         // A path with nothing left to do was resolved meanwhile, perhaps by the user.
         self.problems.retain(|path, _| {
@@ -675,7 +910,7 @@ impl Engine {
             }
         };
         for phase in [Phase::Move, Phase::Create, Phase::Transfer, Phase::Delete] {
-            if breaker.is_tripped() {
+            if breaker.is_tripped() || self.gate.is_closed() {
                 break;
             }
             let now: Vec<Action> = actions
@@ -719,7 +954,7 @@ impl Engine {
             } else {
                 // One at a time, so each action sees the folders the previous ones created.
                 for action in now {
-                    if breaker.is_tripped() {
+                    if breaker.is_tripped() || self.gate.is_closed() {
                         break;
                     }
                     let outcome = apply::execute(
@@ -994,13 +1229,21 @@ mod tests {
     use super::{model::LocalEntry, *};
     use protocol::NodeKind;
 
+    struct Desktoplike;
+
+    impl Platform for Desktoplike {
+        fn app_owned_copies(&self) -> bool {
+            false
+        }
+    }
+
     const UNREACHABLE: &str = "server unreachable (502 Bad Gateway)";
 
     fn engine() -> Engine {
         Engine::load(
             Client::new("http://127.0.0.1:9"),
             Store::in_memory().expect("store"),
-            Arc::new(PrivateFiles),
+            Arc::new(Desktoplike),
         )
         .expect("engine")
     }

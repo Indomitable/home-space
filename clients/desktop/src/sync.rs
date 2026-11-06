@@ -19,10 +19,10 @@ use tokio::sync::mpsc;
 use api_client::Client;
 use protocol::UserId;
 pub use sync_core::{
-    Activity, Badge, Command, Commands, Fault, Item, ItemState, Mapping, Operation, Outage,
-    Status, Summary, Update, part_path, read_range,
+    Activity, Badge, Command, Commands, Fault, Item, ItemState, Mapping, Operation, Outage, Status,
+    Summary, Update, part_path, read_range,
 };
-use sync_core::{Platform, Store};
+use sync_core::{Gate, Platform, Store};
 
 use crate::session;
 
@@ -31,6 +31,10 @@ const BUFFER: usize = 64;
 struct Desktop;
 
 impl Platform for Desktop {
+    fn app_owned_copies(&self) -> bool {
+        false
+    }
+
     fn protected_dir(&self) -> Option<PathBuf> {
         session::data_dir()
     }
@@ -90,7 +94,9 @@ fn run(client: Client, user: UserId) -> impl Stream<Item = Update> {
                 Store::open(&dir.join(format!("sync-{user}.db"))).map_err(|err| err.to_string())
             });
         match store {
-            Ok(store) => sync_core::run(client, store, Arc::new(Desktop), output).await,
+            Ok(store) => {
+                sync_core::run(client, store, Arc::new(Desktop), Gate::default(), output).await
+            }
             Err(error) => {
                 let status = sync_core::unavailable(&error);
                 let _ = output.send(Update::Status(Arc::new(status))).await;

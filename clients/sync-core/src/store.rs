@@ -245,6 +245,16 @@ impl Store {
         Ok(bases)
     }
 
+    /// The base of `node`, if one is recorded.
+    pub fn base(&self, node: NodeId) -> Result<Option<Base>> {
+        Ok(self.bases()?.into_iter().find(|base| base.node == node))
+    }
+
+    /// The last known state of `node`, if it is held.
+    pub fn remote_node(&self, id: NodeId) -> Result<Option<RemoteNode>> {
+        Ok(self.remote_nodes()?.into_iter().find(|node| node.id == id))
+    }
+
     pub fn put_base(&self, base: &Base) -> Result<()> {
         self.db().execute(
             "INSERT OR REPLACE INTO base (node, path, kind, sha256, size, mtime) \

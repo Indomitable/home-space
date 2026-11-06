@@ -107,6 +107,61 @@ Android hands files to viewers through a `FileProvider` scoped to `downloads/`, 
 grant. iOS uses Quick Look. Save to… picks the location first on Android, but on iOS only after the
 download, because the system's export picker needs a file that already exists.
 
+## Auto-upload
+
+Settings > Sync marks local folders that upload to a folder on the server. New and changed files go
+up, and nothing on the server ever changes the local folder. The rules are in
+`docs/specs/mobile-sync.feature`, and `mobile-core/src/autoupload/` owns them, along with what was
+sent (SQLite in `<files>/sync/autoupload-<user id>.db`, excluded from backups).
+
+- The apps list and read files through the `LocalSources` trait, because Rust can't reach them by
+  path: a folder on Android is a document tree, and a photo on iOS is a PhotoKit asset.
+- A file goes up by name through `/uploads`, always, even a small one. The first time it asks the
+  server to keep both (`keep_both`) if a different file has the name, and after that it goes to the
+  name the server gave it. That makes a new version if the name is still taken, and a new file if
+  the file was moved or deleted.
+- An edit is noticed by size and modification time. Nothing is hashed on the phone.
+- Chunks are at most 8 MiB, and stopping takes effect between them. The upload session is saved, so
+  the next pass continues from what the server has.
+- A file that changed in the last 5 seconds waits, and one that changes before its last chunk is
+  cancelled and sent again later.
+- A deleted target folder pauses its source until the user picks another. It isn't made again.
+
+**Sources.** Android: a folder through the system's picker (which refuses the storage root and the
+`Download` root), or the camera, which is MediaStore under `DCIM/`. A photo in `DCIM/Camera` goes to
+`<target>/Camera`. iOS: a folder through the document picker, or the photo library, which all goes
+straight into the target. A Live Photo uploads as its still photo only.
+
+**The one client.** Refresh tokens are single use, so `ClientHolder` on each platform owns the only
+`CoreClient` in the process, shared by the screens and background work.
+
+**Wi-Fi only.** The app decides, since a pass only starts if the network allows it and is stopped
+when that changes: `NET_CAPABILITY_NOT_METERED` on Android, `!isExpensive` on iOS. So Wi-Fi from a
+metered hotspot doesn't count, on either platform. Tapping a file to open it isn't held back.
+
+**In the background (off by default).** Android: `SyncWorker` runs through WorkManager every 15
+minutes and when MediaStore changes, so a new photo goes up within seconds, even with the app
+killed. It shows a notification while there are files to send. iOS: `BackgroundSync` asks for
+`BGAppRefreshTask` and `BGProcessingTask`, and iOS decides when they run, often while charging, so a
+new photo may wait until then or until the app is opened. Background `URLSession` isn't used: it
+would send requests long after the short-lived bearer token was set. iOS has no permission to ask
+for, so the setting points to Background App Refresh when that is off.
+
+To force the Android job: `adb shell cmd jobscheduler run -f -n androidx.work.systemjobscheduler
+app.homespace.android <job id>`.
+
+`iosAppUITests/AutoUploadUITests` runs the iOS flow against a dev server, given
+`TEST_RUNNER_HOMESPACE_E2E_USER` and `TEST_RUNNER_HOMESPACE_E2E_PASSWORD`.
+
+Known limits:
+
+- iOS lists the whole library on each pass. Results are cached per run, so the first pass after a
+  launch can take long with a large library. PhotoKit's persistent change token would avoid that.
+- iOS changes an asset's modification date for reasons other than edits. Such a photo is sent again,
+  and the server finds it identical and changes nothing, so this costs only the transfer.
+- After a reinstall nothing is remembered. Files still in place on the server are recognised as
+  identical, but ones moved or deleted there go up again, if the source uploads existing files.
+
 ## Single sign-on
 
 The browser returns to the app at `app.homespace://oidc/callback`
@@ -142,5 +197,6 @@ The iOS simulator shares the host's network, so it needs no forwarding.
   without an OCSP responder, such as all of Let's Encrypt's, would be reported as revoked.
 - Plain HTTP: the Rust client's sockets aren't subject to Android's network security config or
   iOS's App Transport Security, so the apps will sign in to any `http://` address they are given.
-- Open: background transfers. reqwest cannot upload while an iOS app is suspended. That needs a
-  background `URLSession` in Swift.
+- Size: bundled SQLite and auto-upload add about 1.9 MB to the arm64 Android library (6.7 MB to
+  8.6 MB with the `mobile` profile).
+- reqwest cannot upload while an iOS app is suspended, only during the background tasks iOS grants.

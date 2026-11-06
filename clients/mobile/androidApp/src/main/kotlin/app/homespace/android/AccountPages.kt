@@ -1,6 +1,7 @@
 package app.homespace.android
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,23 +39,39 @@ fun SignedInScreen(session: Session.SignedIn, model: SessionViewModel, modifier:
         null -> saved.SaveableStateProvider("browse") {
             BrowseScreen(session, model, onOpenPage = { page = it }, modifier = modifier)
         }
-        else -> AccountPageScreen(current, onBack = { page = null }, modifier = modifier)
+        else -> AccountPageScreen(current, session, model, onBack = { page = null }, modifier = modifier)
     }
 }
 
-/** Empty for now. */
 @Composable
-private fun AccountPageScreen(page: AccountPage, onBack: () -> Unit, modifier: Modifier = Modifier) {
-    BackHandler(onBack = onBack)
-    Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
+private fun AccountPageScreen(
+    page: AccountPage,
+    session: Session.SignedIn,
+    model: SessionViewModel,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var showSync by rememberSaveable { mutableStateOf(false) }
+    val back = { if (showSync) showSync = false else onBack() }
+    BackHandler(onBack = back)
+    Column(modifier = modifier.fillMaxSize()) {
         Row(
+            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            IconButton(onClick = onBack) {
+            IconButton(onClick = back) {
                 Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "Back")
             }
-            Text(page.title, style = MaterialTheme.typography.titleLarge)
+            Text(if (showSync) "Sync" else page.title, style = MaterialTheme.typography.titleLarge)
+        }
+        when {
+            showSync -> SyncSettingsScreen(session, model)
+            page == AccountPage.SETTINGS -> ListItem(
+                headlineContent = { Text("Sync") },
+                supportingContent = { Text("Wi-Fi, background and folders that upload") },
+                modifier = Modifier.clickable { showSync = true },
+            )
         }
     }
 }

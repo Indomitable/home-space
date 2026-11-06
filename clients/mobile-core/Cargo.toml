@@ -26,13 +26,14 @@ client-core.workspace = true
 hex = "0.4.3"
 protocol.workspace = true
 rand = "0.10.3"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
 sha2.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "rt-multi-thread"] }
 uniffi = "0.32.2"
 url = "2"
-uuid = "1.29.0"
+uuid = { version = "1.29.0", features = ["v4"] }
 
 # Android's certificate checks run in the JVM, so the verifier needs a handle on it (see `android`).
 [target.'cfg(target_os = "android")'.dependencies]

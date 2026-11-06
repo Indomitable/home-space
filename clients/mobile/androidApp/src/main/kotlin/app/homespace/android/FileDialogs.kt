@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -113,6 +114,7 @@ private fun DetailsSheet(
                 DetailRow("Created", localDate(loaded.createdAt))
                 DetailRow("Modified", localDate(loaded.entry.updatedAt))
                 loaded.deviceLabel?.let { DetailRow(loaded.deviceTitle, it) }
+                loaded.sourceDevice?.let { DetailRow("Uploaded from", it) }
             }
         }
     }
@@ -351,6 +353,95 @@ private fun MoveDialog(
                 enabled = !saving && !alreadyIn(entries, destination),
                 onClick = { move(MoveMode.ABORT) },
             ) { Text(if (saving) WORKING else "Move here") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** Chooses a folder on the server; `folder` is `null` for Home. */
+@Composable
+fun ServerFolderDialog(
+    title: String,
+    confirm: String,
+    client: CoreClient,
+    askUploadExisting: Boolean,
+    onDismiss: () -> Unit,
+    onSessionEnded: () -> Unit,
+    onChoose: (folder: String?, label: String, uploadExisting: Boolean) -> Unit,
+) {
+    var trail by remember { mutableStateOf(emptyList<Crumb>()) }
+    var folders by remember { mutableStateOf<List<Entry>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    // Off, so that adding a full camera roll sends nothing by surprise.
+    var uploadExisting by remember { mutableStateOf(false) }
+    val destination = trail.lastOrNull()?.id
+
+    LaunchedEffect(destination) {
+        folders = null
+        try {
+            folders = client.list(destination).filter { it.kind == EntryKind.FOLDER }
+        } catch (_: CoreException.Unauthorized) {
+            onSessionEnded()
+        } catch (e: CoreException) {
+            error = e.fileMessage()
+        }
+    }
+
+    val where = if (trail.isEmpty()) "Home" else "/" + trail.joinToString("/") { it.name }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(where, style = MaterialTheme.typography.bodySmall)
+                LazyColumn(modifier = Modifier.height(PICKER_HEIGHT)) {
+                    if (trail.isNotEmpty()) {
+                        item(key = "up") {
+                            Text(
+                                "Up",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { trail = trail.dropLast(1) }
+                                    .padding(vertical = 8.dp),
+                            )
+                        }
+                    }
+                    items(folders.orEmpty(), key = { it.id }) { folder ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { trail = trail + Crumb(folder.id, folder.name) }
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            NodeIcon(EntryIcon.FOLDER)
+                            Text(folder.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    if (folders?.isEmpty() == true) {
+                        item(key = "empty") {
+                            Text("No subfolders", modifier = Modifier.padding(vertical = 8.dp))
+                        }
+                    }
+                }
+                if (askUploadExisting) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Upload existing files")
+                        Switch(checked = uploadExisting, onCheckedChange = { uploadExisting = it })
+                    }
+                }
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onChoose(destination, trail.lastOrNull()?.name ?: "Home", uploadExisting)
+            }) { Text(confirm) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

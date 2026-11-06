@@ -52,6 +52,14 @@ targets:
           NSAllowsLocalNetworking: true
         # Shown when the app first connects to a server on the LAN (devices only).
         NSLocalNetworkUsageDescription: Home Space connects to your Home Space server on the local network.
+        NSPhotoLibraryUsageDescription: Home Space uploads the photos and videos you choose to your server.
+        # Sync in background; the identifiers are in SyncRunner.swift.
+        UIBackgroundModes:
+          - fetch
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - app.homespace.ios.sync-refresh
+          - app.homespace.ios.sync-processing
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.homespace.ios

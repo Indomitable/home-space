@@ -31,7 +31,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        PlatformVerifier.init(applicationContext)
         enableEdgeToEdge()
         // A home server is usually on the LAN; without this grant Android 17 silently drops
         // the connection, which looks like a timeout.
@@ -55,6 +54,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        model.onForegroundChanged(true)
+    }
+
+    override fun onStop() {
+        model.onForegroundChanged(false)
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {

@@ -57,6 +57,10 @@ impl LocalFiles {
         *self.user.lock().expect("files user lock") = Some(user);
     }
 
+    pub(crate) fn user(&self) -> Option<String> {
+        self.user.lock().expect("files user lock").clone()
+    }
+
     fn user_dir(&self) -> Option<PathBuf> {
         let user = self.user.lock().expect("files user lock").clone()?;
         Some(self.root.as_ref()?.join(user))

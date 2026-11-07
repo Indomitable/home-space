@@ -318,7 +318,9 @@ impl Transfers {
         ]
         .spacing(SPACING)
         .align_y(Alignment::Center);
-        let overall = progress_bar(0.0..=1.0, overall_progress(&self.items)).girth(BAR_HEIGHT);
+        let overall = progress_bar(0.0..=1.0, overall_progress(&self.items))
+            .girth(BAR_HEIGHT)
+            .style(theme::progress);
         let mut panel = column![header, overall].spacing(SPACING);
         if self.expanded {
             let list = column(self.items.iter().map(item_view)).spacing(SPACING);
@@ -356,7 +358,9 @@ fn item_view(item: &Transfer) -> Element<'_, Message> {
         ]
         .spacing(SPACING)
         .align_y(Alignment::Center),
-        progress_bar(0.0..=1.0, item.fraction()).girth(BAR_HEIGHT),
+        progress_bar(0.0..=1.0, item.fraction())
+            .girth(BAR_HEIGHT)
+            .style(theme::progress),
         status,
     ]
     .spacing(SPACING / 2.0)

@@ -38,7 +38,7 @@ use crate::{
     transfers::{self, Batch, Direction, DownloadFile, Transfers, UploadPlan},
 };
 
-const DEFAULT_WINDOW: Size = Size::new(1024.0, 768.0);
+const DEFAULT_WINDOW: Size = Size::new(1280.0, 800.0);
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -87,7 +87,9 @@ pub enum Message {
 pub enum Update {
     Task(Task<Message>),
     /// Signed out of `server`, which the login screen offers again.
-    SignedOut { server: String },
+    SignedOut {
+        server: String,
+    },
 }
 
 /// A popup menu and what it hangs from.

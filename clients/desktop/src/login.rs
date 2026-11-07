@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use api_client::{ApiError, Client};
-use iced::widget::container::bordered_box;
 use iced::widget::{row, space};
 use iced::{
     Alignment, Element, Length, Padding, Subscription, Task,
@@ -13,7 +12,7 @@ use protocol::{Me, Providers};
 
 use crate::{
     session::{self, Restored, Saved},
-    sso,
+    sso, theme,
 };
 
 const DEFAULT_SERVER: &str = "http://127.0.0.1:8080";
@@ -246,10 +245,11 @@ impl State {
                 .align_x(Alignment::Center)
                 .width(Length::Fill),
             container("Sign in to your files")
-                .style(crate::theme::muted)
+                .style(theme::muted)
                 .align_x(Alignment::Center)
                 .width(Length::Fill),
             text_input("Server", &self.server)
+                .style(theme::input)
                 .padding(INPUT_PADDING)
                 .on_input_maybe((!self.restoring).then_some(Message::ServerChanged)),
         ]
@@ -258,7 +258,7 @@ impl State {
         if let Some(status) = self.status() {
             form = form.push(
                 container(text(status))
-                    .style(crate::theme::muted)
+                    .style(theme::muted)
                     .align_x(Alignment::Center)
                     .width(Length::Fill),
             );
@@ -279,12 +279,17 @@ impl State {
                         .align_x(Alignment::Center)
                         .align_y(Alignment::Center)
                 )
+                .style(theme::primary)
                 .on_press_maybe((!self.busy).then_some(Message::SignInWithProvider))
                 .width(Length::Fill)
                 .height(BUTTON_HEIGHT)
             ]);
             if self.sso.is_some() {
-                form = form.push(button("Cancel").on_press(Message::Cancel));
+                form = form.push(
+                    button("Cancel")
+                        .style(theme::secondary)
+                        .on_press(Message::Cancel),
+                );
             }
         }
         let password_login = !self.first_probe_pending
@@ -298,14 +303,14 @@ impl State {
                     row![
                         container(space())
                             .width(Length::FillPortion(2))
-                            .style(bordered_box)
+                            .style(theme::divider)
                             .height(Length::Fixed(1.0)),
                         text("or")
                             .width(Length::FillPortion(1))
                             .align_x(text::Alignment::Center),
                         container(space())
                             .width(Length::FillPortion(2))
-                            .style(bordered_box)
+                            .style(theme::divider)
                             .height(Length::Fixed(1.0))
                     ]
                     .align_y(Alignment::Center),
@@ -314,12 +319,14 @@ impl State {
             form = form
                 .push(
                     text_input("Username", &self.username)
+                        .style(theme::input)
                         .on_input(Message::UsernameChanged)
                         .on_submit(Message::Submit)
                         .padding(INPUT_PADDING),
                 )
                 .push(
                     text_input("Password", &self.password)
+                        .style(theme::input)
                         .secure(true)
                         .on_input(Message::PasswordChanged)
                         .on_submit(Message::Submit)
@@ -335,6 +342,11 @@ impl State {
                         .align_x(Alignment::Center)
                         .align_y(Alignment::Center)
                     )
+                    .style(if provider.is_some() {
+                        theme::secondary
+                    } else {
+                        theme::primary
+                    })
                     .on_press_maybe((!self.busy).then_some(Message::Submit))
                     .height(BUTTON_HEIGHT)
                     .width(Length::Fill)

@@ -381,14 +381,14 @@ impl Dialog {
             } => return self.conflicts_view(title, conflicts),
         };
         let confirm_style = match self.kind {
-            Kind::EmptyTrash { .. } => button::danger,
-            _ => button::primary,
+            Kind::EmptyTrash { .. } => theme::danger,
+            _ => theme::primary,
         };
         let submit = button(text(if self.saving { "Working…" } else { action }))
             .style(confirm_style)
             .on_press_maybe((!self.saving && !self.in_place()).then_some(Message::Submit));
         let cancel = button("Cancel")
-            .style(button::secondary)
+            .style(theme::secondary)
             .on_press(Message::Cancel);
         let mut content = column![text(title).size(TITLE_SIZE), body].spacing(SPACING);
         if let Some(error) = &self.error {
@@ -429,17 +429,17 @@ impl Dialog {
             .width(Length::Fill);
         let choose = |mode| (!self.saving).then_some(Message::Resolve(mode));
         let cancel = button("Cancel")
-            .style(button::secondary)
+            .style(theme::secondary)
             .on_press(Message::Cancel);
         let skip = button("Skip these files")
-            .style(button::secondary)
+            .style(theme::secondary)
             .on_press_maybe(choose(OnConflict::Skip));
         let over = button(text(if self.saving {
             "Working…"
         } else {
             "Override"
         }))
-        .style(button::danger)
+        .style(theme::danger)
         .on_press_maybe(choose(OnConflict::Override));
         let mut content = column![
             text(title).size(TITLE_SIZE),
@@ -461,6 +461,7 @@ impl Dialog {
 
     fn name_input<'a>(&self, name: &'a str) -> Element<'a, Message> {
         text_input("Name", name)
+            .style(theme::input)
             .id(NAME_INPUT)
             .on_input_maybe((!self.saving).then_some(Message::NameChanged))
             .on_submit(Message::Submit)

@@ -210,10 +210,10 @@ impl State {
             let actions: Element<'_, Message> = if self.confirming == Some(number) {
                 row![
                     button("Delete")
-                        .style(button::danger)
+                        .style(theme::danger)
                         .on_press(Message::Delete(number)),
                     button("Cancel")
-                        .style(button::secondary)
+                        .style(theme::secondary)
                         .on_press(Message::CancelDelete),
                 ]
                 .spacing(ROW_SPACING)

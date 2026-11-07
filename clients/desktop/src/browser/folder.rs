@@ -4,7 +4,7 @@ use iced::{Task, keyboard::Modifiers};
 
 use api_client::{ApiError, Client};
 use client_core::listing::{
-    Sort, SortKey, affects_path, apply_event, collapsed_crumbs, reveals_lost_and_found, sort_nodes,
+    Sort, SortKey, affects_path, apply_event, collapsed_crumbs, sort_nodes,
 };
 use protocol::{Node, NodeId};
 
@@ -33,7 +33,7 @@ impl Listing {
 pub struct Folder {
     /// The folder shown (`None` for Home).
     pub(super) id: Option<NodeId>,
-    /// Lost & Found, which Home leaves out while it is empty.
+    /// Lost & Found, which the sidebar offers instead of the listing.
     lost_and_found: Option<NodeId>,
     pub(super) listing: Listing,
     pub(super) sort: Sort,
@@ -81,10 +81,9 @@ impl Folder {
     /// Fetches the listing of the folder shown.
     pub fn load(&self, client: &Client) -> Task<Message> {
         let id = self.id;
-        Task::perform(
-            fetch(client.clone(), id, self.lost_and_found),
-            move |result| Message::Loaded(id, result),
-        )
+        Task::perform(fetch(client.clone(), id), move |result| {
+            Message::Loaded(id, result)
+        })
     }
 
     /// Like [`Folder::load`], marking the listing as loading.
@@ -101,6 +100,9 @@ impl Folder {
         self.loading = false;
         match result {
             Ok(mut listing) => {
+                listing
+                    .nodes
+                    .retain(|node| Some(node.id) != self.lost_and_found);
                 sort_nodes(&mut listing.nodes, self.sort);
                 self.selection.retain(&listing.nodes);
                 self.listing = listing;
@@ -133,16 +135,13 @@ impl Folder {
 
     /// Applies a server event to the listing; returns whether it has to be fetched again.
     pub fn apply(&mut self, event: &protocol::Event) -> bool {
-        let reveals = self
-            .lost_and_found
-            .is_some_and(|found| reveals_lost_and_found(self.id, found, event));
-        if matches!(event, protocol::Event::Resync)
-            || reveals
-            || affects_path(&self.listing.path, event)
-        {
+        if matches!(event, protocol::Event::Resync) || affects_path(&self.listing.path, event) {
             return true;
         }
         apply_event(&mut self.listing.nodes, self.id, event, self.sort);
+        self.listing
+            .nodes
+            .retain(|node| Some(node.id) != self.lost_and_found);
         self.selection.retain(&self.listing.nodes);
         false
     }
@@ -176,19 +175,9 @@ impl Folder {
     }
 }
 
-async fn fetch(
-    client: Client,
-    folder: Option<NodeId>,
-    lost_and_found: Option<NodeId>,
-) -> Result<Listing, ApiError> {
+async fn fetch(client: Client, folder: Option<NodeId>) -> Result<Listing, ApiError> {
     let (nodes, path) = match folder {
-        None => {
-            let nodes = match lost_and_found {
-                Some(found) => client.list_home(found).await?,
-                None => client.list(None).await?,
-            };
-            (nodes, Vec::new())
-        }
+        None => (client.list(None).await?, Vec::new()),
         Some(id) => {
             let (nodes, current, mut path) =
                 tokio::try_join!(client.list(Some(id)), client.get(id), client.ancestors(id))?;

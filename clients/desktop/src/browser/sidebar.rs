@@ -8,6 +8,8 @@ use iced::{
 };
 
 use super::{Message, Page, State, anchor::Anchor, context_menu::Placement, syncing, toolbar::tip};
+use client_core::labels::LOST_AND_FOUND;
+
 use crate::{
     ellipsis::ellipsized,
     icons::{ICON_SIZE, Icon, Tint},
@@ -76,9 +78,12 @@ fn is_compact(window_width: f32) -> bool {
 impl State {
     pub(super) fn sidebar(&self) -> Element<'_, Message> {
         let compact = is_compact(self.window.width);
-        let files = matches!(self.page, Page::Folder);
+        let shows_found = self.lost_and_found.has_files();
+        let in_found =
+            shows_found && matches!(self.page, Page::Folder) && self.within_lost_and_found();
+        let files = matches!(self.page, Page::Folder) && !in_found;
         let failed = self.syncing.status().problems.len();
-        let places = column![
+        let mut places = column![
             logo(compact),
             place(
                 if files {
@@ -108,16 +113,26 @@ impl State {
                 compact,
                 Message::OpenTrash
             ),
-            place(
-                Icon::Devices,
-                "Devices",
-                matches!(self.page, Page::Devices(_)),
-                0,
-                compact,
-                Message::OpenDevices
-            ),
         ]
         .spacing(NAV_SPACING);
+        if shows_found {
+            places = places.push(place(
+                Icon::Inventory,
+                LOST_AND_FOUND,
+                in_found,
+                0,
+                compact,
+                Message::OpenLostAndFound,
+            ));
+        }
+        let places = places.push(place(
+            Icon::Devices,
+            "Devices",
+            matches!(self.page, Page::Devices(_)),
+            0,
+            compact,
+            Message::OpenDevices,
+        ));
         let foot = column![
             syncing::status_card(
                 self.syncing.status(),

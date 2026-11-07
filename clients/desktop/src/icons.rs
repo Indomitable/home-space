@@ -36,6 +36,8 @@ pub enum Icon {
     Move,
     Delete,
     Restore,
+    /// Lost & Found.
+    Inventory,
     EmptyBin,
     Refresh,
     Up,
@@ -116,6 +118,7 @@ impl Icon {
             Self::Move => include_bytes!("../assets/icons/drive_file_move.svg"),
             Self::Delete => include_bytes!("../assets/icons/delete.svg"),
             Self::Restore => include_bytes!("../assets/icons/restore_from_trash.svg"),
+            Self::Inventory => include_bytes!("../assets/icons/inventory_2.svg"),
             Self::EmptyBin => include_bytes!("../assets/icons/delete_forever.svg"),
             Self::Refresh => include_bytes!("../assets/icons/refresh.svg"),
             Self::Up => include_bytes!("../assets/icons/arrow_upward.svg"),

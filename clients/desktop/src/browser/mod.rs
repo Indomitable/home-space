@@ -9,6 +9,7 @@ mod folder;
 mod grid;
 mod input;
 mod layout;
+mod lost_and_found;
 pub(crate) mod parts;
 mod search;
 mod selection;
@@ -32,6 +33,7 @@ use self::{
     dialogs::{Dialog, Outcome},
     folder::{Folder, Listing},
     input::{Shortcut, input},
+    lost_and_found::LostAndFound,
     search::Search,
     syncing::Syncing,
     toolbar::Action,
@@ -50,6 +52,9 @@ pub enum Message {
     Jump(Option<NodeId>),
     /// Shows the files again from another page or, already there, goes to Home.
     OpenFiles,
+    OpenLostAndFound,
+    /// The contents of Lost & Found, which decide whether the sidebar offers it.
+    LostAndFoundLoaded(Result<Vec<Node>, ApiError>),
     Refresh,
     Loaded(Option<NodeId>, Result<Listing, ApiError>),
     Click(NodeId),
@@ -135,6 +140,7 @@ pub struct State {
     dropping: bool,
     search: Search,
     syncing: Syncing,
+    lost_and_found: LostAndFound,
 }
 
 impl State {
@@ -142,6 +148,7 @@ impl State {
         let state = Self {
             client,
             folder: Folder::new(me.lost_and_found_id),
+            lost_and_found: LostAndFound::new(me.lost_and_found_id),
             me,
             previous: None,
             modifiers: Modifiers::default(),
@@ -159,7 +166,11 @@ impl State {
         let size = window::latest()
             .and_then(window::size)
             .map(Message::Resized);
-        let task = Task::batch([state.folder.load(&state.client), size]);
+        let task = Task::batch([
+            state.folder.load(&state.client),
+            state.load_lost_and_found(),
+            size,
+        ]);
         (state, task)
     }
 
@@ -198,13 +209,26 @@ impl State {
                 task
             }
             Message::OpenFiles => {
-                if matches!(self.page, Page::Folder) && !self.search.is_active() {
+                // Lost & Found has its own place, so the files never return to it.
+                if (matches!(self.page, Page::Folder) && !self.search.is_active())
+                    || self.within_lost_and_found()
+                {
                     self.handle(Message::Jump(None))
                 } else {
                     self.open_folder(self.folder.id)
                 }
             }
-            Message::Refresh => self.folder.reload(&self.client),
+            Message::OpenLostAndFound => self.handle(Message::Jump(Some(self.lost_and_found.id()))),
+            Message::LostAndFoundLoaded(result) => {
+                // On failure the place stays as it was until the next refresh or resync.
+                if let Ok(children) = result {
+                    self.lost_and_found.loaded(&children);
+                }
+                Task::none()
+            }
+            Message::Refresh => {
+                Task::batch([self.folder.reload(&self.client), self.load_lost_and_found()])
+            }
             Message::Loaded(folder, result) => {
                 self.folder.loaded(folder, result);
                 Task::none()
@@ -323,6 +347,11 @@ impl State {
                 self.syncing
                     .send(sync::Command::RemoteChanged(event.clone()));
                 let details = self.sync_details(&event);
+                let found = if self.lost_and_found.apply(&event) {
+                    self.load_lost_and_found()
+                } else {
+                    Task::none()
+                };
                 let listing = if self.folder.apply(&event) {
                     self.folder.load(&self.client)
                 } else {
@@ -339,7 +368,7 @@ impl State {
                     ) => devices.load(&self.client).map(Message::Devices),
                     _ => Task::none(),
                 };
-                Task::batch([details, listing, trash])
+                Task::batch([details, found, listing, trash])
             }
             Message::Sync(message) => {
                 if matches!(
@@ -542,7 +571,8 @@ impl State {
             (Action::Open | Action::OpenFile | Action::Rename | Action::Details, _) => Task::none(),
             (Action::Download, _) => files::download(&self.client, selected),
             (Action::Move, _) => {
-                let (dialog, task) = Dialog::move_nodes(&self.client, selected);
+                let (dialog, task) =
+                    Dialog::move_nodes(&self.client, selected, self.me.lost_and_found_id);
                 self.dialog = Some(dialog);
                 task.map(Message::Dialog)
             }
@@ -725,6 +755,28 @@ impl State {
     /// Lost & Found only receives restored files, so nothing is created or uploaded into it.
     fn in_lost_and_found(&self) -> bool {
         self.folder.id == Some(self.me.lost_and_found_id)
+    }
+
+    /// Whether the folder shown is Lost & Found or inside it.
+    fn within_lost_and_found(&self) -> bool {
+        let found = self.me.lost_and_found_id;
+        self.in_lost_and_found()
+            || (self.folder.id.is_some()
+                && self
+                    .folder
+                    .listing
+                    .path
+                    .iter()
+                    .any(|folder| folder.id == found))
+    }
+
+    fn load_lost_and_found(&self) -> Task<Message> {
+        let client = self.client.clone();
+        let found = self.lost_and_found.id();
+        Task::perform(
+            async move { client.list(Some(found)).await },
+            Message::LostAndFoundLoaded,
+        )
     }
 
     fn pick_upload(&self) -> Task<Message> {

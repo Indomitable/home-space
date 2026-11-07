@@ -68,6 +68,18 @@ fn entry<'a>(entry: Entry) -> Element<'a, Message> {
     )
 }
 
+/// The menu of the account in the sidebar.
+pub fn account<'a>() -> Element<'a, Message> {
+    panel([menu_row(
+        Icon::SignOut,
+        Tint::Text,
+        "Sign out",
+        "",
+        theme::tool,
+        Some(Message::SignOut),
+    )])
+}
+
 /// A menu of `folders` that opens the chosen one.
 pub fn folders(folders: &[Node]) -> Element<'_, Message> {
     let items = folders.iter().map(|folder| {

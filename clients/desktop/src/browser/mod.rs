@@ -11,6 +11,7 @@ mod input;
 mod layout;
 mod search;
 mod selection;
+mod sidebar;
 mod sync_queue;
 mod syncing;
 mod toolbar;
@@ -18,7 +19,7 @@ mod trash;
 
 use std::path::{Path, PathBuf};
 
-use iced::{Size, Subscription, Task, event, keyboard::Modifiers, window};
+use iced::{Size, Subscription, Task, event, keyboard::Modifiers, widget::operation, window};
 
 use api_client::{ApiError, Client};
 use client_core::listing::SortKey;
@@ -45,8 +46,8 @@ pub enum Message {
     /// Opens a folder from the breadcrumbs, which may be any folder; going back returns to the
     /// folder it was left from.
     Jump(Option<NodeId>),
-    /// Goes back to the folder jumped from or, failing that, to the parent folder.
-    Back,
+    /// Shows the files again from another page or, already there, goes to Home.
+    OpenFiles,
     Refresh,
     Loaded(Option<NodeId>, Result<Listing, ApiError>),
     Click(NodeId),
@@ -56,6 +57,7 @@ pub enum Message {
     SortBy(SortKey),
     ContextMenu(NodeId, Placement),
     CrumbsMenu(Placement),
+    AccountMenu(Placement),
     CloseMenu,
     Act(Action),
     NewFolder,
@@ -97,6 +99,7 @@ pub enum Update {
 enum Menu {
     Actions(Placement),
     Crumbs(Placement),
+    Account(Placement),
 }
 
 /// What the browser shows below the header, other than search results.
@@ -188,7 +191,13 @@ impl State {
                 self.previous = (from != folder).then_some(from);
                 task
             }
-            Message::Back => self.back(),
+            Message::OpenFiles => {
+                if matches!(self.page, Page::Folder) && !self.search.is_active() {
+                    self.handle(Message::Jump(None))
+                } else {
+                    self.open_folder(self.folder.id)
+                }
+            }
             Message::Refresh => self.folder.reload(&self.client),
             Message::Loaded(folder, result) => {
                 self.folder.loaded(folder, result);
@@ -218,6 +227,10 @@ impl State {
             }
             Message::CrumbsMenu(placement) => {
                 self.menu = Some(Menu::Crumbs(placement));
+                Task::none()
+            }
+            Message::AccountMenu(placement) => {
+                self.menu = Some(Menu::Account(placement));
                 Task::none()
             }
             Message::CloseMenu => {
@@ -348,6 +361,7 @@ impl State {
                 search::Outcome::OpenFolder(folder) => self.open_folder(folder),
             },
             Message::SignOut => {
+                self.menu = None;
                 let client = self.client.clone();
                 Task::perform(
                     async move {
@@ -370,21 +384,10 @@ impl State {
         self.folder.load(&self.client)
     }
 
-    /// Whether [`State::back`] has somewhere to go.
-    fn can_go_back(&self) -> bool {
-        self.search.is_active()
-            || !matches!(self.page, Page::Folder)
-            || self.previous.is_some()
-            || self.folder.parent().is_some()
-    }
-
-    /// Leaves the search or another page, such as the recycle bin; in a folder, goes to the one
-    /// a breadcrumb jump left or else to the parent.
+    /// Leaves another page, such as the recycle bin; in a folder, goes to the one a breadcrumb
+    /// jump left or else to the parent.
     fn back(&mut self) -> Task<Message> {
-        if self.search.is_active() {
-            self.search.clear();
-            Task::none()
-        } else if !matches!(self.page, Page::Folder) {
+        if !matches!(self.page, Page::Folder) {
             self.open_folder(self.folder.id)
         } else if let Some(previous) = self.previous {
             self.open_folder(previous)
@@ -611,10 +614,13 @@ impl State {
                 Shortcut::Activate => self.dialog_update(dialogs::Message::Submit),
                 _ => Task::none(),
             }
+        } else if shortcut == Shortcut::Search {
+            self.menu = None;
+            operation::focus(layout::SEARCH_INPUT)
         } else if self.menu.take().is_some() && shortcut == Shortcut::Escape {
             Task::none()
         } else if self.search.is_active() {
-            if shortcut == Shortcut::Escape {
+            if matches!(shortcut, Shortcut::Escape | Shortcut::Back) {
                 self.search.clear();
             }
             Task::none()
@@ -670,6 +676,7 @@ impl State {
                 Shortcut::NewFolder => self.handle(Message::NewFolder),
                 Shortcut::Upload => self.pick_upload(),
                 Shortcut::Refresh => self.handle(Message::Refresh),
+                Shortcut::Search => Task::none(),
             }
         }
     }

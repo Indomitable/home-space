@@ -12,27 +12,38 @@ use protocol::Node;
 
 use super::{
     Menu, Message, Page, State, anchor::Anchor, context_menu, context_menu::Placement, dialogs,
-    grid, search, sync_queue, syncing, toolbar,
+    grid, search, sidebar, sync_queue, syncing, toolbar,
 };
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},
     theme,
 };
 
-const PAGE_PADDING: f32 = 16.0;
+const MAIN_PADDING: [f32; 2] = [16.0, 24.0];
+const OVERLAY_PADDING: f32 = 16.0;
 const SPACING: f32 = 12.0;
 const GRID_SPACING: f32 = 4.0;
-const USERNAME_SIZE: f32 = 18.0;
-/// Lines the username up with the text of the buttons below it.
-const USERNAME_INDENT: f32 = 10.0;
-const SEARCH_WIDTH: f32 = 280.0;
-const BUTTON_PADDING: f32 = 10.0;
-const LABEL_SPACING: f32 = 6.0;
-const CHAR_WIDTH: f32 = 7.5;
-/// Room kept for the sync indicator, whose label changes with the sync state.
-const INDICATOR_WIDTH: f32 = 180.0;
-const SIGN_OUT: &str = "Sign out";
+const CARD_PADDING: f32 = 8.0;
+const TOP_HEIGHT: f32 = 40.0;
+const HEADING_SIZE: f32 = 18.0;
+const SEARCH_WIDTH: f32 = 300.0;
+/// Below this width the search box leaves out the key that focuses it.
+const SEARCH_KBD_WIDTH: f32 = 240.0;
+const SEARCH_PADDING: Padding = Padding {
+    top: 8.0,
+    right: 64.0,
+    bottom: 8.0,
+    left: 38.0,
+};
+const SEARCH_OVERLAY_PADDING: [f32; 2] = [0.0, 8.0];
+const CLEAR_SEARCH_PADDING: f32 = 2.0;
+const CRUMB_PADDING: [f32; 2] = [2.0, 6.0];
 const SEARCH_PLACEHOLDER: &str = "Search files and folders";
+#[cfg(target_os = "macos")]
+const SEARCH_SHORTCUT: &str = "Cmd K";
+#[cfg(not(target_os = "macos"))]
+const SEARCH_SHORTCUT: &str = "Ctrl K";
+pub(super) const SEARCH_INPUT: &str = "search";
 const DROP_PADDING: f32 = 32.0;
 const TRASH: &str = "Recycle bin";
 const SYNC_QUEUE: &str = "Sync queue";
@@ -43,16 +54,17 @@ const CRUMB_OVERFLOW: &str = "…";
 impl State {
     pub fn view(&self) -> Element<'_, Message> {
         let selected = self.folder.selection.selected(&self.folder.listing.nodes);
-        let page = container(self.page(&selected))
-            .padding(PAGE_PADDING)
+        let main = container(self.page(&selected))
+            .padding(MAIN_PADDING)
             .width(Length::Fill)
             .height(Length::Fill);
+        let page = row![self.sidebar(), main];
 
         let mut layers: Vec<Element<'_, Message>> = vec![page.into()];
         if !self.transfers.is_empty() {
             layers.push(
                 container(self.transfers.view().map(Message::Transfer))
-                    .padding(PAGE_PADDING)
+                    .padding(OVERLAY_PADDING)
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .align_right(Length::Fill)
@@ -87,117 +99,52 @@ impl State {
         stack(layers).into()
     }
 
-    /// The header and whatever the browser shows below it: search results, the recycle bin or
-    /// the folder.
-    fn page<'a>(&'a self, selected: &[&'a Node]) -> Element<'a, Message> {
-        let header = self.header();
-        if self.search.is_active() {
-            column![header, self.search.view()].spacing(SPACING).into()
-        } else {
-            match &self.page {
-                Page::Trash(trash) => column![
-                    header,
-                    trail(crumb(TRASH, Message::OpenTrash)),
-                    trash.view().map(Message::Trash)
-                ]
-                .spacing(SPACING)
-                .into(),
-                Page::SyncQueue => column![
-                    header,
-                    trail(crumb(SYNC_QUEUE, Message::OpenSyncQueue)),
-                    sync_queue::view(self.syncing.status())
-                ]
-                .spacing(SPACING)
-                .into(),
-                Page::Devices(devices) => column![
-                    header,
-                    trail(crumb(DEVICES, Message::OpenDevices)),
-                    devices.view().map(Message::Devices)
-                ]
-                .spacing(SPACING)
-                .into(),
-                Page::Folder => self.folder_page(header, selected),
-            }
-        }
+    /// How wide the main column's content is.
+    fn content_width(&self) -> f32 {
+        self.window.width - sidebar::width(self.window.width) - MAIN_PADDING[1] * 2.0
     }
 
-    fn header(&self) -> Element<'_, Message> {
-        let can_go_back = self.can_go_back();
-        let (show_username, labelled) = self.header_fit();
-        let sign_out = if labelled {
-            row![Icon::SignOut.view(ICON_SIZE, Tint::Text), text(SIGN_OUT)]
-                .spacing(LABEL_SPACING)
-                .align_y(Alignment::Center)
-        } else {
-            row![Icon::SignOut.view(ICON_SIZE, Tint::Text)]
-        };
-        let sign_out = button(sign_out)
-            .style(theme::tool)
-            .on_press(Message::SignOut)
-            .into();
-        let mut header = row![].spacing(SPACING).align_y(Alignment::Center);
-        if show_username {
-            header = header.push(
-                container(text(self.me.username.as_str()).size(USERNAME_SIZE))
-                    .padding(Padding::ZERO.left(USERNAME_INDENT)),
-            );
+    /// The top line and whatever the browser shows below it: search results, the recycle bin or
+    /// the folder.
+    fn page<'a>(&'a self, selected: &[&'a Node]) -> Element<'a, Message> {
+        if self.search.is_active() {
+            let title = heading(format!("Results for “{}”", self.search.query().trim()));
+            return column![self.top(title), card(self.search.view())]
+                .spacing(SPACING)
+                .into();
         }
-        header
-            .push(space::horizontal())
-            .push(
-                button(Icon::Back.view(
-                    ICON_SIZE,
-                    if can_go_back {
-                        Tint::Text
-                    } else {
-                        Tint::Disabled
-                    },
-                ))
-                .style(theme::tool)
-                .on_press_maybe(can_go_back.then_some(Message::Back)),
-            )
-            .push(syncing::indicator(self.syncing.status()))
-            .push(self.search_box())
-            .push(if labelled {
-                sign_out
-            } else {
-                toolbar::tip(sign_out, SIGN_OUT, "")
-            })
+        let (title, content): (_, Element<'a, Message>) = match &self.page {
+            Page::Trash(trash) => (TRASH, trash.view().map(Message::Trash)),
+            Page::SyncQueue => (SYNC_QUEUE, sync_queue::view(self.syncing.status())),
+            Page::Devices(devices) => (DEVICES, devices.view().map(Message::Devices)),
+            Page::Folder => return self.folder_page(selected),
+        };
+        column![self.top(heading(title)), card(content)]
+            .spacing(SPACING)
             .into()
     }
 
-    /// Whether the header has room for the username and for the label of Sign out. The
-    /// username goes first, then the label.
-    fn header_fit(&self) -> (bool, bool) {
-        let width = self.window.width - PAGE_PADDING * 2.0;
-        let button = |label_width: f32| BUTTON_PADDING * 2.0 + ICON_SIZE + label_width;
-        let label = LABEL_SPACING + SIGN_OUT.chars().count() as f32 * CHAR_WIDTH;
-        let username = USERNAME_INDENT
-            + self.me.username.chars().count() as f32 * CHAR_WIDTH * USERNAME_SIZE / 14.0;
-        // Back, the indicator, the search box, Sign out and the spacer, with a gap between each.
-        let rest = button(0.0) + INDICATOR_WIDTH + SEARCH_WIDTH.min(width / 2.0) + SPACING * 4.0;
-        let fits = |used: f32| rest + used <= width;
-        let labelled = fits(button(label));
-        (
-            labelled && fits(button(label) + username + SPACING),
-            labelled,
-        )
+    /// `title` on the left, the search box on the right.
+    fn top<'a>(&'a self, title: Element<'a, Message>) -> Element<'a, Message> {
+        row![
+            container(title).width(Length::Fill).clip(true),
+            self.search_box()
+        ]
+        .spacing(SPACING)
+        .height(TOP_HEIGHT)
+        .align_y(Alignment::Center)
+        .into()
     }
 
-    fn folder_page<'a>(
-        &'a self,
-        header: Element<'a, Message>,
-        selected: &[&'a Node],
-    ) -> Element<'a, Message> {
+    fn folder_page<'a>(&'a self, selected: &[&'a Node]) -> Element<'a, Message> {
         let mut page = column![
-            header,
-            self.breadcrumbs(),
+            self.top(self.breadcrumbs()),
             toolbar::view(
                 selected,
                 self.me.lost_and_found_id,
                 !self.in_lost_and_found(),
                 self.folder.id,
-                self.window.width - PAGE_PADDING * 2.0,
+                self.content_width(),
             )
         ]
         .spacing(SPACING);
@@ -220,7 +167,7 @@ impl State {
         match &self.details {
             Some(details) => page.push(
                 row![
-                    container(grid).width(Length::Fill),
+                    card(grid.into()),
                     details.view(
                         self.syncing
                             .status()
@@ -230,7 +177,7 @@ impl State {
                 ]
                 .spacing(SPACING),
             ),
-            None => page.push(grid),
+            None => page.push(card(grid.into())),
         }
         .into()
     }
@@ -250,6 +197,7 @@ impl State {
                 placement,
                 context_menu::folders(self.folder.hidden_crumbs()),
             ),
+            Menu::Account(placement) => (placement, context_menu::account()),
         };
         [
             mouse_area(space().width(Length::Fill).height(Length::Fill))
@@ -273,29 +221,41 @@ impl State {
         center(label).style(theme::backdrop).into()
     }
 
+    /// The search field, with its icon and the key that focuses it, or what clears it, drawn
+    /// over the field's padding.
     fn search_box(&self) -> Element<'_, Message> {
+        let width = SEARCH_WIDTH.min(self.content_width() / 2.0);
         let input = text_input(SEARCH_PLACEHOLDER, self.search.query())
+            .id(SEARCH_INPUT)
             .style(theme::input)
-            .on_input(|query| Message::Search(search::Message::Changed(query)))
-            // Half the page at most, so the username and Sign out keep their room.
-            .width(SEARCH_WIDTH.min((self.window.width - PAGE_PADDING * 2.0) / 2.0));
-        let mut bar = row![input].spacing(GRID_SPACING).align_y(Alignment::Center);
+            .padding(SEARCH_PADDING)
+            .on_input(|query| Message::Search(search::Message::Changed(query)));
+        let mut overlay = row![
+            Icon::Search.view(ICON_SIZE, Tint::Muted),
+            space::horizontal()
+        ]
+        .align_y(Alignment::Center)
+        .padding(SEARCH_OVERLAY_PADDING)
+        .height(Length::Fill);
         if !self.search.query().is_empty() {
-            bar = bar.push(
+            overlay = overlay.push(
                 button(Icon::Close.view(ICON_SIZE, Tint::Muted))
+                    .padding(CLEAR_SEARCH_PADDING)
                     .style(theme::tool)
                     .on_press(Message::Search(search::Message::Clear)),
             );
+        } else if width >= SEARCH_KBD_WIDTH {
+            overlay = overlay.push(toolbar::kbd(SEARCH_SHORTCUT));
         }
-        bar.into()
+        stack![input, overlay].width(width).into()
     }
 
+    /// Where the folder is: the folders above it lead there, and the current one is the title.
     fn breadcrumbs(&self) -> Element<'_, Message> {
-        let hidden = collapsed_crumbs(self.folder.listing.path.len()).unwrap_or_default();
-        let crumbs = self
-            .folder
-            .listing
-            .path
+        let path = &self.folder.listing.path;
+        let hidden = collapsed_crumbs(path.len()).unwrap_or_default();
+        let last = path.len().checked_sub(1);
+        let crumbs = path
             .iter()
             .enumerate()
             .filter_map(|(index, folder)| {
@@ -303,14 +263,25 @@ impl State {
                     Some(overflow_crumb())
                 } else if hidden.contains(&index) {
                     None
+                } else if Some(index) == last {
+                    Some([separator(), current_crumb(folder.name.as_str())])
                 } else {
                     Some(crumb(folder.name.as_str(), Message::Jump(Some(folder.id))))
                 }
             })
             .flatten();
-        let mut trail = trail(crumbs);
+        let home = if path.is_empty() {
+            current_crumb(HOME)
+        } else {
+            crumb_button(HOME, Message::Jump(None))
+        };
+        let mut trail: Row<'_, Message> = row![home]
+            .extend(crumbs)
+            .spacing(GRID_SPACING)
+            .align_y(Alignment::Center);
         if self.folder.loading {
-            trail = trail.push(space::horizontal()).push(text("Loading…"));
+            trail = trail
+                .push(container(text("Loading…").style(theme::muted_text)).padding(CRUMB_PADDING));
         }
         trail.into()
     }
@@ -320,39 +291,66 @@ fn modal<'a>(content: Element<'a, Message>, on_dismiss: Message) -> Element<'a, 
     opaque(mouse_area(center(opaque(content)).style(theme::backdrop)).on_press(on_dismiss))
 }
 
-/// The breadcrumb trail: Home, then `crumbs`.
-fn trail<'a>(crumbs: impl IntoIterator<Item = Element<'a, Message>>) -> Row<'a, Message> {
-    row![
-        button(text(HOME))
-            .style(theme::tool)
-            .on_press(Message::Jump(None))
-    ]
-    .extend(crumbs)
-    .spacing(GRID_SPACING)
-    .align_y(Alignment::Center)
+/// `content` in the box that rests on the window.
+fn card(content: Element<'_, Message>) -> Element<'_, Message> {
+    container(content)
+        .padding(CARD_PADDING)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(theme::card)
+        .into()
+}
+
+/// The title of a page.
+fn heading<'a>(title: impl text::IntoFragment<'a>) -> Element<'a, Message> {
+    text(title)
+        .size(HEADING_SIZE)
+        .font(theme::SEMIBOLD)
+        .wrapping(text::Wrapping::None)
+        .into()
+}
+
+fn separator<'a>() -> Element<'a, Message> {
+    text(CRUMB_SEPARATOR)
+        .size(HEADING_SIZE)
+        .style(theme::crumb_separator)
+        .into()
+}
+
+/// The crumb of the folder shown, which leads nowhere.
+fn current_crumb(label: &str) -> Element<'_, Message> {
+    container(heading(label)).padding(CRUMB_PADDING).into()
+}
+
+fn crumb_button(label: &str, message: Message) -> Element<'_, Message> {
+    button(
+        text(label)
+            .size(HEADING_SIZE)
+            .font(theme::MEDIUM)
+            .wrapping(text::Wrapping::None),
+    )
+    .padding(CRUMB_PADDING)
+    .style(theme::crumb)
+    .on_press(message)
+    .into()
 }
 
 /// The crumb standing for the hidden folders, whose menu hangs from its left edge.
 fn overflow_crumb<'a>() -> [Element<'a, Message>; 2] {
-    let button = button(text(CRUMB_OVERFLOW))
-        .style(theme::tool)
+    let button = button(text(CRUMB_OVERFLOW).size(HEADING_SIZE))
+        .padding(CRUMB_PADDING)
+        .style(theme::crumb)
         // Never sent: the anchor takes the press, and only needs the button to look enabled.
         .on_press(Message::CloseMenu);
     [
-        text(CRUMB_SEPARATOR).into(),
+        separator(),
         Anchor::new(button)
             .on_press(|bounds| Message::CrumbsMenu(Placement::hanging(bounds, Horizontal::Left)))
             .into(),
     ]
 }
 
-/// A separator followed by a link-styled crumb.
+/// A separator followed by a crumb leading to a folder.
 fn crumb(label: &str, message: Message) -> [Element<'_, Message>; 2] {
-    [
-        text(CRUMB_SEPARATOR).into(),
-        button(text(label))
-            .style(theme::tool)
-            .on_press(message)
-            .into(),
-    ]
+    [separator(), crumb_button(label, message)]
 }

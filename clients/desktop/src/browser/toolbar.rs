@@ -14,6 +14,15 @@ use crate::{
 const SPACING: f32 = 4.0;
 const LABEL_SPACING: f32 = 6.0;
 const BUTTON_PADDING: f32 = 10.0;
+const BUTTON_PADDING_Y: f32 = 8.0;
+const BUTTON_PADDING_Y_X: [f32; 2] = [BUTTON_PADDING_Y, BUTTON_PADDING];
+const PRIMARY_PADDING: f32 = 16.0;
+const BAR_PADDING: f32 = 4.0;
+const COUNT_PADDING: f32 = 8.0;
+const KBD_SIZE: f32 = 11.0;
+const KBD_PADDING: [f32; 2] = [0.0, 5.0];
+const CLEAR_SELECTION: &str = "Clear selection";
+const CLEAR_SHORTCUT: &str = "Esc";
 const CHAR_WIDTH: f32 = 7.5;
 const MIN_GAP: f32 = 24.0;
 const TIP_PADDING: f32 = 6.0;
@@ -89,8 +98,8 @@ pub fn actions(selected: &[&Node], lost_and_found: NodeId) -> Vec<(Action, bool)
     open.into_iter()
         .chain([
             (Action::Download, any),
-            (Action::Rename, single),
             (Action::Move, any),
+            (Action::Rename, single),
             (Action::Details, single),
             (Action::Delete, deletable),
         ])
@@ -103,7 +112,14 @@ struct Tool<'a> {
     label: &'a str,
     shortcut: &'a str,
     message: Option<Message>,
-    danger: bool,
+    look: Look,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Look {
+    Ghost,
+    Primary,
+    Danger,
 }
 
 impl<'a> Tool<'a> {
@@ -113,19 +129,37 @@ impl<'a> Tool<'a> {
             label,
             shortcut,
             message,
-            danger: false,
+            look: Look::Ghost,
+        }
+    }
+
+    fn primary(self) -> Self {
+        Self {
+            look: Look::Primary,
+            ..self
         }
     }
 
     fn action(action: Action, enabled: bool) -> Self {
         Self {
-            danger: action == Action::Delete,
+            look: if action == Action::Delete {
+                Look::Danger
+            } else {
+                Look::Ghost
+            },
             ..Self::new(
                 action.icon(),
                 action.label(),
                 action.shortcut(),
                 enabled.then_some(Message::Act(action)),
             )
+        }
+    }
+
+    fn padding(&self) -> f32 {
+        match self.look {
+            Look::Primary => PRIMARY_PADDING,
+            Look::Ghost | Look::Danger => BUTTON_PADDING,
         }
     }
 
@@ -136,13 +170,13 @@ impl<'a> Tool<'a> {
         } else {
             0.0
         };
-        BUTTON_PADDING * 2.0 + ICON_SIZE + label
+        self.padding() * 2.0 + ICON_SIZE + label
     }
 }
 
 /// The toolbar, `width` wide. Normally it holds the folder commands; once several nodes
-/// are selected it holds the actions on them instead. When the labels do not fit, the buttons
-/// show only their icons and the label moves into the tooltip.
+/// are selected a tinted bar with the actions on them replaces it. When the labels do not fit,
+/// the buttons show only their icons and the label moves into the tooltip.
 /// `can_add` is false where nothing may be created, such as Lost & Found.
 pub fn view<'a>(
     selected: &[&Node],
@@ -151,69 +185,112 @@ pub fn view<'a>(
     folder: Option<NodeId>,
     width: f32,
 ) -> Element<'a, Message> {
-    let (lead, leading, trailing) = if !client_core::selection::shows_bulk_actions(selected.len()) {
-        (
-            None,
-            vec![
-                Tool::new(
-                    Icon::NewFolder,
-                    "New folder",
-                    NEW_FOLDER_SHORTCUT,
-                    can_add.then_some(Message::NewFolder),
-                ),
-                Tool::new(
-                    Icon::Upload,
-                    "Upload",
-                    UPLOAD_SHORTCUT,
-                    can_add.then_some(Message::Upload),
-                ),
-                Tool::new(Icon::Refresh, "Refresh", "F5", Some(Message::Refresh)),
-                Tool::new(Icon::Web, "Web", "", Some(Message::OpenInWeb(folder))),
-            ],
-            vec![
-                Tool::new(Icon::Sync, "Sync queue", "", Some(Message::OpenSyncQueue)),
-                Tool::new(Icon::Recycling, "Recycle bin", "", Some(Message::OpenTrash)),
-                Tool::new(Icon::Devices, "Devices", "", Some(Message::OpenDevices)),
-            ],
-        )
-    } else {
-        let (trailing, leading): (Vec<_>, Vec<_>) = actions(selected, lost_and_found)
-            .into_iter()
-            .filter(|(action, _)| !matches!(action, Action::Open | Action::OpenFile))
-            .map(|(action, enabled)| Tool::action(action, enabled))
-            .partition(|tool| tool.danger);
-        (Some(selected.len()), leading, trailing)
-    };
-    let labelled = fits(lead, leading.iter().chain(&trailing), width);
-
-    let mut bar = row![].spacing(SPACING).align_y(Alignment::Center);
-    if let Some(count) = lead {
-        let clear = button(Icon::Close.view(ICON_SIZE, Tint::Muted))
-            .style(theme::tool)
-            .on_press(Message::ClearSelection);
-        bar = bar.push(tip(clear.into(), "Clear selection", "Esc"));
-        bar = bar.push(text(count_label(count, labelled)));
+    if client_core::selection::shows_bulk_actions(selected.len()) {
+        return selection_bar(selected, lost_and_found, width);
     }
-    bar.extend(leading.into_iter().map(|tool| tool.view(labelled)))
-        .push(space::horizontal())
-        .extend(trailing.into_iter().map(|tool| tool.view(labelled)))
+    let tools = [
+        Tool::new(
+            Icon::Upload,
+            "Upload",
+            UPLOAD_SHORTCUT,
+            can_add.then_some(Message::Upload),
+        )
+        .primary(),
+        Tool::new(
+            Icon::NewFolder,
+            "New folder",
+            NEW_FOLDER_SHORTCUT,
+            can_add.then_some(Message::NewFolder),
+        ),
+        Tool::new(Icon::Refresh, "Refresh", "F5", Some(Message::Refresh)),
+        Tool::new(
+            Icon::Web,
+            "Open in web",
+            "",
+            Some(Message::OpenInWeb(folder)),
+        ),
+    ];
+    let labelled = fits(None, tools.iter(), width);
+    row![]
+        .spacing(SPACING)
+        .align_y(Alignment::Center)
+        .extend(tools.into_iter().map(|tool| tool.view(labelled)))
         .width(Length::Fill)
         .into()
 }
 
-/// Whether `tools`, after the selection count `lead`, fit in `width` with their labels.
+/// What replaces the toolbar while several nodes are selected: the count, the actions on them
+/// and the way out.
+fn selection_bar<'a>(
+    selected: &[&Node],
+    lost_and_found: NodeId,
+    width: f32,
+) -> Element<'a, Message> {
+    let tools: Vec<_> = actions(selected, lost_and_found)
+        .into_iter()
+        .filter(|(action, _)| !matches!(action, Action::Open | Action::OpenFile))
+        .map(|(action, enabled)| Tool::action(action, enabled))
+        .collect();
+    let count = selected.len();
+    let labelled = fits(Some(count), tools.iter(), width - BAR_PADDING * 2.0);
+    let clear: Element<'a, Message> = if labelled {
+        button(
+            row![
+                text(CLEAR_SELECTION).font(theme::MEDIUM),
+                kbd(CLEAR_SHORTCUT)
+            ]
+            .spacing(LABEL_SPACING)
+            .align_y(Alignment::Center),
+        )
+        .padding(BUTTON_PADDING_Y_X)
+        .style(theme::tool)
+        .on_press(Message::ClearSelection)
+        .into()
+    } else {
+        let clear = button(Icon::Close.view(ICON_SIZE, Tint::Muted))
+            .padding(BUTTON_PADDING_Y_X)
+            .style(theme::tool)
+            .on_press(Message::ClearSelection);
+        tip(clear.into(), CLEAR_SELECTION, CLEAR_SHORTCUT)
+    };
+    let bar = row![
+        container(
+            text(count_label(count, labelled))
+                .font(theme::MEDIUM)
+                .style(theme::accent_text)
+        )
+        .padding(COUNT_PADDING)
+    ]
+    .spacing(SPACING)
+    .align_y(Alignment::Center)
+    .extend(tools.into_iter().map(|tool| tool.view(labelled)))
+    .push(space::horizontal())
+    .push(clear);
+    container(bar)
+        .padding(BAR_PADDING)
+        .width(Length::Fill)
+        .style(theme::selection_bar)
+        .into()
+}
+
+/// Whether `tools`, after the selection count `lead` and its Clear selection, fit in `width`
+/// with their labels.
 fn fits<'t, 'a: 't>(
     lead: Option<usize>,
     tools: impl Iterator<Item = &'t Tool<'a>>,
     width: f32,
 ) -> bool {
     let lead = lead.map_or(0.0, |count| {
-        BUTTON_PADDING * 2.0 + ICON_SIZE + SPACING + text_width(&count_label(count, true))
+        COUNT_PADDING * 2.0
+            + text_width(&count_label(count, true))
+            + BUTTON_PADDING * 2.0
+            + text_width(CLEAR_SELECTION)
+            + LABEL_SPACING
+            + text_width(CLEAR_SHORTCUT)
     });
     let (count, buttons) = tools.fold((0, 0.0), |(count, sum), tool| {
         (count + 1, sum + tool.width(true))
     });
-    // One extra gap for the spacer between the leading and the trailing buttons.
     lead + buttons + SPACING * count as f32 + MIN_GAP <= width
 }
 
@@ -228,6 +305,14 @@ fn count_label(count: usize, labelled: bool) -> String {
 /// An estimate of how wide `label` renders at the default text size.
 fn text_width(label: &str) -> f32 {
     label.chars().count() as f32 * CHAR_WIDTH
+}
+
+/// A keyboard shortcut drawn as a key.
+pub(super) fn kbd<'a>(label: &'a str) -> Element<'a, Message> {
+    container(text(label).size(KBD_SIZE).font(theme::SEMIBOLD))
+        .padding(KBD_PADDING)
+        .style(theme::kbd)
+        .into()
 }
 
 /// A menu entry for the context menu.
@@ -266,7 +351,7 @@ pub fn menu_row<'a>(
             text(label)
                 .width(Length::Fill)
                 .wrapping(text::Wrapping::None),
-            text(shortcut).size(TIP_SIZE),
+            text(shortcut).size(TIP_SIZE).style(theme::muted_text),
         ]
         .spacing(LABEL_SPACING * 2.0)
         .align_y(Alignment::Center),
@@ -280,13 +365,14 @@ pub fn menu_row<'a>(
 
 impl<'a> Tool<'a> {
     fn view(self, labelled: bool) -> Element<'a, Message> {
+        let padding = self.padding();
         let (style, tint): (fn(&iced::Theme, button::Status) -> button::Style, Tint) =
-            if self.danger {
-                (theme::danger_tool, Tint::Danger)
-            } else {
-                (theme::tool, Tint::Text)
+            match self.look {
+                Look::Ghost => (theme::tool, Tint::Text),
+                Look::Primary => (theme::primary, Tint::OnAccent),
+                Look::Danger => (theme::danger_tool, Tint::Danger),
             };
-        let tint = if self.message.is_some() {
+        let tint = if self.message.is_some() || self.look == Look::Primary {
             tint
         } else {
             Tint::Disabled
@@ -295,9 +381,12 @@ impl<'a> Tool<'a> {
             .spacing(LABEL_SPACING)
             .align_y(Alignment::Center);
         if labelled {
-            content = content.push(text(self.label));
+            content = content.push(text(self.label).font(theme::MEDIUM));
         }
-        let tool = button(content).style(style).on_press_maybe(self.message);
+        let tool = button(content)
+            .padding([BUTTON_PADDING_Y, padding])
+            .style(style)
+            .on_press_maybe(self.message);
         match (labelled, self.shortcut.is_empty()) {
             (true, true) => tool.into(),
             (true, false) => tip(tool.into(), "", self.shortcut),

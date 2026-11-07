@@ -4,7 +4,9 @@ use iced::advanced::graphics::text::Paragraph;
 use iced::advanced::text::{Paragraph as _, Text};
 use iced::widget::text::{LineHeight, Shaping, Wrapping};
 use iced::widget::{Responsive, responsive, text};
-use iced::{Alignment, Font, Length, Pixels, Size, alignment};
+use iced::{Alignment, Length, Pixels, Size, alignment};
+
+use crate::theme;
 
 const ELLIPSIS: &str = "\u{2026}";
 
@@ -61,7 +63,7 @@ fn width(content: &str, size: f32) -> f32 {
         bounds: Size::INFINITE,
         size: Pixels(size),
         line_height: LineHeight::default(),
-        font: Font::DEFAULT,
+        font: theme::FONT,
         align_x: Alignment::Start.into(),
         align_y: alignment::Vertical::Top,
         shaping: Shaping::default(),

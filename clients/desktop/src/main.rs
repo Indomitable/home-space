@@ -16,7 +16,6 @@ const APP_TITLE: &str = "Home Space";
 const APP_ID: &str = "home-space";
 const WINDOW: iced::Size = iced::Size::new(1280.0, 800.0);
 const MIN_WINDOW: iced::Size = iced::Size::new(480.0, 360.0);
-const TEXT_SIZE: iced::Pixels = iced::Pixels(14.0);
 const APP_ICON: &[u8] = include_bytes!("../packaging/home-space.png");
 #[cfg(target_os = "macos")]
 const APP_ICNS: &[u8] = include_bytes!("../packaging/home-space.icns");
@@ -30,7 +29,8 @@ fn main() -> iced::Result {
         .theme(app::App::theme)
         .settings(iced::Settings {
             id: Some(APP_ID.to_owned()),
-            default_text_size: TEXT_SIZE,
+            default_font: theme::FONT,
+            default_text_size: iced::Pixels(theme::TEXT_SIZE),
             ..iced::Settings::default()
         })
         .window(iced::window::Settings {

@@ -85,10 +85,7 @@ pub fn view(status: &Status) -> Element<'_, Message> {
         }
         let heading = text(format!("{title} ({})", items.len()))
             .size(HEADER_SIZE)
-            .font(iced::Font {
-                weight: iced::font::Weight::Bold,
-                ..iced::Font::DEFAULT
-            });
+            .font(theme::BOLD);
         rows = if title == FAILED_TITLE {
             rows.push(
                 row![heading, space::horizontal(), retry_all()]

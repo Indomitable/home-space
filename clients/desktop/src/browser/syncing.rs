@@ -6,24 +6,30 @@ use std::{
 
 use iced::{
     Alignment, Element, Length, Task,
-    widget::{button, column, container, row, scrollable, space, text},
+    widget::{button, column, container, progress_bar, row, scrollable, space, text},
 };
 
-use client_core::labels::HOME;
+use client_core::{format::human_size, labels::HOME};
 use protocol::{Node, NodeId, NodeKind};
 
 use super::{
     Message as BrowserMessage,
     context_menu::Entry,
     sync_queue::{problem_row, retry_all},
+    toolbar,
 };
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},
     locale::short_date,
-    sync::{self, Activity, Badge, Command, Commands, Mapping, Outage, Status},
+    sync::{self, Activity, Badge, Command, Commands, ItemState, Mapping, Outage, Status},
     theme,
 };
 
+const STATUS_PADDING: [f32; 2] = [10.0, 12.0];
+const STATUS_COMPACT_PADDING: f32 = 8.0;
+const STATUS_GAP: f32 = 8.0;
+const STATUS_SPACING: f32 = 6.0;
+const STATUS_BAR: f32 = 6.0;
 const PANEL_WIDTH: f32 = 560.0;
 const PANEL_PADDING: f32 = 16.0;
 const SPACING: f32 = 10.0;
@@ -235,43 +241,120 @@ pub fn badge_icon(badge: Badge) -> (Icon, Tint) {
     }
 }
 
-/// The header button summing up the sync, which opens its settings.
-pub fn indicator(status: &Status) -> Element<'_, BrowserMessage> {
+/// What the sidebar says about the sync.
+struct Overview {
+    icon: Icon,
+    tint: Tint,
+    title: &'static str,
+    detail: Option<String>,
+    /// How much of the work ahead is done, while there is some.
+    progress: Option<f32>,
+}
+
+fn overview(status: &Status) -> Overview {
+    let plain = |icon, tint, title, detail| Overview {
+        icon,
+        tint,
+        title,
+        detail,
+        progress: None,
+    };
     let busy = match status.activity {
         Activity::Checking => Some("Checking server…"),
         Activity::Scanning => Some("Scanning…"),
         Activity::Idle | Activity::Syncing => None,
     };
-    let (icon, tint, label) = match status.overall() {
-        _ if status.pending == 0 && busy.is_some() => (
-            Icon::SyncPending,
-            Tint::Accent,
-            busy.unwrap_or_default().to_owned(),
+    match (status.overall(), busy) {
+        (_, Some(title)) if status.pending == 0 => plain(Icon::Sync, Tint::Accent, title, None),
+        (None, _) => plain(
+            Icon::Sync,
+            Tint::Muted,
+            "Sync",
+            Some("Choose a local folder".to_owned()),
         ),
-        None => (Icon::Sync, Tint::Muted, "Sync".to_owned()),
-        Some(Badge::Synced) => (Icon::Synced, Tint::Success, "Up to date".to_owned()),
-        Some(Badge::Pending) => (
-            Icon::SyncPending,
-            Tint::Accent,
-            format!("Syncing {}", status.pending),
+        (Some(Badge::Synced), _) => plain(Icon::Synced, Tint::Success, "Up to date", None),
+        (Some(Badge::Pending), _) => Overview {
+            progress: progress(status),
+            ..plain(Icon::Sync, Tint::Accent, "Syncing", Some(work_left(status)))
+        },
+        (Some(Badge::Problem | Badge::Disabled), _) => match &status.outage {
+            Some(outage) => plain(
+                Icon::SyncProblem,
+                Tint::Danger,
+                "Server unreachable",
+                Some(format!("Trying again at {}", short_date(outage.retry_at))),
+            ),
+            None => plain(
+                Icon::SyncProblem,
+                Tint::Danger,
+                "Sync problem",
+                (!status.problems.is_empty())
+                    .then(|| format!("{} could not be synced", plural(status.problems.len()))),
+            ),
+        },
+    }
+}
+
+/// "3 items · 18.4 MB left".
+fn work_left(status: &Status) -> String {
+    let items = plural(status.pending);
+    match status.summary().bytes_left {
+        0 => items,
+        bytes => format!(
+            "{items} · {} left",
+            human_size(i64::try_from(bytes).unwrap_or(i64::MAX))
         ),
-        Some(Badge::Problem | Badge::Disabled) if status.outage.is_some() => (
-            Icon::SyncProblem,
-            Tint::Danger,
-            "Server unreachable".to_owned(),
-        ),
-        Some(Badge::Problem | Badge::Disabled) => {
-            (Icon::SyncProblem, Tint::Danger, "Sync problem".to_owned())
-        }
-    };
-    button(
-        row![icon.view(ICON_SIZE, tint), text(label)]
-            .spacing(SPACING / 2.0)
-            .align_y(Alignment::Center),
-    )
-    .style(theme::tool)
-    .on_press(BrowserMessage::Sync(Message::Settings(true)))
-    .into()
+    }
+}
+
+/// How much of the bytes in the queue have moved.
+fn progress(status: &Status) -> Option<f32> {
+    let (done, size) = status
+        .queue
+        .iter()
+        .filter(|item| !matches!(item.state, ItemState::Failed(_)))
+        .fold((0, 0), |(done, size), item| {
+            (done + item.done, size + item.size)
+        });
+    (size > 0).then(|| done as f32 / size as f32)
+}
+
+/// The sidebar's box summing up the sync, which opens its settings.
+pub fn status_card(status: &Status, compact: bool) -> Element<'_, BrowserMessage> {
+    let overview = overview(status);
+    let open = BrowserMessage::Sync(Message::Settings(true));
+    if compact {
+        let card = button(overview.icon.view(ICON_SIZE, overview.tint))
+            .padding(STATUS_COMPACT_PADDING)
+            .style(theme::status_card)
+            .on_press(open);
+        return toolbar::tip(card.into(), overview.title, "");
+    }
+    let mut card = column![
+        row![
+            overview.icon.view(ICON_SIZE, overview.tint),
+            text(overview.title).font(theme::MEDIUM)
+        ]
+        .spacing(STATUS_GAP)
+        .align_y(Alignment::Center)
+    ]
+    .spacing(STATUS_SPACING);
+    if let Some(detail) = overview.detail {
+        card = card.push(text(detail).size(NOTE_SIZE).style(theme::muted_text));
+    }
+    if let Some(done) = overview.progress {
+        card = card.push(
+            progress_bar(0.0..=1.0, done)
+                .girth(STATUS_BAR)
+                .style(theme::progress),
+        );
+    }
+    button(card)
+        .padding(STATUS_PADDING)
+        .width(Length::Fill)
+        .style(theme::status_card)
+        .on_press(open)
+        .into()
 }
 
 /// Asks before syncing a remote folder with the picked local folder, showing what it holds.

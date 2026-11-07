@@ -1,8 +1,8 @@
-use std::time::Duration;
+use std::{ops::Range, time::Duration};
 
 use iced::{
-    Alignment, Element, Length, Padding, Task,
-    widget::{button, column, container, row, scrollable, text},
+    Alignment, Element, Length, Task,
+    widget::{button, column, container, responsive, row, scrollable, text},
 };
 
 use api_client::{ApiError, Client};
@@ -11,12 +11,13 @@ use protocol::{NodeId, NodeKind, SearchHit};
 
 use super::{
     Message as BrowserMessage,
-    grid::{
-        CELL_SPACING, DATE_WIDTH, ROW_GAP, ROW_PADDING, ROW_SIZE, SCROLLBAR_GUTTER, SIZE_WIDTH,
+    parts::{
+        COLUMN_GAP, DATE_WIDTH, LIST_PADDING_WIDE, ROW_HEIGHT, ROW_SIZE, SECOND_LINE_SIZE,
+        SIZE_WIDTH, alert_error, divider, empty, header_bar, list_box, muted_cell, title,
     },
 };
 use crate::{
-    ellipsis::ellipsized,
+    ellipsis::fit,
     icons::{ICON_SIZE, Icon, Tint, node_icon},
     locale::short_date,
     theme,
@@ -25,8 +26,8 @@ use crate::{
 /// How long typing must pause before the query is sent.
 pub const DEBOUNCE: Duration = Duration::from_millis(250);
 
-const HEADER_SIZE: f32 = 13.0;
-const EMPTY_PADDING: f32 = 32.0;
+const SPACING: f32 = 12.0;
+const NAME_GAP: f32 = 12.0;
 const NAME_PORTION: u16 = 3;
 const LOCATION_PORTION: u16 = 2;
 
@@ -142,62 +143,68 @@ impl Search {
         }
     }
 
-    /// Column titles and the scrolling result rows, or a hint when there is nothing to list.
+    /// How many results there are over the box with their rows, or a hint when there is
+    /// nothing to list.
     pub fn view(&self) -> Element<'_, BrowserMessage> {
         if let Some(error) = &self.error {
-            container(text(error.as_str())).style(theme::error).into()
+            alert_error(Icon::Error, error.as_str(), None)
         } else if self.hits.is_empty() {
-            let hint = if self.loading {
+            list_box(empty(if self.loading {
                 "Searching\u{2026}"
             } else {
                 "Nothing matches your search."
-            };
-            container(text(hint))
-                .padding(EMPTY_PADDING)
-                .center_x(Length::Fill)
-                .into()
+            }))
         } else {
+            let query = self.query.trim();
             let rows = self
                 .hits
                 .iter()
                 .enumerate()
-                .map(|(index, hit)| hit_row(index, hit));
+                .flat_map(|(index, hit)| [hit_row(index, hit, query), divider()]);
             column![
-                header(),
-                scrollable(
-                    column(rows)
-                        .spacing(ROW_GAP)
-                        .padding(Padding::default().right(SCROLLBAR_GUTTER)),
-                )
-                .height(Length::Fill),
+                text(count_label(self.hits.len()))
+                    .size(SECOND_LINE_SIZE)
+                    .style(theme::muted_text),
+                list_box(column![
+                    header(),
+                    scrollable(column(rows)).height(Length::Fill)
+                ]),
             ]
-            .spacing(ROW_GAP)
+            .spacing(SPACING)
             .into()
         }
     }
 }
 
-fn header<'a>() -> Element<'a, BrowserMessage> {
-    let title = |label: &'static str| text(label).size(HEADER_SIZE);
-    let cells = row![
-        title("Name").width(Length::FillPortion(NAME_PORTION)),
-        title("Location").width(Length::FillPortion(LOCATION_PORTION)),
-        title("Size").width(SIZE_WIDTH).align_x(Alignment::End),
-        title("Modified").width(DATE_WIDTH),
-    ]
-    .spacing(CELL_SPACING)
-    .align_y(Alignment::Center);
-    container(container(cells).padding(ROW_PADDING).style(theme::header))
-        .padding(Padding::default().right(SCROLLBAR_GUTTER))
-        .into()
+fn count_label(count: usize) -> String {
+    match count {
+        1 => "1 result".to_owned(),
+        count => format!("{count} results"),
+    }
 }
 
-fn hit_row(index: usize, hit: &SearchHit) -> Element<'_, BrowserMessage> {
+fn header<'a>() -> Element<'a, BrowserMessage> {
+    header_bar(
+        row![
+            title("Name", Length::FillPortion(NAME_PORTION), Alignment::Start),
+            title(
+                "Location",
+                Length::FillPortion(LOCATION_PORTION),
+                Alignment::Start
+            ),
+            title("Size", SIZE_WIDTH, Alignment::End),
+            title("Modified", DATE_WIDTH, Alignment::End),
+        ],
+        LIST_PADDING_WIDE,
+    )
+}
+
+fn hit_row<'a>(index: usize, hit: &'a SearchHit, query: &str) -> Element<'a, BrowserMessage> {
     let node = &hit.node;
     let icon = node_icon(node);
     let tint = match icon {
         Icon::Folder => Tint::Accent,
-        _ => Tint::Muted,
+        _ => Tint::Text,
     };
     let size = match node.kind {
         NodeKind::Folder => String::new(),
@@ -206,24 +213,77 @@ fn hit_row(index: usize, hit: &SearchHit) -> Element<'_, BrowserMessage> {
     let cells = row![
         row![
             icon.view(ICON_SIZE, tint),
-            ellipsized(node.name.as_str(), ROW_SIZE, Alignment::Start).width(Length::Fill)
+            highlighted(node.name.as_str(), query.to_owned())
         ]
-        .spacing(CELL_SPACING / 1.5)
+        .spacing(NAME_GAP)
         .align_y(Alignment::Center)
         .width(Length::FillPortion(NAME_PORTION)),
-        ellipsized(location_label(&hit.location), ROW_SIZE, Alignment::Start)
-            .width(Length::FillPortion(LOCATION_PORTION)),
-        ellipsized(size, ROW_SIZE, Alignment::End).width(SIZE_WIDTH),
-        ellipsized(short_date(node.updated_at), ROW_SIZE, Alignment::Start).width(DATE_WIDTH),
+        muted_cell(
+            location_label(&hit.location),
+            Length::FillPortion(LOCATION_PORTION),
+            Alignment::Start
+        ),
+        muted_cell(size, SIZE_WIDTH, Alignment::End),
+        muted_cell(short_date(node.updated_at), DATE_WIDTH, Alignment::End),
     ]
-    .spacing(CELL_SPACING)
+    .spacing(COLUMN_GAP)
+    .height(Length::Fill)
     .align_y(Alignment::Center);
     button(cells)
         .width(Length::Fill)
-        .padding(ROW_PADDING)
+        .height(ROW_HEIGHT)
+        .padding(LIST_PADDING_WIDE)
         .style(theme::row(false))
         .on_press(BrowserMessage::Search(Message::Open(index)))
         .into()
+}
+
+/// `name` on one line with the part matching `query` in bold, cut short when it does not fit.
+/// Three texts in a row, as rich text keeps a span's weight up to the end of the word.
+fn highlighted<'a>(name: &'a str, query: String) -> Element<'a, BrowserMessage> {
+    responsive(move |bounds| {
+        let shown = fit(name, ROW_SIZE, bounds.width);
+        let part = |part: &str, font| {
+            text(part.to_owned())
+                .size(ROW_SIZE)
+                .font(font)
+                .wrapping(text::Wrapping::None)
+        };
+        let line = match find_ignoring_case(&shown, &query) {
+            Some(found) => row![
+                part(&shown[..found.start], theme::FONT),
+                part(&shown[found.clone()], theme::BOLD),
+                part(&shown[found.end..], theme::FONT),
+            ],
+            None => row![part(&shown, theme::FONT)],
+        };
+        container(line).clip(true).into()
+    })
+    .height(Length::Shrink)
+    .into()
+}
+
+/// Where `query` first appears in `name`, whatever the case of either.
+fn find_ignoring_case(name: &str, query: &str) -> Option<Range<usize>> {
+    let query: Vec<char> = query.chars().flat_map(char::to_lowercase).collect();
+    if query.is_empty() {
+        return None;
+    }
+    name.char_indices().find_map(|(start, _)| {
+        let mut left = query.as_slice();
+        for (at, found) in name[start..].char_indices() {
+            for lower in found.to_lowercase() {
+                match left.split_first() {
+                    Some((first, rest)) if *first == lower => left = rest,
+                    _ => return None,
+                }
+            }
+            if left.is_empty() {
+                return Some(start..start + at + found.len_utf8());
+            }
+        }
+        None
+    })
 }
 
 #[cfg(test)]
@@ -244,6 +304,33 @@ mod tests {
         let second = search.change("ab".to_owned()).expect("active");
         assert!(!search.accepts(first));
         assert!(search.accepts(second));
+    }
+
+    #[test]
+    fn a_match_is_found_whatever_the_case() {
+        assert_eq!(
+            find_ignoring_case("electricity-Invoice.jpg", "invoice"),
+            Some(12..19)
+        );
+        assert_eq!(find_ignoring_case("invoice", "INV"), Some(0..3));
+    }
+
+    #[test]
+    fn a_match_counts_bytes_after_wider_characters() {
+        assert_eq!(find_ignoring_case("Ünï-file", "FILE"), Some(6..10));
+        assert_eq!(find_ignoring_case("ÜNÏ", "ï"), Some(3..5));
+    }
+
+    #[test]
+    fn no_match_or_query_highlights_nothing() {
+        assert_eq!(find_ignoring_case("report.pdf", "invoice"), None);
+        assert_eq!(find_ignoring_case("report.pdf", ""), None);
+    }
+
+    #[test]
+    fn the_count_reads_naturally() {
+        assert_eq!(count_label(1), "1 result");
+        assert_eq!(count_label(5), "5 results");
     }
 
     #[test]

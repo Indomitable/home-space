@@ -16,6 +16,12 @@ pub const ICON_SIZE: f32 = 20.0;
 pub enum Icon {
     Folder,
     FolderOutline,
+    Back,
+    /// Waiting for its turn.
+    Schedule,
+    Laptop,
+    Language,
+    Smartphone,
     /// The app's mark.
     Home,
     Search,
@@ -76,6 +82,11 @@ impl Icon {
         match self {
             Self::Folder => include_bytes!("../assets/icons/folder_fill.svg"),
             Self::FolderOutline => include_bytes!("../assets/icons/folder.svg"),
+            Self::Back => include_bytes!("../assets/icons/arrow_back.svg"),
+            Self::Schedule => include_bytes!("../assets/icons/schedule.svg"),
+            Self::Laptop => include_bytes!("../assets/icons/laptop.svg"),
+            Self::Language => include_bytes!("../assets/icons/language.svg"),
+            Self::Smartphone => include_bytes!("../assets/icons/smartphone.svg"),
             Self::Home => include_bytes!("../assets/icons/home.svg"),
             Self::Search => include_bytes!("../assets/icons/search.svg"),
             Self::MoreVert => include_bytes!("../assets/icons/more_vert.svg"),

@@ -6,7 +6,7 @@ use std::{
 
 use iced::{
     Alignment, Element, Length, Task,
-    widget::{button, column, container, progress_bar, row, scrollable, space, text},
+    widget::{Row, button, column, container, progress_bar, row, scrollable, space, text},
 };
 
 use client_core::{format::human_size, labels::HOME};
@@ -15,7 +15,8 @@ use protocol::{Node, NodeId, NodeKind};
 use super::{
     Message as BrowserMessage,
     context_menu::Entry,
-    sync_queue::{problem_row, retry_all},
+    parts::{alert_error, divider, ghost, outlined, small_outlined},
+    sync_queue::RETRY_ALL,
     toolbar,
 };
 use crate::{
@@ -35,8 +36,14 @@ const PANEL_PADDING: f32 = 16.0;
 const SPACING: f32 = 10.0;
 const TITLE_SIZE: f32 = 18.0;
 const NOTE_SIZE: f32 = 13.0;
-const PROBLEMS_HEIGHT: f32 = 160.0;
-const SHOWN_PROBLEMS: usize = 50;
+const PATH_SIZE: f32 = 13.0;
+const CARD_SPACING: f32 = 16.0;
+const CARD_PADDING: [f32; 2] = [14.0, 16.0];
+const CARD_TITLE_GAP: f32 = 2.0;
+const ACTION_GAP: f32 = 4.0;
+const SYNC_AGAIN: &str = "Sync again";
+const STOP_SYNCING: &str = "Stop syncing";
+const SET_TO_NOT_SYNC: &str = "Set to not sync";
 const SHOW_ALL: &str = "Show all";
 const RETRY_NOW: &str = "Retry now";
 const VERIFY: &str = "Verify";
@@ -55,7 +62,6 @@ pub enum Message {
     Set(Mapping),
     Unmap(Option<NodeId>),
     OpenLocal(PathBuf),
-    Settings(bool),
     /// Tries the failed paths again now: these ones, or all of them with `None`.
     Retry(Option<Vec<PathBuf>>),
     /// Reads a synced folder (`None` for Home) from scratch on both sides.
@@ -74,8 +80,6 @@ pub enum Outcome {
 pub struct Syncing {
     commands: Option<Commands>,
     status: Arc<Status>,
-    /// Whether the sync settings are shown.
-    pub settings: bool,
     /// A picked folder waiting for the user to confirm it.
     pub confirm: Option<Confirm>,
     /// Why the last mapping was refused.
@@ -152,7 +156,6 @@ impl Syncing {
                     return Outcome::Error(err);
                 }
             }
-            Message::Settings(open) => self.settings = open,
             Message::Retry(paths) => self.send(Command::Retry(paths)),
             Message::Verify(remote) => self.send(Command::Verify(remote)),
         }
@@ -320,13 +323,13 @@ fn progress(status: &Status) -> Option<f32> {
 }
 
 /// The sidebar's box summing up the sync, which opens its settings.
-pub fn status_card(status: &Status, compact: bool) -> Element<'_, BrowserMessage> {
+pub fn status_card(status: &Status, compact: bool, active: bool) -> Element<'_, BrowserMessage> {
     let overview = overview(status);
-    let open = BrowserMessage::Sync(Message::Settings(true));
+    let open = BrowserMessage::OpenSyncSettings;
     if compact {
         let card = button(overview.icon.view(ICON_SIZE, overview.tint))
             .padding(STATUS_COMPACT_PADDING)
-            .style(theme::status_card)
+            .style(theme::status_card(active))
             .on_press(open);
         return toolbar::tip(card.into(), overview.title, "");
     }
@@ -352,7 +355,7 @@ pub fn status_card(status: &Status, compact: bool) -> Element<'_, BrowserMessage
     button(card)
         .padding(STATUS_PADDING)
         .width(Length::Fill)
-        .style(theme::status_card)
+        .style(theme::status_card(active))
         .on_press(open)
         .into()
 }
@@ -410,145 +413,235 @@ pub async fn measure(path: PathBuf) -> Contents {
     .unwrap_or_default()
 }
 
-/// The sync settings: what syncs where, and what went wrong.
-pub fn settings<'a>(status: &'a Status, notice: Option<&'a str>) -> Element<'a, BrowserMessage> {
-    let close = button(Icon::Close.view(ICON_SIZE, Tint::Muted))
-        .style(theme::tool)
-        .on_press(BrowserMessage::Sync(Message::Settings(false)));
-    let mut panel = column![
-        row![text("Sync").size(TITLE_SIZE), space::horizontal(), close].align_y(Alignment::Center)
-    ]
-    .spacing(SPACING);
+/// What the sync settings' top line offers: reading Home again from scratch, when it syncs.
+pub fn settings_action(status: &Status) -> Element<'_, BrowserMessage> {
+    match status.mapping(None) {
+        Some(Mapping { local: Some(_), .. }) => {
+            let verifying = status.is_verifying(None);
+            outlined(
+                Some(Icon::Synced),
+                verify_label(verifying),
+                (!verifying).then_some(verify(None)),
+            )
+        }
+        _ => space().into(),
+    }
+}
+
+/// The sync settings: what went wrong, and what syncs where. In a window too narrow for a row's
+/// buttons next to its text, as with `stacked`, they go under it.
+pub fn settings<'a>(
+    status: &'a Status,
+    notice: Option<&'a str>,
+    stacked: bool,
+) -> Element<'a, BrowserMessage> {
+    let mut page = column![].spacing(CARD_SPACING);
     for error in status.error.as_deref().into_iter().chain(notice) {
-        panel = panel.push(container(text(error)).style(theme::error));
+        page = page.push(alert_error(Icon::SyncProblem, error, None));
     }
     if let Some(outage) = &status.outage {
-        let retry = tool(
-            Icon::Refresh,
-            RETRY_NOW,
-            BrowserMessage::Sync(Message::Retry(None)),
-        );
-        panel = panel.push(
-            container(
-                row![text(outage_text(outage)).width(Length::Fill), retry]
-                    .spacing(SPACING)
-                    .align_y(Alignment::Center),
-            )
-            .style(theme::error),
-        );
+        let retry = small_outlined(RETRY_NOW, Some(BrowserMessage::Sync(Message::Retry(None))));
+        page = page.push(alert_error(
+            Icon::SyncProblem,
+            outage_text(outage),
+            Some(retry),
+        ));
     }
-    if status.mapping(None).is_none() {
-        panel = panel.push(mapping_row(HOME.to_owned(), None, None, false));
-    }
-    let mut mappings: Vec<&Mapping> = status.mappings.iter().collect();
-    mappings.sort_by_key(|mapping| mapping.remote.map(|id| folder_name(status, id)));
-    for mapping in mappings {
-        let name = mapping
-            .remote
-            .map_or_else(|| HOME.to_owned(), |id| folder_name(status, id));
-        let verifying = status.is_verifying(mapping.remote);
-        panel = panel.push(mapping_row(name, Some(mapping), mapping.remote, verifying));
-    }
-    panel = panel.push(
-        text("Right-click a folder to sync it to a location of its own, or to leave it out.")
-            .size(NOTE_SIZE),
-    );
+    page = page.push(local_folder_card(status, stacked));
+    page = page.push(own_settings_card(status, stacked));
     if !status.problems.is_empty() {
-        let problems = status
-            .problems
-            .iter()
-            .take(SHOWN_PROBLEMS)
-            .map(|(path, fault)| problem_row(path, fault));
-        let heading = row![
-            text(format!(
-                "{} could not be synced",
-                plural(status.problems.len())
-            ))
-            .width(Length::Fill),
-            retry_all(),
-            tool(Icon::Info, SHOW_ALL, BrowserMessage::OpenSyncQueue),
-        ]
-        .spacing(SPACING / 2.0)
-        .align_y(Alignment::Center);
-        panel = panel
-            .push(heading)
-            .push(scrollable(column(problems)).height(PROBLEMS_HEIGHT));
+        page = page.push(problems_card(status));
     }
-    container(panel)
-        .padding(PANEL_PADDING)
-        .width(PANEL_WIDTH)
-        .style(theme::panel)
+    scrollable(page).height(Length::Fill).into()
+}
+
+fn card<'a>(
+    title: impl text::IntoFragment<'a>,
+    note: impl text::IntoFragment<'a>,
+    action: Option<Element<'a, BrowserMessage>>,
+    rows: Vec<Element<'a, BrowserMessage>>,
+) -> Element<'a, BrowserMessage> {
+    let head = row![
+        column![
+            text(title).font(theme::MEDIUM),
+            text(note).size(NOTE_SIZE).style(theme::muted_text)
+        ]
+        .spacing(CARD_TITLE_GAP)
+        .width(Length::Fill)
+    ]
+    .push(action)
+    .spacing(SPACING)
+    .align_y(Alignment::Center);
+    let mut card = column![container(head).padding(CARD_PADDING)];
+    for row in rows {
+        card = card
+            .push(divider())
+            .push(container(row).padding(CARD_PADDING));
+    }
+    container(card)
+        .width(Length::Fill)
+        .style(theme::card)
         .into()
 }
 
-/// A mapped folder (or Home, unmapped) with what can be done with it.
-fn mapping_row(
-    name: String,
-    mapping: Option<&Mapping>,
-    remote: Option<NodeId>,
-    verifying: bool,
-) -> Element<'_, BrowserMessage> {
-    let target = match mapping.map(|mapping| mapping.local.as_deref()) {
-        None => "Not synced".to_owned(),
-        Some(None) => "Set to not sync".to_owned(),
-        Some(Some(local)) => display_path(local),
-    };
-    let mut actions = row![].spacing(SPACING / 2.0);
-    match mapping {
-        None => {
-            actions = actions.push(tool(
-                Icon::Sync,
-                "Choose folder…",
-                BrowserMessage::Sync(Message::Pick(remote)),
-            ));
-        }
-        Some(mapping) => {
-            if let Some(local) = &mapping.local {
-                actions = actions.push(tool(
-                    Icon::FolderOpen,
-                    "Open",
-                    BrowserMessage::Sync(Message::OpenLocal(local.clone())),
-                ));
-                actions = actions.push(verify_tool(remote, verifying));
-            }
-            actions = actions.push(tool(
-                Icon::Close,
-                "Remove",
-                BrowserMessage::Sync(Message::Unmap(remote)),
-            ));
-        }
+/// A row of a card: an icon and text, then what can be done about it.
+fn card_row<'a>(
+    icon: Element<'a, BrowserMessage>,
+    text: Element<'a, BrowserMessage>,
+    actions: Row<'a, BrowserMessage>,
+    stacked: bool,
+) -> Element<'a, BrowserMessage> {
+    let line = row![icon, text].spacing(SPACING).align_y(Alignment::Center);
+    let actions = actions.spacing(ACTION_GAP).align_y(Alignment::Center);
+    if stacked {
+        column![line, actions].spacing(SPACING).into()
+    } else {
+        row![line.width(Length::Fill), actions]
+            .spacing(SPACING)
+            .align_y(Alignment::Center)
+            .into()
     }
-    row![
-        column![text(name), text(target).size(NOTE_SIZE)].width(Length::Fill),
-        actions
+}
+
+/// Where Home syncs on this computer.
+fn local_folder_card(status: &Status, stacked: bool) -> Element<'_, BrowserMessage> {
+    let open = |message: Message| BrowserMessage::Sync(message);
+    let actions = match status.mapping(None).map(|mapping| &mapping.local) {
+        None => row![outlined(
+            None,
+            "Choose folder…",
+            Some(open(Message::Pick(None)))
+        )],
+        Some(None) => row![ghost(None, SYNC_AGAIN, Some(open(Message::Unmap(None))))],
+        Some(Some(local)) => row![
+            ghost(
+                Some(Icon::Web),
+                "Open local folder",
+                Some(open(Message::OpenLocal(local.clone())))
+            ),
+            ghost(None, STOP_SYNCING, Some(open(Message::Unmap(None)))),
+            outlined(
+                None,
+                "Change local folder…",
+                Some(open(Message::Pick(None)))
+            ),
+        ],
+    };
+    let where_it_is: Element<'_, BrowserMessage> =
+        match status.mapping(None).map(|mapping| mapping.local.as_deref()) {
+            Some(Some(local)) => text(display_path(local))
+                .size(PATH_SIZE)
+                .font(theme::MONO)
+                .width(Length::Fill)
+                .into(),
+            Some(None) => text(SET_TO_NOT_SYNC)
+                .style(theme::muted_text)
+                .width(Length::Fill)
+                .into(),
+            None => text("Not synced")
+                .style(theme::muted_text)
+                .width(Length::Fill)
+                .into(),
+        };
+    card(
+        "Local folder",
+        format!("{HOME} syncs into this folder on this computer."),
+        None,
+        vec![card_row(
+            Icon::FolderOpen.view(ICON_SIZE, Tint::Accent),
+            where_it_is,
+            actions,
+            stacked,
+        )],
+    )
+}
+
+/// The folders that sync somewhere else than through Home, or not at all.
+fn own_settings_card(status: &Status, stacked: bool) -> Element<'_, BrowserMessage> {
+    let mut mappings: Vec<(String, &Mapping)> = status
+        .mappings
+        .iter()
+        .filter_map(|mapping| mapping.remote.map(|id| (folder_name(status, id), mapping)))
+        .collect();
+    mappings.sort_by(|(a, _), (b, _)| a.cmp(b));
+    let rows = mappings
+        .into_iter()
+        .map(|(name, mapping)| own_setting_row(name, mapping, status, stacked))
+        .collect();
+    card(
+        "Folders with their own setting",
+        "Right-click a folder to sync it to a location of its own, or to leave it out.",
+        None,
+        rows,
+    )
+}
+
+fn own_setting_row<'a>(
+    name: String,
+    mapping: &'a Mapping,
+    status: &'a Status,
+    stacked: bool,
+) -> Element<'a, BrowserMessage> {
+    let remote = mapping.remote;
+    let open = |message: Message| Some(BrowserMessage::Sync(message));
+    let (icon, target, actions) = match &mapping.local {
+        Some(local) => {
+            let verifying = status.is_verifying(remote);
+            (
+                Icon::Folder.view(ICON_SIZE, Tint::Accent),
+                format!("Syncs to {}", display_path(local)),
+                row![
+                    ghost(None, "Open", open(Message::OpenLocal(local.clone()))),
+                    ghost(
+                        None,
+                        verify_label(verifying),
+                        (!verifying).then_some(verify(remote))
+                    ),
+                    ghost(None, "Change…", open(Message::Pick(remote))),
+                    ghost(None, STOP_SYNCING, open(Message::Unmap(remote))),
+                ],
+            )
+        }
+        None => (
+            Icon::FolderOutline.view(ICON_SIZE, Tint::AccentFaded),
+            SET_TO_NOT_SYNC.to_owned(),
+            row![ghost(None, SYNC_AGAIN, open(Message::Unmap(remote)))],
+        ),
+    };
+    let text = column![
+        text(name),
+        text(target).size(NOTE_SIZE).style(theme::muted_text)
     ]
-    .spacing(SPACING)
-    .align_y(Alignment::Center)
-    .into()
+    .width(Length::Fill)
+    .into();
+    card_row(icon, text, actions, stacked)
 }
 
-fn tool(icon: Icon, label: &str, message: BrowserMessage) -> Element<'_, BrowserMessage> {
-    button(
-        row![icon.view(ICON_SIZE, Tint::Text), text(label)]
-            .spacing(SPACING / 2.0)
-            .align_y(Alignment::Center),
+/// How many paths could not be synced, with the way to the queue that lists them.
+fn problems_card(status: &Status) -> Element<'_, BrowserMessage> {
+    let actions = row![
+        ghost(
+            Some(Icon::Refresh),
+            RETRY_ALL,
+            Some(BrowserMessage::Sync(Message::Retry(None)))
+        ),
+        outlined(None, SHOW_ALL, Some(BrowserMessage::OpenSyncQueue)),
+    ]
+    .spacing(ACTION_GAP);
+    card(
+        format!("{} could not be synced", plural(status.problems.len())),
+        "The sync queue lists them with what went wrong.",
+        Some(actions.into()),
+        Vec::new(),
     )
-    .style(theme::tool)
-    .on_press(message)
-    .into()
 }
 
-/// Verifies the synced folder `remote`; inactive while it is being verified.
-fn verify_tool<'a>(remote: Option<NodeId>, verifying: bool) -> Element<'a, BrowserMessage> {
-    let label = if verifying { VERIFYING } else { VERIFY };
-    button(
-        row![Icon::Synced.view(ICON_SIZE, Tint::Text), text(label)]
-            .spacing(SPACING / 2.0)
-            .align_y(Alignment::Center),
-    )
-    .style(theme::tool)
-    .on_press_maybe((!verifying).then_some(BrowserMessage::Sync(Message::Verify(remote))))
-    .into()
+fn verify(remote: Option<NodeId>) -> BrowserMessage {
+    BrowserMessage::Sync(Message::Verify(remote))
+}
+
+fn verify_label(verifying: bool) -> &'static str {
+    if verifying { VERIFYING } else { VERIFY }
 }
 
 /// "Cannot reach the server since …: why. Trying again at …".
@@ -725,6 +818,90 @@ mod tests {
     fn several_selected_nodes_have_no_sync_entries() {
         let (a, b) = (folder(1), folder(2));
         assert!(syncing(vec![], vec![]).entries(&[&a, &b]).is_empty());
+    }
+
+    fn page_shows(status: &Status, label: &str) -> bool {
+        iced_test::simulator(settings(status, None, false))
+            .find(label)
+            .is_ok()
+    }
+
+    #[test]
+    fn an_unsynced_home_offers_to_choose_a_folder() {
+        let status = Status::default();
+        assert!(page_shows(&status, "Not synced"));
+        assert!(page_shows(&status, "Choose folder…"));
+    }
+
+    #[test]
+    fn a_synced_home_can_be_opened_changed_or_stopped() {
+        let status = Status {
+            mappings: vec![Mapping {
+                remote: None,
+                local: Some(PathBuf::from("/sync")),
+            }],
+            ..Status::default()
+        };
+        assert!(page_shows(&status, "/sync"));
+        assert!(page_shows(&status, "Open local folder"));
+        assert!(page_shows(&status, "Change local folder…"));
+        assert!(page_shows(&status, STOP_SYNCING));
+        assert!(
+            iced_test::simulator(settings_action(&status))
+                .find(VERIFY)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn verify_needs_a_synced_home() {
+        let status = Status::default();
+        assert!(
+            iced_test::simulator(settings_action(&status))
+                .find(VERIFY)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_folder_left_out_can_sync_again_and_a_synced_one_can_stop() {
+        let (left_out, own) = (folder(1), folder(2));
+        let status = Status {
+            mappings: vec![
+                Mapping {
+                    remote: Some(left_out.id),
+                    local: None,
+                },
+                Mapping {
+                    remote: Some(own.id),
+                    local: Some(PathBuf::from("/photos")),
+                },
+            ],
+            names: HashMap::from([
+                (left_out.id, "Skip".to_owned()),
+                (own.id, "Images".to_owned()),
+            ]),
+            ..Status::default()
+        };
+        assert!(page_shows(&status, SET_TO_NOT_SYNC));
+        assert!(page_shows(&status, SYNC_AGAIN));
+        assert!(page_shows(&status, "Syncs to /photos"));
+        assert!(page_shows(&status, STOP_SYNCING));
+    }
+
+    #[test]
+    fn what_failed_leads_to_the_queue() {
+        let status = Status {
+            problems: vec![(PathBuf::from("/sync/a"), sync::Fault::now("502", "boom"))],
+            ..Status::default()
+        };
+        assert!(page_shows(&status, "1 item could not be synced"));
+        let mut ui = iced_test::simulator(settings(&status, None, false));
+        ui.click(SHOW_ALL).expect("the button is shown");
+        assert!(
+            ui.into_messages()
+                .any(|message| matches!(message, BrowserMessage::OpenSyncQueue))
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use iced::{
     Alignment, Element, Length, Padding, Task,
     keyboard::Modifiers,
-    widget::{button, column, container, mouse_area, row, scrollable, text},
+    widget::{button, column, container, row, scrollable, space, text},
 };
 
 use api_client::{ApiError, Client};
@@ -12,9 +12,11 @@ use client_core::{
 use protocol::{MoveResponse, Node, NodeId, OnConflict, TrashItem};
 
 use super::{
-    grid::{
-        CELL_SPACING, DATE_WIDTH, EMPTY_PADDING, HEADER_SIZE, ROW_GAP, ROW_PADDING, ROW_SIZE,
-        SCROLLBAR_GUTTER, SIZE_WIDTH, check,
+    grid::check,
+    parts::{
+        CHECK_LIST_PADDING_WIDE, COLUMN_GAP, DATE_WIDTH, ROW_HEIGHT, ROW_SIZE, SECOND_LINE_SIZE,
+        SIZE_WIDTH, alert_error, alert_info, divider, empty, ghost_danger, header_bar, list_box,
+        muted_cell, small_outlined, small_primary, title,
     },
     selection::{Coverage, Selection},
 };
@@ -25,10 +27,16 @@ use crate::{
     theme,
 };
 
-const SPACING: f32 = 4.0;
-const LABEL_SPACING: f32 = 6.0;
-const NAME_PORTION: u16 = 2;
-const PATH_PORTION: u16 = 3;
+const SPACING: f32 = 12.0;
+const NAME_GAP: f32 = 12.0;
+const NAME_PORTION: u16 = 3;
+const PATH_PORTION: u16 = 2;
+const BAR_PADDING: Padding = Padding {
+    top: 4.0,
+    right: 12.0,
+    bottom: 4.0,
+    left: 12.0,
+};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -191,84 +199,98 @@ impl State {
             .map(|done| format!("Restored {} to {LOST_AND_FOUND}", files(done.count)))
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
-        let selected = !self.selection.selected(&self.nodes).is_empty();
-        let restore = tool(
-            Icon::Restore,
-            "Restore",
-            selected.then_some(Message::Restore),
-            false,
-        );
-        let empty = tool(
-            Icon::EmptyBin,
-            "Empty recycle bin",
-            (!self.items.is_empty()).then_some(Message::Empty),
-            true,
-        );
-        let status = text(if self.loading { "Loading…" } else { "" });
-        let bar = row![restore, empty, status]
-            .spacing(SPACING)
-            .align_y(Alignment::Center);
-        let mut page = column![bar].spacing(SPACING * 3.0);
-        if let Some(error) = &self.error {
-            page = page.push(container(text(error.as_str())).style(theme::error));
-        }
-        if let Some(notice) = self.notice() {
-            let mut line = row![text(notice)]
-                .spacing(SPACING)
-                .align_y(Alignment::Center);
-            if let Some(folder) = self.restored.as_ref().and_then(|done| done.folder) {
-                line = line.push(
-                    button(text(format!("Open {LOST_AND_FOUND}")))
-                        .style(theme::tool)
-                        .on_press(Message::OpenLostAndFound(folder)),
-                );
-            }
-            page = page.push(container(line).padding(SPACING));
-        }
-        page.push(
-            column![self.header(), self.rows()]
-                .spacing(SPACING)
-                .height(Length::Fill),
-        )
+    /// What the page's top line offers.
+    pub fn action(&self) -> Element<'_, Message> {
+        row![
+            text(if self.loading { "Loading…" } else { "" }).style(theme::muted_text),
+            ghost_danger(
+                Icon::EmptyBin,
+                "Empty recycle bin",
+                (!self.items.is_empty()).then_some(Message::Empty),
+            )
+        ]
+        .spacing(SPACING)
+        .align_y(Alignment::Center)
         .into()
     }
 
-    fn header(&self) -> Element<'_, Message> {
-        let title = |label: &'static str| text(label).size(HEADER_SIZE);
-        let cells = row![
-            check(self.selection.coverage(&self.nodes), Message::ToggleAll),
-            title("Name").width(Length::FillPortion(NAME_PORTION)),
-            title("Original path").width(Length::FillPortion(PATH_PORTION)),
-            title("Deleted").width(DATE_WIDTH),
-            title("Size").width(SIZE_WIDTH).align_x(Alignment::End),
-        ]
-        .spacing(CELL_SPACING)
-        .align_y(Alignment::Center);
-        container(container(cells).padding(ROW_PADDING).style(theme::header))
-            .padding(Padding::default().right(SCROLLBAR_GUTTER))
+    pub fn view(&self) -> Element<'_, Message> {
+        let mut page = column![].spacing(SPACING);
+        let selected = self.selection.selected(&self.nodes).len();
+        if selected > 0 {
+            page = page.push(selection_bar(selected));
+        }
+        if let Some(error) = &self.error {
+            page = page.push(alert_error(Icon::Error, error.as_str(), None));
+        }
+        if let Some(notice) = self.notice() {
+            let open = self
+                .restored
+                .as_ref()
+                .and_then(|done| done.folder)
+                .map(|folder| {
+                    small_outlined(
+                        format!("Open {LOST_AND_FOUND}"),
+                        Some(Message::OpenLostAndFound(folder)),
+                    )
+                });
+            page = page.push(alert_info(Icon::Info, notice, open));
+        }
+        page.push(list_box(column![self.header(), self.rows()]))
             .into()
+    }
+
+    fn header(&self) -> Element<'_, Message> {
+        header_bar(
+            row![
+                check(self.selection.coverage(&self.nodes), Message::ToggleAll),
+                title("Name", Length::FillPortion(NAME_PORTION), Alignment::Start),
+                title(
+                    "Original path",
+                    Length::FillPortion(PATH_PORTION),
+                    Alignment::Start
+                ),
+                title("Size", SIZE_WIDTH, Alignment::End),
+                title("Deleted", DATE_WIDTH, Alignment::End),
+            ],
+            CHECK_LIST_PADDING_WIDE,
+        )
     }
 
     fn rows(&self) -> Element<'_, Message> {
         if self.items.is_empty() {
-            return container(text("The recycle bin is empty."))
-                .padding(EMPTY_PADDING)
-                .center_x(Length::Fill)
-                .into();
+            return empty("The recycle bin is empty.");
         }
-        let rows = self
-            .items
-            .iter()
-            .map(|item| item_row(item, self.selection.contains(item.node.id)));
-        scrollable(
-            column(rows)
-                .spacing(ROW_GAP)
-                .padding(Padding::default().right(SCROLLBAR_GUTTER)),
-        )
-        .height(Length::Fill)
-        .into()
+        let rows = self.items.iter().flat_map(|item| {
+            [
+                item_row(item, self.selection.contains(item.node.id)),
+                divider(),
+            ]
+        });
+        scrollable(column(rows)).height(Length::Fill).into()
     }
+}
+
+/// What can be done with the selected files, instead of the listing's toolbar.
+fn selection_bar<'a>(count: usize) -> Element<'a, Message> {
+    container(
+        row![
+            text(format!("{count} selected"))
+                .font(theme::MEDIUM)
+                .style(theme::accent_text),
+            small_primary(Icon::Restore, "Restore", Some(Message::Restore)),
+            space::horizontal(),
+            text(format!("Restored files go to {LOST_AND_FOUND}"))
+                .size(SECOND_LINE_SIZE)
+                .style(theme::muted_text),
+        ]
+        .spacing(SPACING)
+        .align_y(Alignment::Center),
+    )
+    .padding(BAR_PADDING)
+    .width(Length::Fill)
+    .style(theme::selection_bar)
+    .into()
 }
 
 fn item_row(item: &TrashItem, selected: bool) -> Element<'_, Message> {
@@ -278,49 +300,38 @@ fn item_row(item: &TrashItem, selected: bool) -> Element<'_, Message> {
     } else {
         Coverage::None
     };
+    let icon = node_icon(node);
+    let tint = match icon {
+        Icon::Folder => Tint::Accent,
+        _ => Tint::Text,
+    };
     let cells = row![
         check(coverage, Message::Toggle(node.id)),
         row![
-            node_icon(node).view(ICON_SIZE, Tint::Muted),
+            icon.view(ICON_SIZE, tint),
             ellipsized(node.name.as_str(), ROW_SIZE, Alignment::Start).width(Length::Fill)
         ]
-        .spacing(CELL_SPACING / 1.5)
+        .spacing(NAME_GAP)
         .align_y(Alignment::Center)
         .width(Length::FillPortion(NAME_PORTION)),
-        ellipsized(item.original_path.as_str(), ROW_SIZE, Alignment::Start)
-            .width(Length::FillPortion(PATH_PORTION)),
-        ellipsized(short_date(item.deleted_at), ROW_SIZE, Alignment::Start).width(DATE_WIDTH),
-        ellipsized(human_size(node.size), ROW_SIZE, Alignment::End).width(SIZE_WIDTH),
+        muted_cell(
+            item.original_path.as_str(),
+            Length::FillPortion(PATH_PORTION),
+            Alignment::Start
+        ),
+        muted_cell(human_size(node.size), SIZE_WIDTH, Alignment::End),
+        muted_cell(short_date(item.deleted_at), DATE_WIDTH, Alignment::End),
     ]
-    .spacing(CELL_SPACING)
+    .spacing(COLUMN_GAP)
+    .height(Length::Fill)
     .align_y(Alignment::Center);
-    let row_button = button(cells)
+    button(cells)
         .width(Length::Fill)
-        .padding(ROW_PADDING)
+        .height(ROW_HEIGHT)
+        .padding(CHECK_LIST_PADDING_WIDE)
         .style(theme::row(selected))
-        .on_press(Message::Click(node.id));
-    mouse_area(row_button).into()
-}
-
-fn tool(icon: Icon, label: &str, message: Option<Message>, danger: bool) -> Element<'_, Message> {
-    let (style, tint): (fn(&iced::Theme, button::Status) -> button::Style, Tint) = if danger {
-        (theme::danger_tool, Tint::Danger)
-    } else {
-        (theme::tool, Tint::Text)
-    };
-    let tint = if message.is_some() {
-        tint
-    } else {
-        Tint::Disabled
-    };
-    button(
-        row![icon.view(ICON_SIZE, tint), text(label)]
-            .spacing(LABEL_SPACING)
-            .align_y(Alignment::Center),
-    )
-    .style(style)
-    .on_press_maybe(message)
-    .into()
+        .on_press(Message::Click(node.id))
+        .into()
 }
 
 #[cfg(test)]
@@ -380,8 +391,8 @@ mod tests {
         assert!(ui.find("a.jpg").is_ok());
         assert!(ui.find("/Photos/b.jpg").is_ok());
         assert!(ui.find("2.0 KB").is_ok());
-        assert!(ui.find("Original path").is_ok());
-        assert!(ui.find("Deleted").is_ok());
+        assert!(ui.find("ORIGINAL PATH").is_ok());
+        assert!(ui.find("DELETED").is_ok());
     }
 
     #[test]
@@ -395,9 +406,7 @@ mod tests {
     #[test]
     fn restore_needs_a_selection() {
         let mut state = loaded();
-        let mut ui = simulator(state.view());
-        ui.click("Restore").expect("restore is shown");
-        assert_eq!(ui.into_messages().count(), 0);
+        assert!(simulator(state.view()).find("Restore").is_err());
 
         let _ = press(&mut state, Message::Click(id(1)));
         let mut ui = simulator(state.view());

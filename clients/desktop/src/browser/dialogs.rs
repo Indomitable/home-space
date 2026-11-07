@@ -93,6 +93,7 @@ enum Kind {
     },
     Move {
         nodes: Vec<Node>,
+        lost_and_found: NodeId,
         trail: Vec<Node>,
         folders: Option<Vec<Node>>,
     },
@@ -178,10 +179,15 @@ impl Dialog {
     }
 
     /// Lets the user pick a destination folder for `nodes`.
-    pub fn move_nodes(client: &Client, nodes: Vec<Node>) -> (Self, Task<Message>) {
+    pub fn move_nodes(
+        client: &Client,
+        nodes: Vec<Node>,
+        lost_and_found: NodeId,
+    ) -> (Self, Task<Message>) {
         let task = list_folders(client, None);
         let dialog = Self::with(Kind::Move {
             nodes,
+            lost_and_found,
             trail: Vec::new(),
             folders: None,
         });
@@ -253,13 +259,14 @@ impl Dialog {
             Message::Folders(target, result) => {
                 if let Kind::Move {
                     nodes,
+                    lost_and_found,
                     trail,
                     folders,
                 } = &mut self.kind
                     && trail.last().map(|folder| folder.id) == target
                 {
                     match result {
-                        Ok(listing) => *folders = Some(pickable(listing, nodes)),
+                        Ok(listing) => *folders = Some(pickable(listing, nodes, *lost_and_found)),
                         Err(err) => self.error = Some(err.to_string()),
                     }
                 }
@@ -398,6 +405,7 @@ impl Dialog {
                 nodes,
                 trail,
                 folders,
+                ..
             } => {
                 let destination = trail.last().map_or(HOME, |folder| folder.name.as_str());
                 let action = fit(
@@ -720,11 +728,15 @@ fn ids_of(nodes: &[Node]) -> Vec<NodeId> {
     nodes.iter().map(|node| node.id).collect()
 }
 
-fn pickable(listing: Vec<Node>, moving: &[Node]) -> Vec<Node> {
+/// The folders of `listing` to offer as destinations: not what is `moving`, nor Lost & Found,
+/// which only receives restored files.
+fn pickable(listing: Vec<Node>, moving: &[Node], lost_and_found: NodeId) -> Vec<Node> {
     let mut folders: Vec<Node> = listing
         .into_iter()
         .filter(|entry| {
-            entry.kind == NodeKind::Folder && !moving.iter().any(|node| node.id == entry.id)
+            entry.kind == NodeKind::Folder
+                && entry.id != lost_and_found
+                && !moving.iter().any(|node| node.id == entry.id)
         })
         .collect();
     sort_nodes(&mut folders, Sort::default());
@@ -786,6 +798,7 @@ mod tests {
     fn moving() -> Dialog {
         Dialog::with(Kind::Move {
             nodes: vec![node("a.txt", 1)],
+            lost_and_found: NodeId(Uuid::from_u128(99)),
             trail: Vec::new(),
             folders: Some(Vec::new()),
         })
@@ -897,6 +910,28 @@ mod tests {
     }
 
     #[test]
+    fn lost_and_found_is_not_offered_as_a_destination() {
+        let folder = |name, raw| Node {
+            kind: NodeKind::Folder,
+            ..node(name, raw)
+        };
+        let found = folder("Lost & Found", 9);
+        let moving = folder("moving", 1);
+        let other = folder("other", 2);
+
+        let folders = pickable(
+            vec![found.clone(), moving.clone(), other.clone()],
+            std::slice::from_ref(&moving),
+            found.id,
+        );
+
+        let ids: Vec<_> = folders.iter().map(|folder| folder.id).collect();
+        assert!(ids.contains(&other.id));
+        assert!(!ids.contains(&found.id));
+        assert!(!ids.contains(&moving.id));
+    }
+
+    #[test]
     fn restore_clashes_are_titled_with_lost_and_found() {
         let dialog = restoring();
 
@@ -944,6 +979,7 @@ mod tests {
     fn a_crumb_goes_back_to_its_folder() {
         let mut dialog = Dialog::with(Kind::Move {
             nodes: vec![node("a.txt", 1)],
+            lost_and_found: NodeId(Uuid::from_u128(99)),
             trail: vec![node("Documents", 2), node("Invoices", 3)],
             folders: Some(Vec::new()),
         });
@@ -962,6 +998,7 @@ mod tests {
     fn the_move_button_names_the_destination_and_the_way_up_names_the_parent() {
         let dialog = Dialog::with(Kind::Move {
             nodes: vec![node("a.txt", 1), node("b.txt", 4)],
+            lost_and_found: NodeId(Uuid::from_u128(99)),
             trail: vec![node("Documents", 2), node("Invoices", 3)],
             folders: Some(Vec::new()),
         });

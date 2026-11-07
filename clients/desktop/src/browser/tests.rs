@@ -5,6 +5,8 @@ use uuid::Uuid;
 use iced::{Point, Vector};
 use iced_test::simulator;
 
+use client_core::labels::LOST_AND_FOUND;
+
 use super::*;
 
 const FOLDER_NAME: &str = "Folder B";
@@ -13,6 +15,8 @@ const OTHER_FILE_NAME: &str = "notes.txt";
 const FOLDER_ID: u128 = 1;
 const FILE_ID: u128 = 2;
 const OTHER_FILE_ID: u128 = 3;
+const FOUND_ID: u128 = 8;
+const RESTORED_ID: u128 = 7;
 const SEARCH_PLACEHOLDER_TEXT: &str = "Search files and folders";
 
 fn id(raw: u128) -> NodeId {
@@ -295,6 +299,116 @@ fn inside_lost_and_found() -> State {
     state.me.lost_and_found_id = id(FOLDER_ID);
     state.folder.id = Some(id(FOLDER_ID));
     state
+}
+
+/// A browser whose Lost & Found holds a restored file, showing Home.
+fn with_restored_file() -> State {
+    let mut state = state_with_listing();
+    state.me.lost_and_found_id = id(FOUND_ID);
+    state.lost_and_found = LostAndFound::new(id(FOUND_ID));
+    let mut restored = node(FILE_NAME, NodeKind::File, RESTORED_ID);
+    restored.parent_id = Some(id(FOUND_ID));
+    let _ = state.update(Message::LostAndFoundLoaded(Ok(vec![restored])));
+    state
+}
+
+#[test]
+fn the_sidebar_offers_lost_and_found_only_with_restored_files() {
+    let mut empty = state_with_listing();
+    assert!(simulator(empty.view()).find(LOST_AND_FOUND).is_err());
+    let _ = empty.update(Message::LostAndFoundLoaded(Ok(Vec::new())));
+    assert!(simulator(empty.view()).find(LOST_AND_FOUND).is_err());
+
+    let state = with_restored_file();
+    let mut ui = simulator(state.view());
+    ui.click(LOST_AND_FOUND).expect("the place is shown");
+    assert!(
+        ui.into_messages()
+            .any(|message| matches!(message, Message::OpenLostAndFound))
+    );
+}
+
+#[test]
+fn the_sidebar_drops_lost_and_found_when_its_last_file_leaves() {
+    let mut state = with_restored_file();
+    let mut moved_out = node(FILE_NAME, NodeKind::File, RESTORED_ID);
+    moved_out.parent_id = None;
+
+    let _ = state.update(Message::Server(protocol::Event::NodeUpdated {
+        node: moved_out,
+    }));
+
+    assert!(simulator(state.view()).find(LOST_AND_FOUND).is_err());
+}
+
+#[test]
+fn lost_and_found_opens_from_the_sidebar_and_goes_back() {
+    let mut state = with_restored_file();
+
+    let _ = state.update(Message::OpenLostAndFound);
+    assert_eq!(state.folder.id, Some(id(FOUND_ID)));
+
+    let _ = state.update(Message::Shortcut(Shortcut::Back));
+    assert_eq!(state.folder.id, None);
+}
+
+#[test]
+fn files_goes_home_from_lost_and_found_even_on_another_page() {
+    let mut state = with_restored_file();
+    let _ = state.update(Message::OpenLostAndFound);
+    let _ = state.update(Message::OpenTrash);
+
+    let _ = state.update(Message::OpenFiles);
+
+    assert!(matches!(state.page, Page::Folder));
+    assert_eq!(state.folder.id, None);
+}
+
+#[test]
+fn inside_a_folder_of_lost_and_found_counts_as_within_it() {
+    let mut state = with_restored_file();
+    let inner = id(FOLDER_ID);
+    let _ = state.update(Message::Jump(Some(inner)));
+    assert!(!state.within_lost_and_found());
+
+    let listing = Listing {
+        path: vec![
+            node(LOST_AND_FOUND, NodeKind::Folder, FOUND_ID),
+            node(FOLDER_NAME, NodeKind::Folder, FOLDER_ID),
+        ],
+        nodes: Vec::new(),
+    };
+    let _ = state.update(Message::Loaded(Some(inner), Ok(listing)));
+
+    assert!(state.within_lost_and_found());
+}
+
+#[test]
+fn home_never_lists_lost_and_found() {
+    let client = Client::new("http://localhost");
+    let me = Me {
+        id: protocol::UserId(Uuid::nil()),
+        username: "alice".to_owned(),
+        lost_and_found_id: id(FOUND_ID),
+    };
+    let (mut state, _task) = State::open(client, me);
+    let found = node(LOST_AND_FOUND, NodeKind::Folder, FOUND_ID);
+
+    let listing = Listing {
+        path: Vec::new(),
+        nodes: vec![
+            found.clone(),
+            node(FOLDER_NAME, NodeKind::Folder, FOLDER_ID),
+        ],
+    };
+    let _ = state.update(Message::Loaded(None, Ok(listing)));
+    assert!(state.folder.node(id(FOUND_ID)).is_none());
+    assert!(state.folder.node(id(FOLDER_ID)).is_some());
+
+    let _ = state.update(Message::Server(protocol::Event::NodeUpdated {
+        node: found,
+    }));
+    assert!(state.folder.node(id(FOUND_ID)).is_none());
 }
 
 #[test]

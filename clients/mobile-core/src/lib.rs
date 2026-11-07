@@ -272,6 +272,20 @@ pub struct EntryDetails {
     pub source_device: Option<String>,
 }
 
+/// A device of the signed-in user.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct UserDevice {
+    pub id: String,
+    pub name: String,
+    /// One of `protocol`'s `PLATFORM_*` values, or another short name.
+    pub platform: String,
+    /// When the server last heard from it.
+    pub last_seen_at: SystemTime,
+    pub signed_in: bool,
+    /// Whether this is the device that asked.
+    pub current: bool,
+}
+
 /// What to do about files that already exist where others are moved to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum MoveMode {
@@ -491,6 +505,23 @@ impl CoreClient {
         let inner = self.inner.clone();
         let node = off_ui_thread(async move { inner.create_folder(parent, &name).await }).await?;
         Ok(node.into())
+    }
+
+    /// The user's devices, the most recently seen first.
+    pub async fn devices(&self) -> Result<Vec<UserDevice>, CoreError> {
+        let inner = self.inner.clone();
+        let devices = off_ui_thread(async move { inner.devices().await }).await?;
+        Ok(devices
+            .into_iter()
+            .map(|device| UserDevice {
+                id: device.id.to_string(),
+                name: device.name,
+                platform: device.platform,
+                last_seen_at: device.last_seen_at.into(),
+                signed_in: device.signed_in,
+                current: device.current,
+            })
+            .collect())
     }
 
     /// The fields of the details panel. The device is left out if the device list won't load.
@@ -1729,6 +1760,46 @@ mod tests {
             found,
             [("beach.jpg", "Home / Photos / 2026"), ("hol", "Home")]
         );
+    }
+
+    #[tokio::test]
+    async fn devices_keep_the_servers_order_and_say_which_is_this_one() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(protocol::paths::DEVICES))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                {
+                    "id": "00000000-0000-0000-0000-00000000000a",
+                    "name": "Pixel",
+                    "platform": "android",
+                    "created_at": "2026-11-01T00:00:00Z",
+                    "last_seen_at": "2026-11-07T08:00:00Z",
+                    "signed_in": true,
+                    "current": true,
+                    "uploads": 0,
+                },
+                {
+                    "id": "00000000-0000-0000-0000-00000000000b",
+                    "name": "Laptop",
+                    "platform": "desktop-linux",
+                    "created_at": "2026-10-01T00:00:00Z",
+                    "last_seen_at": "2026-11-03T22:10:00Z",
+                    "signed_in": false,
+                    "current": false,
+                    "uploads": 0,
+                },
+            ])))
+            .mount(&server)
+            .await;
+        let client = signed_in(&server).await;
+
+        let devices = client.devices().await.unwrap();
+
+        let summary: Vec<_> = devices
+            .iter()
+            .map(|device| (device.name.as_str(), device.signed_in, device.current))
+            .collect();
+        assert_eq!(summary, [("Pixel", true, true), ("Laptop", false, false)]);
     }
 
     #[tokio::test]

@@ -138,12 +138,10 @@ The full list is in `compose/Theme.kt` and `source/m3.css`.
 
 ### Not in the app yet
 
-These are proposals; drop the ones you don't want:
+These are drawn but not built:
 
-- Appearance section in Settings (theme, “Use system colours”).
-- Devices list on Profile.
-- New folder inside the Move picker.
-- “Open browser” on the single sign-on waiting screen.
+- “Signed in with Keycloak” on Profile: the app doesn't keep how the user signed in.
+- The menu on each row of Profile's devices list (the list itself only shows them).
 
 ## Updating
 

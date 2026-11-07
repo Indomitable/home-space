@@ -42,7 +42,8 @@ import uniffi.homespace_core.UploadSource
 private const val MIME_IMAGE = "image/"
 private const val MIME_TEXT = "text/"
 private const val MIME_PDF = "application/pdf"
-private const val FAILURE_MAX_LINES = 2
+/** A row with Retry or Continue beside it has little width, so its status may wrap. */
+private const val ACTION_ROW_MAX_LINES = 2
 
 /** Everything on its way between this phone and the server: picked files, then what syncs by itself. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -245,11 +246,12 @@ private fun UploadRow(upload: QueuedUpload, onRetry: () -> Unit, onCancel: () ->
                     QueuedUploadState.PAUSED -> "Paused upload to $folder$percent"
                     QueuedUploadState.FAILED -> upload.problem ?: "This file couldn't be uploaded"
                 }
+                val hasAction = failed || upload.state == QueuedUploadState.OFFLINE || upload.state == QueuedUploadState.PAUSED
                 Text(
                     status,
                     style = MaterialTheme.typography.bodyMedium.tabular(),
                     color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = if (failed) FAILURE_MAX_LINES else 1,
+                    maxLines = if (hasAction) ACTION_ROW_MAX_LINES else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }

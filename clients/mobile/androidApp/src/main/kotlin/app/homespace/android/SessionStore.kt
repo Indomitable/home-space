@@ -22,6 +22,8 @@ private const val GCM_IV_BYTES = 12
 
 private const val DEVICE_ID = "device_id"
 private const val LAST_SERVER = "last_server"
+private const val THEME_MODE = "theme_mode"
+private const val USE_SYSTEM_COLOURS = "use_system_colours"
 private const val SESSION_SERVER = "session_server"
 private const val SESSION_TOKEN = "session_token"
 private const val SSO_SERVER = "sso_server"
@@ -50,6 +52,18 @@ class SessionStore(context: Context) {
     val deviceId: String
         get() = prefs.getString(DEVICE_ID, null) ?: UUID.randomUUID().toString().also {
             prefs.edit().putString(DEVICE_ID, it).commit()
+        }
+
+    var themeMode: ThemeMode
+        get() = ThemeMode.entries.find { it.name == prefs.getString(THEME_MODE, null) } ?: ThemeMode.SYSTEM
+        set(value) {
+            prefs.edit().putString(THEME_MODE, value.name).commit()
+        }
+
+    var useSystemColours: Boolean
+        get() = prefs.getBoolean(USE_SYSTEM_COLOURS, false)
+        set(value) {
+            prefs.edit().putBoolean(USE_SYSTEM_COLOURS, value).commit()
         }
 
     var lastServer: String?

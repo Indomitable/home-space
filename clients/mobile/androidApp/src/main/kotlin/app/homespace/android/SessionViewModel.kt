@@ -79,12 +79,20 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         private set
     var pendingSso by mutableStateOf(store.loadPendingSso())
         private set
+    /** The address of the sign-in the browser is on, to reopen it; gone if the app was killed. */
+    var pendingSsoUrl by mutableStateOf<String?>(null)
+        private set
     var busy by mutableStateOf(false)
         private set
     var error by mutableStateOf<String?>(null)
         private set
     var username by mutableStateOf("")
     var password by mutableStateOf("")
+
+    var themeMode by mutableStateOf(store.themeMode)
+        private set
+    var useSystemColours by mutableStateOf(store.useSystemColours)
+        private set
 
     /** Where the folder browser is, kept here so that rotating the phone doesn't reset it. */
     val path = mutableStateListOf<Crumb>()
@@ -215,6 +223,16 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun changeThemeMode(mode: ThemeMode) {
+        store.themeMode = mode
+        themeMode = mode
+    }
+
+    fun changeUseSystemColours(use: Boolean) {
+        store.useSystemColours = use
+        useSystemColours = use
+    }
+
     /** Starts a single sign-on and returns the URL to open in a browser. */
     fun beginSso(name: String): String? {
         error = null
@@ -224,6 +242,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
             val pending = PendingSso(address, request.verifier, name)
             if (store.savePendingSso(pending)) {
                 pendingSso = pending
+                pendingSsoUrl = request.url
                 request.url
             } else {
                 error = SIGN_IN_FAILED
@@ -238,6 +257,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     fun cancelSso() {
         store.forgetPendingSso()
         pendingSso = null
+        pendingSsoUrl = null
     }
 
     fun onBrowserFailed() {

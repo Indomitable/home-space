@@ -187,7 +187,8 @@ The task doesn't run in the simulator (`BGTaskSchedulerErrorDomain` 1), so it ne
 
 ## Transfers
 
-The header's menu opens **Transfers**: each picked file with its progress, Retry and Cancel; each
+**Transfers** (a navigation bar tab on Android, in the header's menu on iOS) has each picked file
+with its progress, Retry and Cancel; each
 auto-upload source, with the file on its way and how far along it is; and how offline copies stand.
 Downloads aren't listed, since they show on their rows and run only while the app is open.
 

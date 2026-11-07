@@ -1,11 +1,12 @@
 package app.homespace.android
 
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -13,8 +14,8 @@ import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -42,7 +43,6 @@ internal fun SearchScreen(
     onClose: () -> Unit,
     onOpenFolder: (Entry) -> Unit,
     onAction: (Entry, RowAction) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     // The last answer stays up until the next one comes, so the list doesn't flicker.
@@ -94,23 +94,25 @@ internal fun SearchScreen(
         },
         expanded = true,
         onExpandedChange = { if (!it) onClose() },
-        modifier = modifier,
     ) {
+        val found = results.orEmpty()
         val notice = when {
             error != null -> error
-            query.isNotBlank() && results?.isEmpty() == true -> "No results for “${query.trim()}”"
-            else -> null
+            query.isBlank() || results == null -> null
+            found.isEmpty() -> "No results for “${query.trim()}”"
+            found.size == 1 -> "1 result"
+            else -> "${found.size} results"
         }
         notice?.let {
             Text(
                 it,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.labelLarge,
                 color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
             )
         }
-        LazyColumn(modifier = Modifier.padding(horizontal = 16.dp)) {
-            items(results.orEmpty(), key = { it.entry.id }) { result ->
+        LazyColumn(modifier = Modifier.navigationBarsPadding().imePadding()) {
+            items(found, key = { it.entry.id }) { result ->
                 val entry = result.entry
                 EntryRow(
                     entry = entry,
@@ -128,8 +130,8 @@ internal fun SearchScreen(
                     onLongClick = {},
                     onAction = { onAction(entry, it) },
                     location = result.location,
+                    highlight = query.trim(),
                 )
-                HorizontalDivider()
             }
         }
     }

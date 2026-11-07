@@ -296,6 +296,7 @@ fun BrowseScreen(
                             onClick = { adding = true },
                             icon = { Icon(painterResource(R.drawable.ic_add), contentDescription = null) },
                             text = { Text("New") },
+                            modifier = Modifier.semantics { contentDescription = "New" },
                         )
                     }
                 },
@@ -535,12 +536,14 @@ private fun AddMenu(visible: Boolean, onDismiss: () -> Unit, onNewFolder: () -> 
                     onClick = onUpload,
                     icon = { Icon(painterResource(R.drawable.ic_upload_file), contentDescription = null) },
                     text = { Text("Upload files") },
+                    modifier = Modifier.semantics { contentDescription = "Upload files" },
                     shape = CircleShape,
                 )
                 ExtendedFloatingActionButton(
                     onClick = onNewFolder,
                     icon = { Icon(painterResource(R.drawable.ic_create_new_folder), contentDescription = null) },
                     text = { Text("New folder") },
+                    modifier = Modifier.semantics { contentDescription = "New folder" },
                     shape = CircleShape,
                 )
                 FloatingActionButton(

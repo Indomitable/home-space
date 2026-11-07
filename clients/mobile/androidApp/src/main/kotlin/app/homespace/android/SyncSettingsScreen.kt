@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -52,6 +53,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -135,12 +138,12 @@ fun SettingsScreen(
                 leadingContent = { LeadingIcon(R.drawable.ic_wifi) },
                 headlineContent = { Text("Sync only on Wi-Fi") },
                 supportingContent = { Text("Files don't sync over mobile data.") },
-                trailingContent = {
-                    Switch(
-                        checked = settings.wifiOnly,
-                        onCheckedChange = { update(settings.copy(wifiOnly = it)) },
-                    )
-                },
+                trailingContent = { Switch(checked = settings.wifiOnly, onCheckedChange = null) },
+                modifier = Modifier.toggleable(
+                    value = settings.wifiOnly,
+                    role = Role.Switch,
+                    onValueChange = { update(settings.copy(wifiOnly = it)) },
+                ),
             )
             ListItem(
                 leadingContent = { LeadingIcon(R.drawable.ic_autorenew) },
@@ -148,22 +151,22 @@ fun SettingsScreen(
                 supportingContent = {
                     Text("Keep syncing when the app isn't open. Android decides when this runs.")
                 },
-                trailingContent = {
-                    Switch(
-                        checked = settings.background,
-                        onCheckedChange = { on ->
-                            when {
-                                !on -> update(settings.copy(background = false))
-                                needsNotificationPermission(context) ->
-                                    askNotifications.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                                else -> {
-                                    update(settings.copy(background = true))
-                                    batteryHint = true
-                                }
+                trailingContent = { Switch(checked = settings.background, onCheckedChange = null) },
+                modifier = Modifier.toggleable(
+                    value = settings.background,
+                    role = Role.Switch,
+                    onValueChange = { on ->
+                        when {
+                            !on -> update(settings.copy(background = false))
+                            needsNotificationPermission(context) ->
+                                askNotifications.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            else -> {
+                                update(settings.copy(background = true))
+                                batteryHint = true
                             }
-                        },
-                    )
-                },
+                        }
+                    },
+                ),
             )
             ListItem(
                 leadingContent = { LeadingIcon(R.drawable.ic_drive_folder_upload) },
@@ -199,12 +202,12 @@ fun SettingsScreen(
                     leadingContent = { LeadingIcon(R.drawable.ic_palette) },
                     headlineContent = { Text("Use system colours") },
                     supportingContent = { Text("Match your wallpaper") },
-                    trailingContent = {
-                        Switch(
-                            checked = model.useSystemColours,
-                            onCheckedChange = model::changeUseSystemColours,
-                        )
-                    },
+                    trailingContent = { Switch(checked = model.useSystemColours, onCheckedChange = null) },
+                    modifier = Modifier.toggleable(
+                        value = model.useSystemColours,
+                        role = Role.Switch,
+                        onValueChange = model::changeUseSystemColours,
+                    ),
                 )
             }
         }
@@ -369,6 +372,7 @@ fun UploadFoldersScreen(session: Session.SignedIn, model: SessionViewModel, onBa
                 onClick = { dialog = SyncDialog.AddSource },
                 icon = { Icon(painterResource(R.drawable.ic_add), contentDescription = null) },
                 text = { Text("Add folder") },
+                modifier = Modifier.semantics { contentDescription = "Add folder" },
             )
         },
     ) { padding ->

@@ -15,6 +15,11 @@ pub const ICON_SIZE: f32 = 20.0;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Icon {
     Folder,
+    FolderOutline,
+    /// The app's mark.
+    Home,
+    Search,
+    MoreVert,
     Image,
     Document,
     Other,
@@ -24,12 +29,10 @@ pub enum Icon {
     Rename,
     Move,
     Delete,
-    Recycling,
     Restore,
     EmptyBin,
     Refresh,
     Up,
-    Back,
     Close,
     Info,
     Checked,
@@ -61,6 +64,7 @@ pub enum Tint {
     Text,
     Muted,
     Accent,
+    OnAccent,
     Success,
     Danger,
     Disabled,
@@ -69,7 +73,11 @@ pub enum Tint {
 impl Icon {
     fn bytes(self) -> &'static [u8] {
         match self {
-            Self::Folder => include_bytes!("../assets/icons/folder.svg"),
+            Self::Folder => include_bytes!("../assets/icons/folder_fill.svg"),
+            Self::FolderOutline => include_bytes!("../assets/icons/folder.svg"),
+            Self::Home => include_bytes!("../assets/icons/home.svg"),
+            Self::Search => include_bytes!("../assets/icons/search.svg"),
+            Self::MoreVert => include_bytes!("../assets/icons/more_vert.svg"),
             Self::Image => include_bytes!("../assets/icons/image.svg"),
             Self::Document => include_bytes!("../assets/icons/description.svg"),
             Self::Other => include_bytes!("../assets/icons/draft.svg"),
@@ -79,12 +87,10 @@ impl Icon {
             Self::Rename => include_bytes!("../assets/icons/edit.svg"),
             Self::Move => include_bytes!("../assets/icons/drive_file_move.svg"),
             Self::Delete => include_bytes!("../assets/icons/delete.svg"),
-            Self::Recycling => include_bytes!("../assets/icons/recycling.svg"),
             Self::Restore => include_bytes!("../assets/icons/restore_from_trash.svg"),
             Self::EmptyBin => include_bytes!("../assets/icons/delete_forever.svg"),
             Self::Refresh => include_bytes!("../assets/icons/refresh.svg"),
             Self::Up => include_bytes!("../assets/icons/arrow_upward.svg"),
-            Self::Back => include_bytes!("../assets/icons/arrow_back.svg"),
             Self::Close => include_bytes!("../assets/icons/close.svg"),
             Self::Info => include_bytes!("../assets/icons/info.svg"),
             Self::Checked => include_bytes!("../assets/icons/check_box.svg"),
@@ -122,6 +128,7 @@ fn tint_color(theme: &Theme, tint: Tint) -> Color {
         Tint::Text => t.text,
         Tint::Muted => t.muted,
         Tint::Accent => t.accent,
+        Tint::OnAccent => t.on_accent,
         Tint::Success => t.success,
         Tint::Danger => t.danger,
         // The svg tint drops alpha, so blend with the background into an opaque colour.

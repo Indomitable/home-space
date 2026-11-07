@@ -4,10 +4,9 @@ use client_core::{
     format::human_size,
     listing::{Sort, SortKey},
 };
-use iced::font::Weight;
 use iced::widget::text::LineHeight;
 use iced::{
-    Alignment, Element, Font, Length, Padding,
+    Alignment, Element, Length, Padding,
     alignment::Horizontal,
     widget::{button, column, container, row, scrollable, space, stack, text},
 };
@@ -96,10 +95,6 @@ fn sort_button(
         (true, false) => Some("\u{2191}"),
         (true, true) => Some("\u{2193}"),
     };
-    let bold = Font {
-        weight: Weight::Bold,
-        ..Font::DEFAULT
-    };
     let label = row![
         text(title).size(HEADER_SIZE).align_y(Alignment::Center),
         arrow.map(|a| text(a)
@@ -107,7 +102,7 @@ fn sort_button(
             .size(20.0)
             .line_height(LineHeight::Relative(1.1))
             .height(25.0)
-            .font(bold))
+            .font(theme::BOLD))
     ]
     .spacing(SORT_ARROW_GAP)
     .align_y(Alignment::Center);

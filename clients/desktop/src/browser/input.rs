@@ -10,6 +10,7 @@ const KEY_SELECT_ALL: &str = "a";
 const KEY_NEW_FOLDER: &str = "n";
 const KEY_UPLOAD: &str = "u";
 const KEY_BACK: &str = "[";
+const KEY_SEARCH: &str = "k";
 
 /// A keyboard command of the browser.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +25,7 @@ pub enum Shortcut {
     NewFolder,
     Upload,
     Refresh,
+    Search,
 }
 
 pub fn input(event: Event, status: event::Status, _window: window::Id) -> Option<Message> {
@@ -61,6 +63,7 @@ fn shortcut(key: &Key, modifiers: Modifiers) -> Option<Shortcut> {
         Key::Character(KEY_SELECT_ALL) if modifiers.command() => Some(Shortcut::SelectAll),
         Key::Character(KEY_NEW_FOLDER) if modifiers.command() => Some(Shortcut::NewFolder),
         Key::Character(KEY_UPLOAD) if modifiers.command() => Some(Shortcut::Upload),
+        Key::Character(KEY_SEARCH) if modifiers.command() => Some(Shortcut::Search),
         _ => None,
     }
 }

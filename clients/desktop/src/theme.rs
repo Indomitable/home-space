@@ -2,9 +2,10 @@
 //! tokens and the style functions built on them. See `docs/designs/desktop`.
 
 use iced::{
-    Background, Border, Color, Shadow, Theme, Vector,
+    Background, Border, Color, Font, Shadow, Theme, Vector,
     border::Radius,
     color,
+    font::{Family, Stretch, Style, Weight},
     theme::Palette,
     widget::{button, container, progress_bar, text, text_input},
 };
@@ -15,6 +16,8 @@ const RADIUS_SM: f32 = 6.0;
 const RADIUS_MD: f32 = 10.0;
 /// Dialogs and floating panels.
 const RADIUS_LG: f32 = 16.0;
+const RADIUS_KBD: f32 = 4.0;
+const RADIUS_LOGO: f32 = 8.0;
 const RADIUS_BAR: f32 = 3.0;
 const SHADOW_SM: Shadow = Shadow {
     color: Color::TRANSPARENT,
@@ -26,15 +29,45 @@ const SHADOW_LG: Shadow = Shadow {
     offset: Vector::new(0.0, 12.0),
     blur_radius: 32.0,
 };
+/// Body text and labels.
+pub const TEXT_SIZE: f32 = 14.0;
 pub const DISABLED_ALPHA: f32 = 0.4;
 /// How far a disabled filled button fades.
 const BUTTON_DISABLED_ALPHA: f32 = 0.55;
+
+/// The system's UI font, by name: the generic sans-serif family resolves to a font that exists
+/// nowhere but on some Linux systems, and elsewhere each weight falls back to a font of its own.
+#[cfg(target_os = "macos")]
+const UI_FONT: &str = "Helvetica Neue";
+#[cfg(target_os = "windows")]
+const UI_FONT: &str = "Segoe UI";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const UI_FONT: &str = "Noto Sans";
+
+const fn ui_font(weight: Weight) -> Font {
+    Font {
+        family: Family::Name(UI_FONT),
+        weight,
+        stretch: Stretch::Normal,
+        style: Style::Normal,
+    }
+}
+
+/// Body text.
+pub const FONT: Font = ui_font(Weight::Normal);
+/// Labels, buttons and sidebar items.
+pub const MEDIUM: Font = ui_font(Weight::Medium);
+/// Headings.
+pub const SEMIBOLD: Font = ui_font(Weight::Semibold);
+/// The user's initial and other short emphasis.
+pub const BOLD: Font = ui_font(Weight::Bold);
 
 #[derive(Debug, Clone, Copy)]
 pub struct Tokens {
     pub bg: Color,
     pub surface: Color,
     pub surface_hover: Color,
+    pub sidebar: Color,
     pub text: Color,
     pub muted: Color,
     pub border: Color,
@@ -46,6 +79,8 @@ pub struct Tokens {
     pub accent_soft: Color,
     pub danger: Color,
     pub on_danger: Color,
+    /// Danger at 12%.
+    pub danger_soft: Color,
     pub success: Color,
     pub backdrop: Color,
     pub shadow: Color,
@@ -55,6 +90,7 @@ const LIGHT: Tokens = Tokens {
     bg: color!(0xf4f5f7),
     surface: color!(0xffffff),
     surface_hover: color!(0xf2f4f7),
+    sidebar: color!(0xeceef2),
     text: color!(0x14171c),
     muted: color!(0x5c6573),
     border: color!(0xe2e5ea),
@@ -65,6 +101,7 @@ const LIGHT: Tokens = Tokens {
     accent_soft: color!(0x2563eb, 0.12),
     danger: color!(0xc0362c),
     on_danger: color!(0xffffff),
+    danger_soft: color!(0xc0362c, 0.12),
     success: color!(0x15803d),
     backdrop: color!(0x080a0e, 0.55),
     shadow: color!(0x101828, 0.08),
@@ -74,6 +111,7 @@ const DARK: Tokens = Tokens {
     bg: color!(0x0e1014),
     surface: color!(0x171a20),
     surface_hover: color!(0x1e222a),
+    sidebar: color!(0x13161b),
     text: color!(0xe7e9ec),
     muted: color!(0x98a1b0),
     border: color!(0x262b34),
@@ -84,6 +122,7 @@ const DARK: Tokens = Tokens {
     accent_soft: color!(0x6d9eff, 0.12),
     danger: color!(0xff8a80),
     on_danger: color!(0x1a0705),
+    danger_soft: color!(0xff8a80, 0.12),
     success: color!(0x5fd39a),
     backdrop: color!(0x080a0e, 0.55),
     shadow: color!(0x000000, 0.45),
@@ -363,6 +402,130 @@ pub fn muted_text(theme: &Theme) -> text::Style {
 pub fn disabled(theme: &Theme) -> container::Style {
     container::Style {
         text_color: Some(tokens(theme).text.scale_alpha(DISABLED_ALPHA)),
+        ..container::Style::default()
+    }
+}
+
+/// The sidebar's background.
+pub fn sidebar(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(tokens(theme).sidebar.into()),
+        ..container::Style::default()
+    }
+}
+
+/// A place in the sidebar: accent-tinted while it is the one shown.
+pub fn nav(active: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |theme, status| {
+        let t = tokens(theme);
+        if active {
+            button::Style {
+                background: Some(t.accent_soft.into()),
+                text_color: t.accent,
+                border: Border::default().rounded(RADIUS_SM),
+                ..button::Style::default()
+            }
+        } else {
+            tool(theme, status)
+        }
+    }
+}
+
+/// The sync status in the sidebar, a button on a raised box.
+pub fn status_card(theme: &Theme, status: button::Status) -> button::Style {
+    let t = tokens(theme);
+    let background = match status {
+        button::Status::Hovered | button::Status::Pressed => t.surface_hover,
+        button::Status::Active | button::Status::Disabled => t.surface,
+    };
+    button::Style {
+        background: Some(background.into()),
+        text_color: t.text,
+        border: outline(t.border, RADIUS_MD),
+        ..button::Style::default()
+    }
+}
+
+/// A breadcrumb that leads somewhere: muted next to the bold current one.
+pub fn crumb(theme: &Theme, status: button::Status) -> button::Style {
+    button::Style {
+        text_color: tokens(theme).muted,
+        ..tool(theme, status)
+    }
+}
+
+/// The separator between breadcrumbs.
+pub fn crumb_separator(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(tokens(theme).border_strong),
+    }
+}
+
+/// A box resting on the window: the listing and the pages.
+pub fn card(theme: &Theme) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        background: Some(t.surface.into()),
+        text_color: Some(t.text),
+        border: outline(t.border, RADIUS_MD),
+        shadow: shadow_sm(&t),
+        ..container::Style::default()
+    }
+}
+
+/// The toolbar while several nodes are selected.
+pub fn selection_bar(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(tokens(theme).accent_soft.into()),
+        border: Border::default().rounded(RADIUS_SM),
+        ..container::Style::default()
+    }
+}
+
+/// Text in the accent colour.
+pub fn accent_text(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(tokens(theme).accent),
+    }
+}
+
+/// A keyboard shortcut drawn as a key.
+pub fn kbd(theme: &Theme) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        text_color: Some(t.muted),
+        border: outline(t.border_strong, RADIUS_KBD),
+        ..container::Style::default()
+    }
+}
+
+/// The count of what failed, on a sidebar item.
+pub fn danger_count(theme: &Theme) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        background: Some(t.danger_soft.into()),
+        text_color: Some(t.danger),
+        border: Border::default().rounded(f32::MAX),
+        ..container::Style::default()
+    }
+}
+
+/// The app's mark behind the home icon.
+pub fn logo(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(tokens(theme).accent.into()),
+        border: Border::default().rounded(RADIUS_LOGO),
+        ..container::Style::default()
+    }
+}
+
+/// The disc with the user's initial.
+pub fn avatar(theme: &Theme) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        background: Some(t.accent_soft.into()),
+        text_color: Some(t.accent),
+        border: Border::default().rounded(f32::MAX),
         ..container::Style::default()
     }
 }

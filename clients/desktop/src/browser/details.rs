@@ -184,7 +184,7 @@ impl State {
             .padding(PADDING)
             .width(WIDTH)
             .height(Length::Fill)
-            .style(theme::panel)
+            .style(theme::card)
             .into();
         panel.map(BrowserMessage::Details)
     }

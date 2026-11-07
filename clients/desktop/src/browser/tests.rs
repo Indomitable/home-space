@@ -54,6 +54,87 @@ fn state_with_listing() -> State {
 }
 
 #[test]
+fn files_returns_from_another_page_to_the_folder_it_left() {
+    let mut state = state_with_listing();
+    open_deep_path(&mut state, 2);
+    let folder = state.folder.id;
+    let _ = state.update(Message::OpenTrash);
+
+    let _ = state.update(Message::OpenFiles);
+
+    assert!(matches!(state.page, Page::Folder));
+    assert_eq!(state.folder.id, folder);
+}
+
+#[test]
+fn files_goes_home_when_already_on_the_files() {
+    let mut state = state_with_listing();
+    open_deep_path(&mut state, 2);
+
+    let _ = state.update(Message::OpenFiles);
+
+    assert_eq!(state.folder.id, None);
+}
+
+#[test]
+fn the_account_menu_offers_sign_out() {
+    let mut state = state_with_listing();
+    assert!(simulator(state.view()).find("Sign out").is_err());
+
+    let _ = state.update(Message::AccountMenu(Placement::cursor(Point::ORIGIN)));
+
+    let mut ui = simulator(state.view());
+    ui.click("Sign out").expect("the entry is shown");
+    assert!(
+        ui.into_messages()
+            .any(|message| matches!(message, Message::SignOut))
+    );
+}
+
+#[test]
+fn the_sidebar_counts_what_failed_to_sync() {
+    let mut state = state_with_listing();
+    assert!(simulator(state.view()).find("1").is_err());
+
+    let mut status = sync::Status::default();
+    status.problems.push((
+        std::path::PathBuf::from("/tmp/broken.txt"),
+        sync::Fault::now("502", "Bad gateway"),
+    ));
+    let _ = state.update(Message::Sync(syncing::Message::Engine(
+        sync::Update::Status(std::sync::Arc::new(status)),
+    )));
+
+    assert!(simulator(state.view()).find("1").is_ok());
+}
+
+#[test]
+fn a_narrow_window_keeps_the_places_as_icons() {
+    let mut state = state_with_listing();
+    assert!(simulator(state.view()).find("Home Space").is_ok());
+
+    let _ = state.update(Message::Resized(Size::new(600.0, 600.0)));
+
+    assert!(simulator(state.view()).find("Home Space").is_err());
+}
+
+#[test]
+fn the_selection_bar_replaces_the_toolbar_and_can_be_cleared() {
+    let mut state = state_with_listing();
+    let _ = state.update(Message::Toggle(id(FILE_ID)));
+    let _ = state.update(Message::Toggle(id(OTHER_FILE_ID)));
+
+    let mut ui = simulator(state.view());
+    assert!(ui.find("2 selected").is_ok());
+    assert!(ui.find("Upload").is_err());
+    ui.click("Clear selection").expect("the button is shown");
+    assert!(
+        ui.into_messages()
+            .any(|message| matches!(message, Message::ClearSelection))
+    );
+}
+
+#[test]
 fn clicking_a_row_selects_it() {
     let state = state_with_listing();
     let mut ui = simulator(state.view());
@@ -225,7 +306,7 @@ fn back_after_a_breadcrumb_jump_returns_to_the_folder_it_left() {
 
     let _ = state.update(Message::Jump(None));
     assert_eq!(state.folder.id, None);
-    let _ = state.update(Message::Back);
+    let _ = state.update(Message::Shortcut(Shortcut::Back));
 
     assert_eq!(state.folder.id, deep);
     // The jump is spent: the next back goes to the parent.
@@ -238,7 +319,7 @@ fn back_after_a_breadcrumb_jump_returns_to_the_folder_it_left() {
             nodes: Vec::new(),
         }),
     ));
-    let _ = state.update(Message::Back);
+    let _ = state.update(Message::Shortcut(Shortcut::Back));
     assert_eq!(state.folder.id, Some(id(102)));
 }
 
@@ -278,16 +359,15 @@ fn an_entry_of_a_context_menu_moved_into_place_can_be_clicked() {
     ));
     let mut ui = simulator(state.view());
     // The simulator finds a floating widget where it was laid out, before it was moved.
-    let entry = ui.find("Open in web").expect("the web entry is shown");
-    let laid_out = entry.visible_bounds().expect("the web entry is visible");
+    let entry = ui.find("Details").expect("the entry is shown");
+    let laid_out = entry.visible_bounds().expect("the entry is visible");
 
     ui.point_at(laid_out.center() + MENU_AT);
     let _ = ui.simulate(iced_test::simulator::click());
 
     assert!(
-        ui.into_messages().any(
-            |message| matches!(message, Message::OpenInWeb(Some(node)) if node == id(FOLDER_ID))
-        )
+        ui.into_messages()
+            .any(|message| matches!(message, Message::Act(Action::Details)))
     );
 }
 
@@ -445,7 +525,7 @@ fn a_resync_reloads_the_listing() {
 }
 
 #[test]
-fn the_toolbar_opens_the_recycle_bin() {
+fn the_sidebar_opens_the_recycle_bin() {
     let state = state_with_listing();
     let mut ui = simulator(state.view());
 
@@ -527,7 +607,7 @@ fn waiting_upload(name: &str) -> crate::sync::Item {
 }
 
 #[test]
-fn the_toolbar_opens_the_devices() {
+fn the_sidebar_opens_the_devices() {
     let state = state_with_listing();
     let mut ui = simulator(state.view());
 
@@ -550,7 +630,7 @@ fn opening_the_devices_loads_them_and_escape_leaves() {
 }
 
 #[test]
-fn the_toolbar_offers_the_sync_queue_next_to_the_recycle_bin() {
+fn the_sidebar_opens_the_sync_queue() {
     let state = state_with_listing();
     let mut ui = simulator(state.view());
 
@@ -573,7 +653,7 @@ fn the_sync_queue_page_lists_the_work_ahead_and_back_leaves_it() {
         assert!(ui.find("new.txt").is_ok());
     }
 
-    let _ = state.update(Message::Back);
+    let _ = state.update(Message::Shortcut(Shortcut::Back));
     assert!(matches!(state.page, Page::Folder));
 }
 

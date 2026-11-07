@@ -1,14 +1,13 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, path::Path};
 
 use client_core::{
     format::human_size,
     listing::{Sort, SortKey},
 };
-use iced::widget::text::LineHeight;
 use iced::{
     Alignment, Element, Length, Padding,
     alignment::Horizontal,
-    widget::{button, column, container, row, scrollable, space, stack, text},
+    widget::{button, center, column, container, row, scrollable, space, stack, text},
 };
 use protocol::{Node, NodeId, NodeKind};
 
@@ -27,9 +26,9 @@ use crate::{
     theme,
 };
 
-pub(super) const CHECK_WIDTH: f32 = 24.0;
-pub(super) const SIZE_WIDTH: f32 = 96.0;
-pub(super) const DATE_WIDTH: f32 = 140.0;
+pub(super) const CHECK_WIDTH: f32 = 36.0;
+pub(super) const SIZE_WIDTH: f32 = 110.0;
+pub(super) const DATE_WIDTH: f32 = 170.0;
 pub(super) const CELL_SPACING: f32 = 12.0;
 pub(super) const ROW_PADDING: Padding = Padding {
     top: 6.0,
@@ -39,25 +38,41 @@ pub(super) const ROW_PADDING: Padding = Padding {
 };
 pub(super) const SCROLLBAR_GUTTER: f32 = 14.0;
 pub(super) const ROW_GAP: f32 = 2.0;
-pub(super) const HEADER_SIZE: f32 = 13.0;
-const SORT_ARROW_GAP: f32 = 8.0;
+pub(super) const HEADER_SIZE: f32 = 12.0;
 pub(super) const ROW_SIZE: f32 = 14.0;
 pub(super) const EMPTY_PADDING: f32 = 32.0;
-const BADGE_SIZE: f32 = 12.0;
-const LOCATION_SIZE: f32 = 12.0;
-const BADGE_PADDING: f32 = 1.0;
-/// The icon cell, leaving room for the badge to sit on the icon's corner.
-const ICON_BOX: f32 = ICON_SIZE + 6.0;
+const COLUMN_GAP: f32 = 8.0;
+const LIST_PADDING: Padding = Padding {
+    top: 0.0,
+    right: 8.0,
+    bottom: 0.0,
+    left: 12.0,
+};
+const HEADER_HEIGHT: f32 = 40.0;
+const ROW_HEIGHT: f32 = 48.0;
+const DIVIDER: f32 = 1.0;
+const MENU_WIDTH: f32 = 44.0;
+const MENU_BUTTON: f32 = 32.0;
+const SORT_ARROW: f32 = 14.0;
+const SORT_ARROW_GAP: f32 = 4.0;
+const NAME_GAP: f32 = 8.0;
+const SECOND_LINE_SIZE: f32 = 12.0;
+const CHECKBOX: f32 = 16.0;
+const CHECK_MARK: f32 = 14.0;
+const DASH: (f32, f32) = (8.0, 2.0);
+const CHECK_HEIGHT: f32 = 32.0;
+/// The icon sits in a 24px cell and the badge hangs over its lower right corner.
+const ICON_CELL: f32 = 24.0;
+const BADGE_RIGHT: f32 = 4.0;
+const BADGE_BOTTOM: f32 = 3.0;
+const BADGE_DISC: f32 = 14.0;
+const BADGE_SIZE: f32 = 13.0;
+const NOT_SYNCED: &str = "Not synced";
 
 /// Column titles with the select-all checkbox, aligned with [`rows`].
 pub fn header<'a>(coverage: Coverage, sort: Sort) -> Element<'a, Message> {
-    let icon = match coverage {
-        Coverage::None => Icon::Unchecked,
-        Coverage::Some => Icon::Mixed,
-        Coverage::All => Icon::Checked,
-    };
     let cells = row![
-        check(icon, Message::ToggleAll),
+        check(coverage, Message::ToggleAll),
         sort_button("Name", SortKey::Name, sort, Length::Fill, Alignment::Start),
         sort_button(
             "Size",
@@ -71,14 +86,29 @@ pub fn header<'a>(coverage: Coverage, sort: Sort) -> Element<'a, Message> {
             SortKey::Modified,
             sort,
             DATE_WIDTH.into(),
-            Alignment::Start
+            Alignment::End
         ),
-        space().width(CHECK_WIDTH),
+        space().width(MENU_WIDTH),
     ]
-    .spacing(CELL_SPACING)
+    .spacing(COLUMN_GAP)
     .align_y(Alignment::Center);
-    container(container(cells).padding(ROW_PADDING).style(theme::header))
-        .padding(Padding::default().right(SCROLLBAR_GUTTER))
+    column![
+        container(cells)
+            .padding(LIST_PADDING)
+            .height(HEADER_HEIGHT)
+            .center_y(HEADER_HEIGHT)
+            .width(Length::Fill)
+            .style(theme::header),
+        divider()
+    ]
+    .into()
+}
+
+fn divider<'a>() -> Element<'a, Message> {
+    container(space())
+        .width(Length::Fill)
+        .height(DIVIDER)
+        .style(theme::divider)
         .into()
 }
 
@@ -92,24 +122,21 @@ fn sort_button(
 ) -> Element<'_, Message> {
     let arrow = match (sort.key == key, sort.descending) {
         (false, _) => None,
-        (true, false) => Some("\u{2191}"),
-        (true, true) => Some("\u{2193}"),
+        (true, false) => Some(Icon::Up),
+        (true, true) => Some(Icon::Down),
     };
     let label = row![
-        text(title).size(HEADER_SIZE).align_y(Alignment::Center),
-        arrow.map(|a| text(a)
-            .align_y(Alignment::Center)
-            .size(20.0)
-            .line_height(LineHeight::Relative(1.1))
-            .height(25.0)
-            .font(theme::BOLD))
+        text(title.to_uppercase())
+            .size(HEADER_SIZE)
+            .font(theme::SEMIBOLD),
+        arrow.map(|arrow| arrow.view(SORT_ARROW, Tint::Muted))
     ]
     .spacing(SORT_ARROW_GAP)
     .align_y(Alignment::Center);
     button(container(label).width(Length::Fill).align_x(align))
         .padding(0)
         .width(width)
-        .style(button::text)
+        .style(theme::column_title)
         .on_press(Message::SortBy(key))
         .into()
 }
@@ -139,68 +166,95 @@ pub fn rows<'a>(
         let rows = nodes
             .iter()
             .map(|node| {
-                let location = sync.location(Some(node.id)).map(display_path);
-                node_row(
+                let badge = sync.badge(Some(node.id));
+                let line = second_line(
                     node,
-                    selection.contains(node.id),
-                    sync.badge(Some(node.id)),
-                    location,
-                )
+                    badge,
+                    sync.location(Some(node.id)),
+                    sync.location(folder),
+                );
+                node_row(node, selection.contains(node.id), badge, line)
             })
             .chain(waiting.into_iter().map(pending_row));
-        scrollable(
-            column(rows)
-                .spacing(ROW_GAP)
-                .padding(Padding::default().right(SCROLLBAR_GUTTER)),
-        )
-        .height(Length::Fill)
-        .into()
+        // The scrollbar floats over the padding right of the menu buttons.
+        scrollable(column(rows.flat_map(|row| [row, divider()])))
+            .height(Length::Fill)
+            .into()
     }
+}
+
+/// What a row says under the name, when it differs from what the folder's chip says: where it
+/// syncs when that is not inside the folder's local folder, or that it is left out.
+fn second_line(
+    node: &Node,
+    badge: Option<Badge>,
+    location: Option<&Path>,
+    folder_location: Option<&Path>,
+) -> Option<String> {
+    if badge == Some(Badge::Disabled) {
+        return Some(NOT_SYNCED.to_owned());
+    }
+    let location = location?;
+    let inside = folder_location.is_some_and(|folder| folder.join(&node.name) == location);
+    (!inside).then(|| format!("Syncs to {}", display_path(location)))
 }
 
 fn node_row(
     node: &Node,
     selected: bool,
     badge: Option<Badge>,
-    location: Option<String>,
+    second_line: Option<String>,
 ) -> Element<'_, Message> {
-    let icon = node_icon(node);
+    let icon = match (node_icon(node), badge) {
+        (Icon::Folder, Some(Badge::Disabled)) => Icon::FolderOutline,
+        (icon, _) => icon,
+    };
     let tint = match icon {
         Icon::Folder => Tint::Accent,
-        _ => Tint::Muted,
+        Icon::FolderOutline => Tint::AccentFaded,
+        _ => Tint::Text,
     };
     let size = match node.kind {
         NodeKind::Folder => String::new(),
         NodeKind::File => human_size(node.size),
     };
-    let check_icon = if selected {
-        Icon::Checked
+    let coverage = if selected {
+        Coverage::All
     } else {
-        Icon::Unchecked
+        Coverage::None
     };
     let cells = row![
-        check(check_icon, Message::Toggle(node.id)),
+        check(coverage, Message::Toggle(node.id)),
         row![
             badged(icon.view(ICON_SIZE, tint), badge),
-            name_cell(node.name.as_str(), location)
+            name_cell(node.name.as_str(), second_line)
         ]
-        .spacing(CELL_SPACING / 1.5)
+        .spacing(NAME_GAP)
         .align_y(Alignment::Center)
         .width(Length::Fill),
-        ellipsized(size, ROW_SIZE, Alignment::End).width(SIZE_WIDTH),
-        ellipsized(short_date(node.updated_at), ROW_SIZE, Alignment::Start).width(DATE_WIDTH),
+        muted_cell(size, SIZE_WIDTH),
+        muted_cell(short_date(node.updated_at), DATE_WIDTH),
         menu_button(node.id),
     ]
-    .spacing(CELL_SPACING)
+    .spacing(COLUMN_GAP)
+    .height(Length::Fill)
     .align_y(Alignment::Center);
     let row_button = button(cells)
         .width(Length::Fill)
-        .padding(ROW_PADDING)
+        .height(ROW_HEIGHT)
+        .padding(LIST_PADDING)
         .style(theme::row(selected))
         .on_press(Message::Click(node.id));
     let id = node.id;
     Anchor::new(row_button)
         .on_right_press(move |cursor| Message::ContextMenu(id, Placement::cursor(cursor)))
+        .into()
+}
+
+/// A right-aligned cell in the secondary text colour.
+fn muted_cell<'a>(content: String, width: f32) -> Element<'a, Message> {
+    container(ellipsized(content, ROW_SIZE, Alignment::End).width(width))
+        .style(theme::muted)
         .into()
 }
 
@@ -226,46 +280,48 @@ fn pending_row(item: &Item) -> Element<'_, Message> {
     let cells = row![
         space().width(CHECK_WIDTH),
         row![
-            container(icon.view(ICON_SIZE, Tint::Disabled)).width(ICON_BOX),
+            badged(icon.view(ICON_SIZE, Tint::Disabled), None),
             ellipsized(item.name.as_str(), ROW_SIZE, Alignment::Start).width(Length::Fill)
         ]
-        .spacing(CELL_SPACING / 1.5)
+        .spacing(NAME_GAP)
         .align_y(Alignment::Center)
         .width(Length::Fill),
         ellipsized(size, ROW_SIZE, Alignment::End).width(SIZE_WIDTH),
-        container(waiting).width(DATE_WIDTH + CELL_SPACING + CHECK_WIDTH),
+        container(waiting).align_right(DATE_WIDTH + COLUMN_GAP + MENU_WIDTH),
     ]
-    .spacing(CELL_SPACING)
+    .spacing(COLUMN_GAP)
+    .height(Length::Fill)
     .align_y(Alignment::Center);
     container(cells)
         .width(Length::Fill)
-        .padding(ROW_PADDING)
+        .height(ROW_HEIGHT)
+        .padding(LIST_PADDING)
         .style(theme::disabled)
         .into()
 }
 
 /// The three dots that open the context menu for the row, like right-clicking it.
 fn menu_button<'a>(id: NodeId) -> Element<'a, Message> {
-    let button = button(Icon::More.view(ICON_SIZE, Tint::Muted))
+    let button = button(center(Icon::More.view(ICON_SIZE, Tint::Muted)))
         .padding(0)
-        .width(CHECK_WIDTH)
-        .style(button::text)
+        .width(MENU_BUTTON)
+        .height(MENU_BUTTON)
+        .style(theme::tool)
         // Never sent: the anchor takes the press, and only needs the button to look enabled.
         .on_press(Message::CloseMenu);
-    Anchor::new(button)
-        .on_press(move |bounds| {
-            Message::ContextMenu(id, Placement::hanging(bounds, Horizontal::Right))
-        })
-        .into()
+    let anchor = Anchor::new(button).on_press(move |bounds| {
+        Message::ContextMenu(id, Placement::hanging(bounds, Horizontal::Right))
+    });
+    container(anchor).width(MENU_WIDTH).into()
 }
 
-/// The name, with the local folder it syncs to underneath when it has one.
-fn name_cell(name: &str, location: Option<String>) -> Element<'_, Message> {
+/// The name, with `second` underneath when there is something to add.
+fn name_cell(name: &str, second: Option<String>) -> Element<'_, Message> {
     let name = ellipsized(name, ROW_SIZE, Alignment::Start).width(Length::Fill);
-    match location {
-        Some(location) => column![
+    match second {
+        Some(second) => column![
             name,
-            container(ellipsized(location, LOCATION_SIZE, Alignment::Start).width(Length::Fill))
+            container(ellipsized(second, SECOND_LINE_SIZE, Alignment::Start).width(Length::Fill))
                 .style(theme::muted)
         ]
         .width(Length::Fill)
@@ -274,19 +330,20 @@ fn name_cell(name: &str, location: Option<String>) -> Element<'_, Message> {
     }
 }
 
-/// `icon` with the sync `badge` on its lower right corner.
+/// `icon` with the sync `badge` hanging over its lower right corner.
 fn badged<'a>(icon: Element<'a, Message>, badge: Option<Badge>) -> Element<'a, Message> {
+    let width = ICON_CELL + BADGE_RIGHT;
+    let height = ICON_CELL + BADGE_BOTTOM;
     let mut layers = vec![
         container(icon)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_y(Alignment::Center)
+            .center_x(ICON_CELL)
+            .center_y(ICON_CELL)
             .into(),
     ];
     if let Some(badge) = badge {
         let (badge, tint) = badge_icon(badge);
         let disc = container(badge.view(BADGE_SIZE, tint))
-            .padding(BADGE_PADDING)
+            .center(BADGE_DISC)
             .style(theme::badge);
         layers.push(
             container(disc)
@@ -297,18 +354,101 @@ fn badged<'a>(icon: Element<'a, Message>, badge: Option<Badge>) -> Element<'a, M
                 .into(),
         );
     }
-    stack(layers).width(ICON_BOX).height(ICON_BOX).into()
+    stack(layers).width(width).height(height).into()
 }
 
-pub(super) fn check<'a, M: Clone + 'a>(icon: Icon, message: M) -> Element<'a, M> {
-    let tint = match icon {
-        Icon::Unchecked => Tint::Muted,
-        _ => Tint::Accent,
+/// A checkbox for what `coverage` says is checked of what it stands for.
+pub(super) fn check<'a, M: Clone + 'a>(coverage: Coverage, message: M) -> Element<'a, M> {
+    let mark: Element<'a, M> = match coverage {
+        Coverage::None => space().into(),
+        Coverage::Some => container(space())
+            .width(DASH.0)
+            .height(DASH.1)
+            .style(theme::checkbox_dash)
+            .into(),
+        Coverage::All => Icon::Check.view(CHECK_MARK, Tint::OnAccent),
     };
-    button(icon.view(ICON_SIZE, tint))
+    let checkbox = container(mark)
+        .center(CHECKBOX)
+        .style(theme::checkbox(coverage != Coverage::None));
+    button(container(checkbox).center_y(CHECK_HEIGHT))
         .padding(0)
         .width(CHECK_WIDTH)
         .style(button::text)
         .on_press(message)
         .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use protocol::NodeId;
+    use time::OffsetDateTime;
+    use uuid::Uuid;
+
+    use super::*;
+
+    fn folder(name: &str) -> Node {
+        Node {
+            id: NodeId(Uuid::nil()),
+            parent_id: None,
+            kind: NodeKind::Folder,
+            name: name.to_owned(),
+            size: 0,
+            sha256: None,
+            mime: String::new(),
+            version: 1,
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+            edited_on: None,
+        }
+    }
+
+    #[test]
+    fn a_folder_syncing_inside_the_folders_location_says_nothing_more() {
+        let line = second_line(
+            &folder("Books"),
+            Some(Badge::Synced),
+            Some(Path::new("/sync/Books")),
+            Some(Path::new("/sync")),
+        );
+        assert_eq!(line, None);
+    }
+
+    #[test]
+    fn a_folder_syncing_elsewhere_says_where() {
+        let line = second_line(
+            &folder("Images"),
+            Some(Badge::Synced),
+            Some(Path::new("/photos")),
+            Some(Path::new("/sync")),
+        );
+        assert_eq!(line.as_deref(), Some("Syncs to /photos"));
+    }
+
+    #[test]
+    fn a_synced_folder_in_an_unsynced_folder_says_where() {
+        let line = second_line(
+            &folder("Images"),
+            Some(Badge::Synced),
+            Some(Path::new("/photos")),
+            None,
+        );
+        assert_eq!(line.as_deref(), Some("Syncs to /photos"));
+    }
+
+    #[test]
+    fn a_folder_left_out_says_so() {
+        let line = second_line(
+            &folder("Skip"),
+            Some(Badge::Disabled),
+            None,
+            Some(Path::new("/sync")),
+        );
+        assert_eq!(line.as_deref(), Some(NOT_SYNCED));
+    }
+
+    #[test]
+    fn a_file_says_nothing_more() {
+        assert_eq!(second_line(&folder("a"), None, None, None), None);
+    }
 }

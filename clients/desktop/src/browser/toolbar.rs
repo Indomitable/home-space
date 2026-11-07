@@ -1,5 +1,5 @@
 use iced::{
-    Alignment, Element, Length,
+    Alignment, Element, Length, Padding,
     widget::{button, container, row, space, text, tooltip},
 };
 
@@ -7,6 +7,7 @@ use protocol::{Node, NodeId, NodeKind};
 
 use super::{Message, context_menu};
 use crate::{
+    ellipsis::ellipsized,
     icons::{ICON_SIZE, Icon, Tint},
     theme,
 };
@@ -21,6 +22,13 @@ const BAR_PADDING: f32 = 4.0;
 const COUNT_PADDING: f32 = 8.0;
 const KBD_SIZE: f32 = 11.0;
 const KBD_PADDING: [f32; 2] = [0.0, 5.0];
+const CHIP_HEIGHT: f32 = 28.0;
+const CHIP_LEFT: f32 = 8.0;
+const CHIP_RIGHT: f32 = 10.0;
+const CHIP_ICON: f32 = 16.0;
+const CHIP_GAP: f32 = 6.0;
+const CHIP_SIZE: f32 = 13.0;
+const CHIP_MIN_LABEL: f32 = 120.0;
 const CLEAR_SELECTION: &str = "Clear selection";
 const CLEAR_SHORTCUT: &str = "Esc";
 const CHAR_WIDTH: f32 = 7.5;
@@ -183,6 +191,7 @@ pub fn view<'a>(
     lost_and_found: NodeId,
     can_add: bool,
     folder: Option<NodeId>,
+    chip: Option<SyncChip>,
     width: f32,
 ) -> Element<'a, Message> {
     if client_core::selection::shows_bulk_actions(selected.len()) {
@@ -211,12 +220,54 @@ pub fn view<'a>(
         ),
     ];
     let labelled = fits(None, tools.iter(), width);
-    row![]
+    let used: f32 = tools.iter().map(|tool| tool.width(true) + SPACING).sum();
+    let mut bar = row![]
         .spacing(SPACING)
         .align_y(Alignment::Center)
         .extend(tools.into_iter().map(|tool| tool.view(labelled)))
-        .width(Length::Fill)
-        .into()
+        .width(Length::Fill);
+    if labelled && let Some(chip) = chip.and_then(|chip| chip.view(width - used - MIN_GAP)) {
+        bar = bar.push(space::horizontal()).push(chip);
+    }
+    bar.into()
+}
+
+/// The pill above the listing saying what the sync does with the folder shown.
+pub struct SyncChip {
+    pub icon: Icon,
+    pub tint: Tint,
+    pub label: String,
+}
+
+impl SyncChip {
+    /// The chip, its label cut to fit in `room`, or nothing when too little of it would show.
+    fn view<'a>(self, room: f32) -> Option<Element<'a, Message>> {
+        let chrome = CHIP_LEFT + CHIP_ICON + CHIP_GAP + CHIP_RIGHT;
+        let room = room - chrome;
+        if room < CHIP_MIN_LABEL {
+            return None;
+        }
+        // A pixel more than measured, as the text would wrap at exactly its own width.
+        let width = room.min(text_width_at(&self.label) + 1.0);
+        Some(
+            container(
+                row![
+                    self.icon.view(CHIP_ICON, self.tint),
+                    ellipsized(self.label, CHIP_SIZE, Alignment::Start).width(width)
+                ]
+                .spacing(CHIP_GAP)
+                .align_y(Alignment::Center),
+            )
+            .padding(Padding::ZERO.left(CHIP_LEFT).right(CHIP_RIGHT))
+            .center_y(CHIP_HEIGHT)
+            .style(theme::chip)
+            .into(),
+        )
+    }
+}
+
+fn text_width_at(label: &str) -> f32 {
+    crate::ellipsis::text_width(label, CHIP_SIZE)
 }
 
 /// What replaces the toolbar while several nodes are selected: the count, the actions on them

@@ -32,6 +32,11 @@ const SHADOW_LG: Shadow = Shadow {
 /// Body text and labels.
 pub const TEXT_SIZE: f32 = 14.0;
 pub const DISABLED_ALPHA: f32 = 0.4;
+pub const FADED_ALPHA: f32 = 0.55;
+const CHECKBOX_BORDER: f32 = 1.5;
+const RADIUS_CHECKBOX: f32 = 4.0;
+/// Keeps a box's top corners inside the card's rounded border.
+const RADIUS_INNER: f32 = RADIUS_MD - 1.0;
 /// How far a disabled filled button fades.
 const BUTTON_DISABLED_ALPHA: f32 = 0.55;
 
@@ -240,7 +245,6 @@ pub fn row(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
         button::Style {
             background: background.map(Background::Color),
             text_color: t.text,
-            border: Border::default().rounded(RADIUS_SM),
             ..button::Style::default()
         }
     }
@@ -252,8 +256,20 @@ pub fn header(theme: &Theme) -> container::Style {
     container::Style {
         background: Some(t.surface_hover.into()),
         text_color: Some(t.muted),
-        border: Border::default().rounded(RADIUS_SM),
+        border: Border::default().rounded(Radius::default().top(RADIUS_INNER)),
         ..container::Style::default()
+    }
+}
+
+/// A column title that sorts: muted, darker under the pointer.
+pub fn column_title(theme: &Theme, status: button::Status) -> button::Style {
+    let t = tokens(theme);
+    button::Style {
+        text_color: match status {
+            button::Status::Hovered | button::Status::Pressed => t.text,
+            button::Status::Active | button::Status::Disabled => t.muted,
+        },
+        ..button::Style::default()
     }
 }
 
@@ -526,6 +542,47 @@ pub fn avatar(theme: &Theme) -> container::Style {
         background: Some(t.accent_soft.into()),
         text_color: Some(t.accent),
         border: Border::default().rounded(f32::MAX),
+        ..container::Style::default()
+    }
+}
+
+/// A checkbox's box, filled once anything is checked.
+pub fn checkbox(filled: bool) -> impl Fn(&Theme) -> container::Style {
+    move |theme| {
+        let t = tokens(theme);
+        let (background, border) = if filled {
+            (t.accent, t.accent)
+        } else {
+            (t.surface, t.border_strong)
+        };
+        container::Style {
+            background: Some(background.into()),
+            border: Border {
+                color: border,
+                width: CHECKBOX_BORDER,
+                radius: Radius::from(RADIUS_CHECKBOX),
+            },
+            ..container::Style::default()
+        }
+    }
+}
+
+/// The dash in a checkbox when only some of what it covers is checked.
+pub fn checkbox_dash(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(tokens(theme).on_accent.into()),
+        border: Border::default().rounded(1.0),
+        ..container::Style::default()
+    }
+}
+
+/// A pill with a short fact, such as where a folder syncs to.
+pub fn chip(theme: &Theme) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        background: Some(t.surface.into()),
+        text_color: Some(t.muted),
+        border: outline(t.border, f32::MAX),
         ..container::Style::default()
     }
 }

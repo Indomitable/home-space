@@ -135,6 +135,21 @@ fn the_selection_bar_replaces_the_toolbar_and_can_be_cleared() {
 }
 
 #[test]
+fn the_chip_says_where_the_folder_syncs() {
+    let mut state = state_with_listing();
+    assert!(simulator(state.view()).find("Syncs to /sync").is_err());
+
+    let status = crate::sync::Status {
+        locations: std::collections::HashMap::from([(None, PathBuf::from("/sync"))]),
+        ..crate::sync::Status::default()
+    };
+    let update = crate::sync::Update::Status(std::sync::Arc::new(status));
+    let _ = state.update(Message::Sync(syncing::Message::Engine(update)));
+
+    assert!(simulator(state.view()).find("Syncs to /sync").is_ok());
+}
+
+#[test]
 fn clicking_a_row_selects_it() {
     let state = state_with_listing();
     let mut ui = simulator(state.view());

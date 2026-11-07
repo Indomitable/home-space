@@ -235,14 +235,9 @@ impl State {
     }
 
     fn header(&self) -> Element<'_, Message> {
-        let icon = match self.selection.coverage(&self.nodes) {
-            Coverage::None => Icon::Unchecked,
-            Coverage::Some => Icon::Mixed,
-            Coverage::All => Icon::Checked,
-        };
         let title = |label: &'static str| text(label).size(HEADER_SIZE);
         let cells = row![
-            check(icon, Message::ToggleAll),
+            check(self.selection.coverage(&self.nodes), Message::ToggleAll),
             title("Name").width(Length::FillPortion(NAME_PORTION)),
             title("Original path").width(Length::FillPortion(PATH_PORTION)),
             title("Deleted").width(DATE_WIDTH),
@@ -278,13 +273,13 @@ impl State {
 
 fn item_row(item: &TrashItem, selected: bool) -> Element<'_, Message> {
     let node = &item.node;
-    let check_icon = if selected {
-        Icon::Checked
+    let coverage = if selected {
+        Coverage::All
     } else {
-        Icon::Unchecked
+        Coverage::None
     };
     let cells = row![
-        check(check_icon, Message::Toggle(node.id)),
+        check(coverage, Message::Toggle(node.id)),
         row![
             node_icon(node).view(ICON_SIZE, Tint::Muted),
             ellipsized(node.name.as_str(), ROW_SIZE, Alignment::Start).width(Length::Fill)

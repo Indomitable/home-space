@@ -12,11 +12,11 @@ use protocol::Node;
 
 use super::{
     Menu, Message, Page, State, anchor::Anchor, context_menu, context_menu::Placement, dialogs,
-    grid, search, sidebar, sync_queue, syncing, toolbar,
+    grid, search, sidebar, sync_queue, syncing, toolbar, toolbar::SyncChip,
 };
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},
-    theme,
+    sync, theme,
 };
 
 const MAIN_PADDING: [f32; 2] = [16.0, 24.0];
@@ -24,6 +24,7 @@ const OVERLAY_PADDING: f32 = 16.0;
 const SPACING: f32 = 12.0;
 const GRID_SPACING: f32 = 4.0;
 const CARD_PADDING: f32 = 8.0;
+const LIST_CARD_PADDING: f32 = 1.0;
 const TOP_HEIGHT: f32 = 40.0;
 const HEADING_SIZE: f32 = 18.0;
 const SEARCH_WIDTH: f32 = 300.0;
@@ -144,6 +145,7 @@ impl State {
                 self.me.lost_and_found_id,
                 !self.in_lost_and_found(),
                 self.folder.id,
+                self.sync_chip(),
                 self.content_width(),
             )
         ]
@@ -162,12 +164,11 @@ impl State {
                 &self.folder.selection,
                 self.syncing.status()
             ),
-        ]
-        .spacing(GRID_SPACING);
+        ];
         match &self.details {
             Some(details) => page.push(
                 row![
-                    card(grid.into()),
+                    list_card(grid.into()),
                     details.view(
                         self.syncing
                             .status()
@@ -177,7 +178,7 @@ impl State {
                 ]
                 .spacing(SPACING),
             ),
-            None => page.push(card(grid.into())),
+            None => page.push(list_card(grid.into())),
         }
         .into()
     }
@@ -206,6 +207,24 @@ impl State {
                 .into(),
             context_menu::place(panel, placement),
         ]
+    }
+
+    /// What the chip above the listing says about the folder shown, if it takes part in the sync.
+    fn sync_chip(&self) -> Option<SyncChip> {
+        let status = self.syncing.status();
+        let folder = self.folder.id;
+        if status.badge(folder) == Some(sync::Badge::Disabled) {
+            return Some(SyncChip {
+                icon: Icon::SyncDisabled,
+                tint: Tint::Muted,
+                label: "Not synced".to_owned(),
+            });
+        }
+        status.location(folder).map(|location| SyncChip {
+            icon: Icon::Sync,
+            tint: Tint::Success,
+            label: format!("Syncs to {}", syncing::display_path(location)),
+        })
     }
 
     fn drop_overlay(&self) -> Element<'_, Message> {
@@ -295,6 +314,16 @@ fn modal<'a>(content: Element<'a, Message>, on_dismiss: Message) -> Element<'a, 
 fn card(content: Element<'_, Message>) -> Element<'_, Message> {
     container(content)
         .padding(CARD_PADDING)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(theme::card)
+        .into()
+}
+
+/// `content` in the box, reaching its edges inside the border.
+fn list_card(content: Element<'_, Message>) -> Element<'_, Message> {
+    container(content)
+        .padding(LIST_CARD_PADDING)
         .width(Length::Fill)
         .height(Length::Fill)
         .style(theme::card)

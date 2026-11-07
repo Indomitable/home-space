@@ -31,7 +31,7 @@ pub fn ellipsized<'a, Message: 'a>(
 
 /// The longest prefix of `content` that, followed by an ellipsis, fits in `max_width`.
 fn fit(content: &str, size: f32, max_width: f32) -> String {
-    if width(content, size) <= max_width {
+    if text_width(content, size) <= max_width {
         return content.to_owned();
     }
     let ends: Vec<usize> = content
@@ -45,7 +45,7 @@ fn fit(content: &str, size: f32, max_width: f32) -> String {
     while low < high {
         let mid = (low + high).div_ceil(2);
         let candidate = format!("{}{ELLIPSIS}", content[..ends[mid - 1]].trim_end());
-        if width(&candidate, size) <= max_width {
+        if text_width(&candidate, size) <= max_width {
             low = mid;
         } else {
             high = mid - 1;
@@ -57,7 +57,7 @@ fn fit(content: &str, size: f32, max_width: f32) -> String {
     }
 }
 
-fn width(content: &str, size: f32) -> f32 {
+pub fn text_width(content: &str, size: f32) -> f32 {
     Paragraph::with_text(Text {
         content,
         bounds: Size::INFINITE,
@@ -88,7 +88,7 @@ mod tests {
         let cut = fit(NAME, 15.0, 120.0);
         assert!(cut.ends_with(ELLIPSIS));
         assert!(NAME.starts_with(cut.trim_end_matches(ELLIPSIS)));
-        assert!(width(&cut, 15.0) <= 120.0);
+        assert!(text_width(&cut, 15.0) <= 120.0);
     }
 
     #[test]

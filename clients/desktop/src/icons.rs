@@ -35,17 +35,16 @@ pub enum Icon {
     Up,
     Close,
     Info,
-    Checked,
-    Unchecked,
-    Mixed,
+    Check,
+    Down,
+    /// Sync badge: syncing failed.
+    Error,
     More,
     Sync,
     FolderOpen,
-    /// Sync badge: waiting to sync.
-    SyncPending,
     /// Sync badge: in sync.
     Synced,
-    /// Sync badge: syncing failed.
+    /// The sync as a whole has a problem.
     SyncProblem,
     /// Sync badge: set to not sync.
     SyncDisabled,
@@ -64,6 +63,8 @@ pub enum Tint {
     Text,
     Muted,
     Accent,
+    /// A folder that is left out of the sync.
+    AccentFaded,
     OnAccent,
     Success,
     Danger,
@@ -93,13 +94,12 @@ impl Icon {
             Self::Up => include_bytes!("../assets/icons/arrow_upward.svg"),
             Self::Close => include_bytes!("../assets/icons/close.svg"),
             Self::Info => include_bytes!("../assets/icons/info.svg"),
-            Self::Checked => include_bytes!("../assets/icons/check_box.svg"),
-            Self::Unchecked => include_bytes!("../assets/icons/check_box_outline_blank.svg"),
-            Self::Mixed => include_bytes!("../assets/icons/indeterminate_check_box.svg"),
+            Self::Check => include_bytes!("../assets/icons/check.svg"),
+            Self::Down => include_bytes!("../assets/icons/arrow_downward.svg"),
+            Self::Error => include_bytes!("../assets/icons/error.svg"),
             Self::More => include_bytes!("../assets/icons/more_horiz.svg"),
             Self::Sync => include_bytes!("../assets/icons/sync.svg"),
             Self::FolderOpen => include_bytes!("../assets/icons/folder_open.svg"),
-            Self::SyncPending => include_bytes!("../assets/icons/schedule.svg"),
             Self::Synced => include_bytes!("../assets/icons/check_circle.svg"),
             Self::SyncProblem => include_bytes!("../assets/icons/sync_problem.svg"),
             Self::SyncDisabled => include_bytes!("../assets/icons/sync_disabled.svg"),
@@ -128,6 +128,7 @@ fn tint_color(theme: &Theme, tint: Tint) -> Color {
         Tint::Text => t.text,
         Tint::Muted => t.muted,
         Tint::Accent => t.accent,
+        Tint::AccentFaded => mix(t.surface, t.accent, theme::FADED_ALPHA),
         Tint::OnAccent => t.on_accent,
         Tint::Success => t.success,
         Tint::Danger => t.danger,

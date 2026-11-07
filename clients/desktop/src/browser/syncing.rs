@@ -235,8 +235,8 @@ impl Syncing {
 pub fn badge_icon(badge: Badge) -> (Icon, Tint) {
     match badge {
         Badge::Synced => (Icon::Synced, Tint::Success),
-        Badge::Pending => (Icon::SyncPending, Tint::Accent),
-        Badge::Problem => (Icon::SyncProblem, Tint::Danger),
+        Badge::Pending => (Icon::Sync, Tint::Accent),
+        Badge::Problem => (Icon::Error, Tint::Danger),
         Badge::Disabled => (Icon::SyncDisabled, Tint::Muted),
     }
 }

@@ -43,6 +43,16 @@ pub enum Icon {
     Info,
     Check,
     Down,
+    /// A server.
+    Dns,
+    /// Single sign-on.
+    Key,
+    /// Shows a password.
+    Visibility,
+    /// Hides a password.
+    VisibilityOff,
+    /// The server cannot be reached.
+    CloudOff,
     /// Opens what is folded away.
     ExpandMore,
     /// Folds away what is open.
@@ -113,6 +123,11 @@ impl Icon {
             Self::Info => include_bytes!("../assets/icons/info.svg"),
             Self::Check => include_bytes!("../assets/icons/check.svg"),
             Self::Down => include_bytes!("../assets/icons/arrow_downward.svg"),
+            Self::Dns => include_bytes!("../assets/icons/dns.svg"),
+            Self::Key => include_bytes!("../assets/icons/key.svg"),
+            Self::Visibility => include_bytes!("../assets/icons/visibility.svg"),
+            Self::VisibilityOff => include_bytes!("../assets/icons/visibility_off.svg"),
+            Self::CloudOff => include_bytes!("../assets/icons/cloud_off.svg"),
             Self::ExpandMore => include_bytes!("../assets/icons/expand_more.svg"),
             Self::ExpandLess => include_bytes!("../assets/icons/expand_less.svg"),
             Self::Chevron => include_bytes!("../assets/icons/chevron_right.svg"),

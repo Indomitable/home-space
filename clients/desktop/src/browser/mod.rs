@@ -9,7 +9,7 @@ mod folder;
 mod grid;
 mod input;
 mod layout;
-mod parts;
+pub(crate) mod parts;
 mod search;
 mod selection;
 mod sidebar;

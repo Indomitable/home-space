@@ -57,6 +57,14 @@ pub async fn load_saved() -> Option<Saved> {
     tokio::task::spawn_blocking(load).await.ok().flatten()
 }
 
+/// Forgets the session saved by an earlier run, without telling the server, which may be away.
+pub async fn forget_saved() {
+    let result = tokio::task::spawn_blocking(forget).await;
+    if let Ok(Err(err)) = result {
+        eprintln!("could not forget the saved session: {err}");
+    }
+}
+
 /// Resumes a session saved by an earlier run.
 pub async fn resume(saved: Saved) -> Restored {
     let client = client(&saved.server);

@@ -63,7 +63,7 @@ const DIALOG_GAP: f32 = 16.0;
 const DIALOG_TITLE_SIZE: f32 = 18.0;
 const DIALOG_BUTTON_GAP: f32 = 8.0;
 const FIELD_GAP: f32 = 4.0;
-pub(super) const FIELD_PADDING: [f32; 2] = [9.0, 10.0];
+pub(crate) const FIELD_PADDING: [f32; 2] = [9.0, 10.0];
 
 /// A hairline across the box.
 pub(super) fn divider<'a, M: 'a>() -> Element<'a, M> {
@@ -149,7 +149,7 @@ pub(super) fn empty<'a, M: 'a>(hint: &'a str) -> Element<'a, M> {
 }
 
 /// A notice over the page saying what went wrong, with what can be done about it.
-pub(super) fn alert_error<'a, M: 'a>(
+pub(crate) fn alert_error<'a, M: 'a>(
     icon: Icon,
     message: impl text::IntoFragment<'a>,
     action: Option<Element<'a, M>>,
@@ -249,7 +249,7 @@ pub(super) fn ghost_danger<'a, M: Clone + 'a>(
 }
 
 /// An outlined button.
-pub(super) fn outlined<'a, M: Clone + 'a>(
+pub(crate) fn outlined<'a, M: Clone + 'a>(
     icon: Option<Icon>,
     label: impl text::IntoFragment<'a>,
     message: Option<M>,
@@ -299,7 +299,7 @@ pub(super) fn small_danger<'a, M: Clone + 'a>(
 }
 
 /// The button that carries out a dialog.
-pub(super) fn primary<'a, M: Clone + 'a>(
+pub(crate) fn primary<'a, M: Clone + 'a>(
     icon: Option<Icon>,
     label: impl text::IntoFragment<'a>,
     message: Option<M>,
@@ -341,7 +341,7 @@ pub(super) fn dialog<'a, M: 'a>(
 }
 
 /// `input` with the `label` above it and, if any, a `hint` below.
-pub(super) fn field<'a, M: 'a>(
+pub(crate) fn field<'a, M: 'a>(
     label: &'a str,
     input: impl Into<Element<'a, M>>,
     hint: Option<String>,

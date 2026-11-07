@@ -43,6 +43,12 @@ pub enum Icon {
     Info,
     Check,
     Down,
+    /// Opens what is folded away.
+    ExpandMore,
+    /// Folds away what is open.
+    ExpandLess,
+    /// Goes into a folder.
+    Chevron,
     /// Sync badge: syncing failed.
     Error,
     More,
@@ -107,6 +113,9 @@ impl Icon {
             Self::Info => include_bytes!("../assets/icons/info.svg"),
             Self::Check => include_bytes!("../assets/icons/check.svg"),
             Self::Down => include_bytes!("../assets/icons/arrow_downward.svg"),
+            Self::ExpandMore => include_bytes!("../assets/icons/expand_more.svg"),
+            Self::ExpandLess => include_bytes!("../assets/icons/expand_less.svg"),
+            Self::Chevron => include_bytes!("../assets/icons/chevron_right.svg"),
             Self::Error => include_bytes!("../assets/icons/error.svg"),
             Self::More => include_bytes!("../assets/icons/more_horiz.svg"),
             Self::Sync => include_bytes!("../assets/icons/sync.svg"),

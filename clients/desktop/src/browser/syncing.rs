@@ -15,11 +15,12 @@ use protocol::{Node, NodeId, NodeKind};
 use super::{
     Message as BrowserMessage,
     context_menu::Entry,
-    parts::{alert_error, divider, ghost, outlined, small_outlined},
+    parts::{self, alert_error, divider, ghost, outlined, small_outlined},
     sync_queue::RETRY_ALL,
     toolbar,
 };
 use crate::{
+    ellipsis::ellipsized,
     icons::{ICON_SIZE, Icon, Tint},
     locale::short_date,
     sync::{self, Activity, Badge, Command, Commands, ItemState, Mapping, Outage, Status},
@@ -31,10 +32,9 @@ const STATUS_COMPACT_PADDING: f32 = 8.0;
 const STATUS_GAP: f32 = 8.0;
 const STATUS_SPACING: f32 = 6.0;
 const STATUS_BAR: f32 = 6.0;
-const PANEL_WIDTH: f32 = 560.0;
-const PANEL_PADDING: f32 = 16.0;
+const CONFIRM_WIDTH: f32 = 500.0;
+const CONFIRM_GAP: f32 = 8.0;
 const SPACING: f32 = 10.0;
-const TITLE_SIZE: f32 = 18.0;
 const NOTE_SIZE: f32 = 13.0;
 const PATH_SIZE: f32 = 13.0;
 const CARD_SPACING: f32 = 16.0;
@@ -360,30 +360,66 @@ pub fn status_card(status: &Status, compact: bool, active: bool) -> Element<'_, 
         .into()
 }
 
-/// Asks before syncing a remote folder with the picked local folder, showing what it holds.
-pub fn confirm(confirm: &Confirm) -> Element<'_, BrowserMessage> {
+/// Asks before syncing a remote folder with the picked local folder, which can still be changed.
+pub fn confirm<'a>(confirm: &'a Confirm, status: &Status) -> Element<'a, BrowserMessage> {
     let name = confirm.name.as_str();
-    let buttons = row![
-        space::horizontal(),
-        button(text("Cancel"))
-            .style(theme::secondary)
-            .on_press(BrowserMessage::Sync(Message::Confirm(false))),
-        button(text("Sync"))
-            .style(theme::primary)
-            .on_press(BrowserMessage::Sync(Message::Confirm(true))),
+    let local = container(
+        row![
+            Icon::FolderOpen.view(ICON_SIZE, Tint::Muted),
+            ellipsized(
+                display_path(&confirm.local),
+                parts::ROW_SIZE,
+                Alignment::Start
+            )
+            .width(Length::Fill),
+        ]
+        .spacing(CONFIRM_GAP)
+        .align_y(Alignment::Center),
+    )
+    .padding(parts::FIELD_PADDING)
+    .width(Length::Fill)
+    .style(theme::field);
+    let folder = row![
+        local,
+        outlined(
+            None,
+            "Choose folder…",
+            Some(BrowserMessage::Sync(Message::Pick(confirm.remote)))
+        ),
     ]
-    .spacing(SPACING);
-    let panel = column![
-        text(format!("Sync “{name}” with this folder?")).size(TITLE_SIZE),
-        text(display_path(&confirm.local)),
-        buttons,
-    ]
-    .spacing(SPACING);
-    container(panel)
-        .padding(PANEL_PADDING)
-        .width(PANEL_WIDTH)
-        .style(theme::panel)
-        .into()
+    .spacing(CONFIRM_GAP)
+    .align_y(Alignment::Center);
+    let instead = status
+        .location(confirm.remote)
+        .map(|current| format!(" instead of {}", display_path(current)))
+        .unwrap_or_default();
+    parts::dialog(
+        CONFIRM_WIDTH,
+        column![
+            parts::dialog_title(format!("Sync “{name}” with this folder?")),
+            parts::field("Local folder", folder, None),
+            parts::alert_info(
+                Icon::Info,
+                format!(
+                    "“{name}” and its subfolders sync here{instead}. You can change this later in \
+                     Sync settings."
+                ),
+                None,
+            ),
+        ],
+        [
+            outlined(
+                None,
+                "Cancel",
+                Some(BrowserMessage::Sync(Message::Confirm(false))),
+            ),
+            parts::primary(
+                Some(Icon::Sync),
+                "Sync",
+                Some(BrowserMessage::Sync(Message::Confirm(true))),
+            ),
+        ],
+    )
 }
 
 /// Counts the files under `path` and their size.

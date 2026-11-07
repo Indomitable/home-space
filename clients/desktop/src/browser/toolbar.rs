@@ -35,6 +35,8 @@ const CHAR_WIDTH: f32 = 7.5;
 const MIN_GAP: f32 = 24.0;
 const TIP_PADDING: f32 = 6.0;
 const TIP_SIZE: f32 = 12.0;
+const MENU_GAP: f32 = 10.0;
+const MENU_ROW_PADDING: [f32; 2] = [0.0, 10.0];
 
 #[cfg(target_os = "macos")]
 const NEW_FOLDER_SHORTCUT: &str = "Cmd+N";
@@ -44,6 +46,10 @@ const NEW_FOLDER_SHORTCUT: &str = "Ctrl+N";
 const UPLOAD_SHORTCUT: &str = "Cmd+U";
 #[cfg(not(target_os = "macos"))]
 const UPLOAD_SHORTCUT: &str = "Ctrl+U";
+#[cfg(target_os = "macos")]
+const DELETE_SHORTCUT: &str = "Delete";
+#[cfg(not(target_os = "macos"))]
+const DELETE_SHORTCUT: &str = "Del";
 
 /// Something the user can do with the selected nodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,12 +88,21 @@ impl Action {
         }
     }
 
+    /// The label in a menu, which spells out what a toolbar's room leaves out.
+    fn menu_label(self) -> &'static str {
+        match self {
+            Self::Move => "Move…",
+            Self::Delete => "Move to bin",
+            _ => self.label(),
+        }
+    }
+
     fn shortcut(self) -> &'static str {
         match self {
             Self::Open | Self::Download => "Enter",
             Self::Rename => "F2",
             Self::OpenFile | Self::Move | Self::Details => "",
-            Self::Delete => "Delete",
+            Self::Delete => DELETE_SHORTCUT,
         }
     }
 }
@@ -371,7 +386,7 @@ pub fn menu_item<'a>(action: Action, enabled: bool) -> Element<'a, Message> {
     let tint = match action {
         _ if !enabled => Tint::Disabled,
         Action::Delete => Tint::Danger,
-        _ => Tint::Text,
+        _ => Tint::Muted,
     };
     let style = match action {
         Action::Delete => theme::danger_tool,
@@ -380,7 +395,7 @@ pub fn menu_item<'a>(action: Action, enabled: bool) -> Element<'a, Message> {
     menu_row(
         action.icon(),
         tint,
-        action.label(),
+        action.menu_label(),
         action.shortcut(),
         style,
         enabled.then_some(Message::Act(action)),
@@ -404,9 +419,11 @@ pub fn menu_row<'a>(
                 .wrapping(text::Wrapping::None),
             text(shortcut).size(TIP_SIZE).style(theme::muted_text),
         ]
-        .spacing(LABEL_SPACING * 2.0)
+        .spacing(MENU_GAP)
+        .height(Length::Fill)
         .align_y(Alignment::Center),
     )
+    .padding(MENU_ROW_PADDING)
     .width(Length::Fill)
     .height(context_menu::ITEM_HEIGHT)
     .style(style)

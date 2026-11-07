@@ -247,6 +247,18 @@ fn the_open_details_panel_follows_the_selected_row() {
 }
 
 #[test]
+fn the_details_panel_opens_its_folder() {
+    let mut state = state_with_listing();
+    let _ = state.update(Message::Click(id(FOLDER_ID)));
+    let _ = state.update(Message::Act(Action::Details));
+
+    let _ = state.update(Message::Details(details::Message::Open));
+
+    assert_eq!(state.folder.id, Some(id(FOLDER_ID)));
+    assert!(state.details.is_none());
+}
+
+#[test]
 fn selecting_a_row_does_not_open_a_closed_details_panel() {
     let mut state = state_with_listing();
 

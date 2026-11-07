@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use iced::{Size, Subscription, Task, event, keyboard::Modifiers, widget::operation, window};
 
 use api_client::{ApiError, Client};
-use client_core::listing::SortKey;
+use client_core::{labels::HOME, listing::SortKey};
 use protocol::{Me, Node, NodeId, NodeKind, paths};
 use uuid::Uuid;
 
@@ -249,7 +249,7 @@ impl State {
             }
             Message::NewFolder if self.in_lost_and_found() => Task::none(),
             Message::NewFolder => {
-                let (dialog, task) = Dialog::new_folder();
+                let (dialog, task) = Dialog::new_folder(self.folder_name());
                 self.dialog = Some(dialog);
                 task.map(Message::Dialog)
             }
@@ -560,10 +560,32 @@ impl State {
         }
     }
 
+    /// The name of the folder shown.
+    fn folder_name(&self) -> &str {
+        self.folder
+            .listing
+            .path
+            .last()
+            .map_or(HOME, |folder| folder.name.as_str())
+    }
+
     fn details_update(&mut self, message: details::Message) -> Task<Message> {
         let Some(details) = &mut self.details else {
             return Task::none();
         };
+        match message {
+            details::Message::Open => {
+                let node = details.node().clone();
+                return match node.kind {
+                    NodeKind::Folder => self.open_folder(Some(node.id)),
+                    NodeKind::File => self.open_file(&node),
+                };
+            }
+            details::Message::DownloadNode => {
+                return files::download(&self.client, vec![details.node().clone()]);
+            }
+            _ => {}
+        }
         match details.update(&self.client, message) {
             Some(task) => task.map(Message::Details),
             None => {

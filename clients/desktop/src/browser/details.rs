@@ -1,16 +1,18 @@
 use api_client::{ApiError, Client};
 use client_core::{format::human_size, labels::edited_on};
-use iced::widget::stack;
 use iced::widget::text::Wrapping;
 use iced::{
     Alignment, Element, Length,
-    widget::{button, column, container, row, scrollable, space, text},
+    widget::{button, column, container, row, scrollable, text},
 };
 use protocol::{Device, FileVersion, Node, NodeId, NodeKind};
 
-use super::Message as BrowserMessage;
+use super::{
+    Message as BrowserMessage,
+    parts::{alert_error, divider, small_danger, small_outlined, small_outlined_icon},
+};
 use crate::{
-    icons::{ICON_SIZE, Icon, Tint},
+    icons::{ICON_SIZE, Icon, Tint, node_icon},
     locale::short_date,
     theme,
 };
@@ -19,13 +21,25 @@ const WIDTH: f32 = 320.0;
 const PADDING: f32 = 16.0;
 const SPACING: f32 = 12.0;
 const ROW_SPACING: f32 = 8.0;
+const FACT_GAP: f32 = 12.0;
 const TITLE_SIZE: f32 = 18.0;
-const META_SIZE: f32 = 13.0;
-const LABEL_WIDTH: f32 = 72.0;
+const META_SIZE: f32 = 12.0;
+const LABEL_WIDTH: f32 = 110.0;
+const NAME_ICON: f32 = 24.0;
+const CLOSE_PADDING: f32 = 4.0;
+const VERSIONS_PADDING: [f32; 2] = [12.0, 16.0];
+const VERSIONS_GAP: f32 = 4.0;
+const VERSION_PADDING: [f32; 2] = [8.0, 0.0];
+const VERSION_ICON: f32 = 16.0;
+const VERSION_BUTTON_PADDING: f32 = 6.0;
 const FOLDER_LABEL: &str = "Folder";
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    /// Opens the node; the browser knows how.
+    Open,
+    /// Downloads the node's current content; the browser does it.
+    DownloadNode,
     Loaded(NodeId, Result<Box<Loaded>, ApiError>),
     Download(i32),
     Downloaded(Result<(), String>),
@@ -71,6 +85,10 @@ impl State {
         (state, task)
     }
 
+    pub fn node(&self) -> &Node {
+        &self.node
+    }
+
     pub fn node_id(&self) -> NodeId {
         self.node.id
     }
@@ -82,6 +100,7 @@ impl State {
     /// Applies `message`; `None` means the panel should close.
     pub fn update(&mut self, client: &Client, message: Message) -> Option<Task> {
         match message {
+            Message::Open | Message::DownloadNode => Some(Task::none()),
             Message::Loaded(id, result) if id == self.node.id => {
                 match result {
                     Ok(loaded) => {
@@ -132,26 +151,31 @@ impl State {
     pub fn view(&self, synced_to: Option<String>) -> Element<'_, BrowserMessage> {
         let node = &self.node;
         let is_file = node.kind == NodeKind::File;
-        let header = row![
+        let tint = if is_file { Tint::Text } else { Tint::Accent };
+        let name = row![
+            node_icon(node).view(NAME_ICON, tint),
             text(node.name.as_str())
                 .size(TITLE_SIZE)
+                .font(theme::SEMIBOLD)
                 .wrapping(Wrapping::WordOrGlyph)
-                .width(Length::Fill)
-                .align_y(Alignment::Center),
-            stack![
-                button(Icon::Close.view(ICON_SIZE, Tint::Text))
-                    .style(theme::tool)
-                    .on_press(Message::Close)
-            ],
+                .width(Length::Fill),
+            button(Icon::Close.view(ICON_SIZE, Tint::Muted))
+                .padding(CLOSE_PADDING)
+                .style(theme::tool)
+                .on_press(Message::Close),
         ]
         .spacing(ROW_SPACING);
+        let buttons = row![
+            small_outlined_icon(Icon::Web, "Open", Some(Message::Open)),
+            small_outlined_icon(Icon::Download, "Download", Some(Message::DownloadNode)),
+        ]
+        .spacing(ROW_SPACING);
+        let mut head = column![name, buttons].spacing(SPACING);
+        if let Some(error) = &self.error {
+            head = head.push(alert_error(Icon::Error, error.as_str(), None));
+        }
 
-        let kind = if is_file {
-            node.mime.as_str()
-        } else {
-            FOLDER_LABEL
-        };
-        let mut facts = column![fact("Type", kind.to_owned())].spacing(ROW_SPACING);
+        let mut facts = column![fact("Type", kind_label(node))].spacing(ROW_SPACING);
         if is_file {
             facts = facts
                 .push(fact("Size", human_size(node.size)))
@@ -171,79 +195,122 @@ impl State {
             facts = facts.push(fact("Synced to", local));
         }
 
-        let mut panel = column![header].spacing(SPACING);
-        if let Some(error) = &self.error {
-            panel = panel.push(container(text(error.as_str())).style(theme::error));
-        }
-        panel = panel.push(facts);
+        let mut body = column![container(facts).padding(PADDING)];
         if is_file {
-            panel = panel.push(text("Previous versions").size(TITLE_SIZE - 3.0));
-            panel = panel.push(self.version_list());
+            body = body.push(divider()).push(
+                container(
+                    column![
+                        text("Previous versions").font(theme::MEDIUM),
+                        self.version_list()
+                    ]
+                    .spacing(VERSIONS_GAP),
+                )
+                .padding(VERSIONS_PADDING),
+            );
         }
-        let panel: Element<'_, Message> = container(panel)
-            .padding(PADDING)
-            .width(WIDTH)
-            .height(Length::Fill)
-            .style(theme::card)
-            .into();
+        let panel: Element<'_, Message> = container(column![
+            container(head).padding(PADDING),
+            divider(),
+            scrollable(body).height(Length::Fill),
+        ])
+        .width(WIDTH)
+        .height(Length::Fill)
+        .style(theme::card)
+        .into();
         panel.map(BrowserMessage::Details)
     }
 
     fn version_list(&self) -> Element<'_, Message> {
         if self.versions.is_empty() {
-            return text("No previous versions.").size(META_SIZE).into();
+            return text("No previous versions.")
+                .size(META_SIZE)
+                .style(theme::muted_text)
+                .into();
         }
-        let rows = self.versions.iter().map(|version| {
-            let number = version.version;
-            let mut meta = format!(
-                "{} · {}",
-                human_size(version.size),
-                short_date(version.modified_at)
-            );
-            if let Some(device) = edited_on(version.edited_on, &self.devices) {
-                meta = format!("{meta} · {device}");
-            }
-            let info = column![
-                text(format!("Version {number}")),
-                text(meta).size(META_SIZE)
-            ];
-            let actions: Element<'_, Message> = if self.confirming == Some(number) {
-                row![
-                    button("Delete")
-                        .style(theme::danger)
-                        .on_press(Message::Delete(number)),
-                    button("Cancel")
-                        .style(theme::secondary)
-                        .on_press(Message::CancelDelete),
+        let rows = self
+            .versions
+            .iter()
+            .enumerate()
+            .flat_map(|(index, version)| {
+                let number = version.version;
+                let mut meta = format!(
+                    "{} · {}",
+                    short_date(version.modified_at),
+                    human_size(version.size)
+                );
+                if let Some(device) = edited_on(version.edited_on, &self.devices) {
+                    meta = format!("{meta} · {device}");
+                }
+                let info = column![
+                    text(format!("Version {number}")),
+                    text(meta).size(META_SIZE).style(theme::muted_text)
                 ]
-                .spacing(ROW_SPACING)
-                .into()
-            } else {
-                row![
-                    button(Icon::Download.view(ICON_SIZE, Tint::Text))
-                        .style(theme::tool)
-                        .on_press(Message::Download(number)),
-                    button(Icon::Delete.view(ICON_SIZE, Tint::Danger))
-                        .style(theme::danger_tool)
-                        .on_press(Message::AskDelete(number)),
-                ]
-                .into()
-            };
-            row![info, space::horizontal(), actions]
-                .spacing(ROW_SPACING)
-                .align_y(Alignment::Center)
-                .into()
-        });
-        scrollable(column(rows).spacing(ROW_SPACING)).into()
+                .width(Length::Fill);
+                let line: Element<'_, Message> = if self.confirming == Some(number) {
+                    column![
+                        info,
+                        row![
+                            small_danger("Delete", Some(Message::Delete(number))),
+                            small_outlined("Cancel", Some(Message::CancelDelete)),
+                        ]
+                        .spacing(ROW_SPACING),
+                    ]
+                    .spacing(ROW_SPACING)
+                    .into()
+                } else {
+                    row![
+                        info,
+                        version_button(Icon::Download, Message::Download(number)),
+                        version_button(Icon::Delete, Message::AskDelete(number)),
+                    ]
+                    .align_y(Alignment::Center)
+                    .into()
+                };
+                let line = container(line).padding(VERSION_PADDING).into();
+                (index > 0)
+                    .then(divider)
+                    .into_iter()
+                    .chain(std::iter::once(line))
+            });
+        column(rows).into()
     }
 }
 
 type Task = iced::Task<Message>;
 
 fn fact(label: &str, value: String) -> Element<'_, Message> {
-    row![text(label).width(LABEL_WIDTH).size(META_SIZE), text(value)]
-        .spacing(ROW_SPACING)
+    row![
+        text(label).width(LABEL_WIDTH).style(theme::muted_text),
+        text(value)
+            .wrapping(Wrapping::WordOrGlyph)
+            .width(Length::Fill),
+    ]
+    .spacing(FACT_GAP)
+    .into()
+}
+
+fn version_button<'a>(icon: Icon, message: Message) -> Element<'a, Message> {
+    button(icon.view(VERSION_ICON, Tint::Muted))
+        .padding(VERSION_BUTTON_PADDING)
+        .style(theme::tool)
+        .on_press(message)
         .into()
+}
+
+/// What a node is, in words where its MIME type has them.
+fn kind_label(node: &Node) -> String {
+    if node.kind == NodeKind::Folder {
+        return FOLDER_LABEL.to_owned();
+    }
+    let mime = node.mime.as_str();
+    match mime.split_once('/') {
+        _ if mime == "application/pdf" => "PDF document".to_owned(),
+        Some(("text", "plain")) => "Text document".to_owned(),
+        Some(("image", kind)) => format!("{} image", kind.to_uppercase()),
+        Some(("video", kind)) => format!("{} video", kind.to_uppercase()),
+        Some(("audio", kind)) => format!("{} audio", kind.to_uppercase()),
+        _ => mime.to_owned(),
+    }
 }
 
 fn load(client: &Client, id: NodeId) -> Task {
@@ -368,5 +435,21 @@ mod tests {
         assert!(ui.find("Laptop").is_ok());
         assert!(ui.find("Uploaded from").is_ok());
         assert!(ui.find("Phone").is_ok());
+    }
+
+    #[test]
+    fn a_kind_is_in_words_where_it_has_any() {
+        let with = |mime: &str| Node {
+            mime: mime.to_owned(),
+            ..file()
+        };
+        assert_eq!(kind_label(&file()), "PDF document");
+        assert_eq!(kind_label(&with("image/jpeg")), "JPEG image");
+        assert_eq!(kind_label(&with("application/zip")), "application/zip");
+        let folder = Node {
+            kind: NodeKind::Folder,
+            ..file()
+        };
+        assert_eq!(kind_label(&folder), "Folder");
     }
 }

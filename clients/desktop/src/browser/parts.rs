@@ -2,7 +2,7 @@
 
 use iced::{
     Alignment, Element, Length, Padding, Rectangle,
-    widget::{Row, button, center, container, row, space, text},
+    widget::{Column, Row, button, center, container, row, space, text},
 };
 
 use super::anchor::Anchor;
@@ -57,6 +57,13 @@ const SMALL_SIZE: f32 = 13.0;
 const SMALL_ICON: f32 = 16.0;
 const ALERT_PADDING: [f32; 2] = [10.0, 12.0];
 const ALERT_GAP: f32 = 10.0;
+pub(super) const DIALOG_WIDTH: f32 = 440.0;
+const DIALOG_PADDING: f32 = 24.0;
+const DIALOG_GAP: f32 = 16.0;
+const DIALOG_TITLE_SIZE: f32 = 18.0;
+const DIALOG_BUTTON_GAP: f32 = 8.0;
+const FIELD_GAP: f32 = 4.0;
+pub(super) const FIELD_PADDING: [f32; 2] = [9.0, 10.0];
 
 /// A hairline across the box.
 pub(super) fn divider<'a, M: 'a>() -> Element<'a, M> {
@@ -259,6 +266,89 @@ pub(super) fn small_outlined<'a, M: Clone + 'a>(
     labelled(None, label, SMALL_SIZE, SMALL_ICON, message)
         .padding(SMALL_PADDING)
         .style(theme::secondary)
+        .into()
+}
+
+/// A small outlined button with an icon.
+pub(super) fn small_outlined_icon<'a, M: Clone + 'a>(
+    icon: Icon,
+    label: impl text::IntoFragment<'a>,
+    message: Option<M>,
+) -> Element<'a, M> {
+    labelled(
+        Some((icon, Tint::Text)),
+        label,
+        SMALL_SIZE,
+        SMALL_ICON,
+        message,
+    )
+    .padding(SMALL_PADDING)
+    .style(theme::secondary)
+    .into()
+}
+
+/// A small button for something destructive.
+pub(super) fn small_danger<'a, M: Clone + 'a>(
+    label: impl text::IntoFragment<'a>,
+    message: Option<M>,
+) -> Element<'a, M> {
+    labelled(None, label, SMALL_SIZE, SMALL_ICON, message)
+        .padding(SMALL_PADDING)
+        .style(theme::danger)
+        .into()
+}
+
+/// The button that carries out a dialog.
+pub(super) fn primary<'a, M: Clone + 'a>(
+    icon: Option<Icon>,
+    label: impl text::IntoFragment<'a>,
+    message: Option<M>,
+) -> Element<'a, M> {
+    let icon = icon.map(|icon| (icon, Tint::OnAccent));
+    sized(icon, label, theme::primary, OUTLINED_PADDING_X, message)
+}
+
+/// The button that carries out a dialog doing something destructive.
+pub(super) fn danger<'a, M: Clone + 'a>(
+    label: impl text::IntoFragment<'a>,
+    message: Option<M>,
+) -> Element<'a, M> {
+    sized(None, label, theme::danger, OUTLINED_PADDING_X, message)
+}
+
+/// The title of a dialog.
+pub(super) fn dialog_title<'a, M: 'a>(title: impl text::IntoFragment<'a>) -> Element<'a, M> {
+    text(title)
+        .size(DIALOG_TITLE_SIZE)
+        .font(theme::SEMIBOLD)
+        .into()
+}
+
+/// A dialog of `lines`, closed by the `buttons` on its last line.
+pub(super) fn dialog<'a, M: 'a>(
+    width: f32,
+    lines: Column<'a, M>,
+    buttons: impl IntoIterator<Item = Element<'a, M>>,
+) -> Element<'a, M> {
+    let buttons = row![space::horizontal()]
+        .extend(buttons)
+        .spacing(DIALOG_BUTTON_GAP);
+    container(lines.push(buttons).spacing(DIALOG_GAP))
+        .padding(DIALOG_PADDING)
+        .width(width)
+        .style(theme::panel)
+        .into()
+}
+
+/// `input` with the `label` above it and, if any, a `hint` below.
+pub(super) fn field<'a, M: 'a>(
+    label: &'a str,
+    input: impl Into<Element<'a, M>>,
+    hint: Option<String>,
+) -> Element<'a, M> {
+    iced::widget::column![text(label).font(theme::MEDIUM), input.into()]
+        .push(hint.map(|hint| text(hint).size(SECOND_LINE_SIZE).style(theme::muted_text)))
+        .spacing(FIELD_GAP)
         .into()
 }
 

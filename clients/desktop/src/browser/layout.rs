@@ -1,9 +1,9 @@
 use iced::{
-    Alignment, Element, Length, Padding,
+    Alignment, Element, Length, Padding, Size,
     alignment::Horizontal,
     widget::{
-        Row, button, center, column, container, mouse_area, opaque, row, space, stack, text,
-        text_input,
+        Row, button, center, column, container, mouse_area, opaque, responsive, row, space, stack,
+        svg, text, text_input,
     },
 };
 
@@ -20,7 +20,7 @@ use crate::{
 };
 
 const MAIN_PADDING: [f32; 2] = [16.0, 24.0];
-const OVERLAY_PADDING: f32 = 16.0;
+const OVERLAY_PADDING: f32 = 24.0;
 const SPACING: f32 = 12.0;
 const GRID_SPACING: f32 = 4.0;
 const BACK_PADDING: f32 = 6.0;
@@ -47,7 +47,12 @@ const SEARCH_SHORTCUT: &str = "Cmd K";
 #[cfg(not(target_os = "macos"))]
 const SEARCH_SHORTCUT: &str = "Ctrl K";
 pub(super) const SEARCH_INPUT: &str = "search";
-const DROP_PADDING: f32 = 32.0;
+const DROP_LABEL_SIZE: f32 = 16.0;
+const DROP_LABEL_PADDING: [f32; 2] = [14.0, 24.0];
+const DROP_INSET: f32 = 12.0;
+const DROP_LINE: f32 = 2.0;
+const DROP_RADIUS: f32 = 8.0;
+const DROP_DASH: [f32; 2] = [6.0, 4.0];
 const TRASH: &str = "Recycle bin";
 const SYNC_QUEUE: &str = "Sync queue";
 const SYNC_SETTINGS: &str = "Sync settings";
@@ -58,7 +63,14 @@ const CRUMB_OVERFLOW: &str = "…";
 impl State {
     pub fn view(&self) -> Element<'_, Message> {
         let selected = self.folder.selection.selected(&self.folder.listing.nodes);
-        let main = container(self.page(&selected))
+        // The folder's listing takes the drop overlay itself; other pages have it over them all.
+        let shown = self.page(&selected);
+        let shown: Element<'_, Message> = if self.dropping && !self.shows_listing() {
+            stack![shown, self.drop_overlay()].into()
+        } else {
+            shown
+        };
+        let main = container(shown)
             .padding(MAIN_PADDING)
             .width(Length::Fill)
             .height(Length::Fill);
@@ -81,7 +93,7 @@ impl State {
         }
         if let Some(confirm) = &self.syncing.confirm {
             layers.push(modal(
-                syncing::confirm(confirm),
+                syncing::confirm(confirm, self.syncing.status()),
                 Message::Sync(syncing::Message::Confirm(false)),
             ));
         }
@@ -91,10 +103,11 @@ impl State {
                 Message::Dialog(dialogs::Message::Cancel),
             ));
         }
-        if self.dropping {
-            layers.push(self.drop_overlay());
-        }
         stack(layers).into()
+    }
+
+    fn shows_listing(&self) -> bool {
+        !self.search.is_active() && matches!(self.page, Page::Folder)
     }
 
     /// How wide the main column's content is.
@@ -182,10 +195,15 @@ impl State {
                 self.syncing.status()
             ),
         ];
+        let listing: Element<'a, Message> = if self.dropping {
+            stack![parts::list_box(grid), self.drop_overlay()].into()
+        } else {
+            parts::list_box(grid)
+        };
         match &self.details {
             Some(details) => page.push(
                 row![
-                    parts::list_box(grid),
+                    listing,
                     details.view(
                         self.syncing
                             .status()
@@ -195,7 +213,7 @@ impl State {
                 ]
                 .spacing(SPACING),
             ),
-            None => page.push(parts::list_box(grid)),
+            None => page.push(listing),
         }
         .into()
     }
@@ -251,17 +269,26 @@ impl State {
         })
     }
 
+    /// Where dropped files go, in a dashed outline over what it covers.
     fn drop_overlay(&self) -> Element<'_, Message> {
-        let target = self
-            .folder
-            .listing
-            .path
-            .last()
-            .map_or(HOME, |folder| folder.name.as_str());
-        let label = container(text(format!("Drop files to upload to {target}")))
-            .padding(DROP_PADDING)
-            .style(theme::panel);
-        center(label).style(theme::backdrop).into()
+        let label = container(
+            row![
+                Icon::Upload.view(ICON_SIZE, Tint::Accent),
+                text(format!("Drop files to upload to {}", self.folder_name()))
+                    .size(DROP_LABEL_SIZE)
+                    .font(theme::SEMIBOLD),
+            ]
+            .spacing(SPACING)
+            .align_y(Alignment::Center),
+        )
+        .padding(DROP_LABEL_PADDING)
+        .style(theme::menu);
+        container(stack![responsive(dashed_outline), center(label)])
+            .padding(DROP_INSET)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(theme::drop_zone)
+            .into()
     }
 
     /// The search field, with its icon and the key that focuses it, or what clears it, drawn
@@ -328,6 +355,27 @@ impl State {
         }
         trail.into()
     }
+}
+
+/// A dashed rounded outline filling `size`. It is an svg made for that size, as iced draws no
+/// dashed borders; it only exists while files are dragged over the window.
+fn dashed_outline<'a>(size: Size) -> Element<'a, Message> {
+    let (width, height) = (size.width, size.height);
+    let inset = DROP_LINE / 2.0;
+    let outline = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}"><rect x="{inset}" y="{inset}" width="{}" height="{}" rx="{DROP_RADIUS}" fill="none" stroke="black" stroke-width="{DROP_LINE}" stroke-dasharray="{} {}"/></svg>"#,
+        width - DROP_LINE,
+        height - DROP_LINE,
+        DROP_DASH[0],
+        DROP_DASH[1],
+    );
+    svg(svg::Handle::from_memory(outline.into_bytes()))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(|theme: &iced::Theme, _status| svg::Style {
+            color: Some(theme::tokens(theme).accent),
+        })
+        .into()
 }
 
 fn modal<'a>(content: Element<'a, Message>, on_dismiss: Message) -> Element<'a, Message> {

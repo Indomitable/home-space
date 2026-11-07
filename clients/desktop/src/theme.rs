@@ -16,6 +16,7 @@ const RADIUS_SM: f32 = 6.0;
 const RADIUS_MD: f32 = 10.0;
 /// Dialogs and floating panels.
 const RADIUS_LG: f32 = 16.0;
+const DISC_RADIUS: f32 = 20.0;
 const RADIUS_KBD: f32 = 4.0;
 const RADIUS_LOGO: f32 = 8.0;
 const RADIUS_BAR: f32 = 3.0;
@@ -427,6 +428,27 @@ pub fn muted_text(theme: &Theme) -> text::Style {
     }
 }
 
+/// Text in the main colour, inside something that mutes its text.
+pub fn strong_text(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(tokens(theme).text),
+    }
+}
+
+/// Text saying something went well.
+pub fn success_text(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(tokens(theme).success),
+    }
+}
+
+/// Text saying something went wrong.
+pub fn danger_text(theme: &Theme) -> text::Style {
+    text::Style {
+        color: Some(tokens(theme).danger),
+    }
+}
+
 /// Text of something that cannot be used yet, such as a file waiting to be uploaded.
 pub fn disabled(theme: &Theme) -> container::Style {
     container::Style {
@@ -646,6 +668,35 @@ pub fn alert_info(theme: &Theme) -> container::Style {
         background: Some(t.accent_soft.into()),
         text_color: Some(t.text),
         border: Border::default().rounded(RADIUS_SM),
+        ..container::Style::default()
+    }
+}
+
+/// A value shown like an input that cannot be typed in.
+pub fn field(theme: &Theme) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        background: Some(t.surface.into()),
+        text_color: Some(t.text),
+        border: outline(t.border_strong, RADIUS_SM),
+        ..container::Style::default()
+    }
+}
+
+/// The disc behind the icon of a dialog that warns.
+pub fn danger_disc(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(tokens(theme).danger_soft.into()),
+        border: Border::default().rounded(DISC_RADIUS),
+        ..container::Style::default()
+    }
+}
+
+/// What the listing turns into while files are dragged over the window.
+pub fn drop_zone(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(tokens(theme).accent_soft.into()),
+        border: Border::default().rounded(RADIUS_MD),
         ..container::Style::default()
     }
 }

@@ -7,9 +7,9 @@ use std::{
 };
 
 use iced::{
-    Alignment, Element, Length, Task,
+    Alignment, Element, Length, Padding, Task,
     futures::{SinkExt, Stream, StreamExt, channel::mpsc, stream},
-    widget::{button, column, container, progress_bar, row, scrollable, text},
+    widget::{button, column, container, progress_bar, row, scrollable, space, text},
 };
 use tokio::{fs, io::AsyncWriteExt};
 use tokio_util::io::ReaderStream;
@@ -20,7 +20,8 @@ use client_core::listing::{Sort, sort_nodes};
 use protocol::{CreateUpload, ErrorCode, Node, NodeId, NodeKind};
 
 use crate::{
-    icons::{Icon, Tint},
+    ellipsis::ellipsized,
+    icons::{ICON_SIZE, Icon, Tint},
     sync::{part_path, read_range},
     theme,
 };
@@ -31,13 +32,33 @@ const MAX_DEPTH: usize = 64;
 const TOO_DEEP: &str = "folder tree is too deep";
 const ALREADY_EXISTS: &str = "already exists";
 const MISSING_FOLDER: &str = "parent folder could not be created";
-const PANEL_WIDTH: f32 = 420.0;
-const LIST_HEIGHT: f32 = 220.0;
-const PANEL_PADDING: f32 = 12.0;
-const SPACING: f32 = 8.0;
-const ICON_SIZE: f32 = 16.0;
-const NAME_SIZE: f32 = 13.0;
+const PANEL_WIDTH: f32 = 380.0;
+const LIST_HEIGHT: f32 = 320.0;
+const HEADER_PADDING: Padding = Padding {
+    top: 8.0,
+    right: 8.0,
+    bottom: 8.0,
+    left: 16.0,
+};
+const HEADER_GAP: f32 = 4.0;
+const CLEAR_PADDING: [f32; 2] = [5.0, 10.0];
+const ICON_BUTTON_PADDING: f32 = 6.0;
+const OVERALL_PADDING: Padding = Padding {
+    top: 0.0,
+    right: 16.0,
+    bottom: 14.0,
+    left: 16.0,
+};
+const ITEM_PADDING: [f32; 2] = [10.0, 16.0];
+const ITEM_GAP: f32 = 6.0;
+const LINE_GAP: f32 = 10.0;
+const DIVIDER: f32 = 1.0;
+const SMALL_SIZE: f32 = 13.0;
+const NAME_SIZE: f32 = 14.0;
+const STATE_SIZE: f32 = 12.0;
 const BAR_HEIGHT: f32 = 6.0;
+const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "heic", "bmp", "svg"];
+const DOCUMENT_EXTENSIONS: &[&str] = &["pdf", "txt", "md", "rtf", "doc", "docx", "odt", "json"];
 
 type TransferId = u64;
 
@@ -201,7 +222,7 @@ pub struct Transfers {
     pending: VecDeque<(Batch, Vec<TransferId>)>,
     running: bool,
     next_id: TransferId,
-    expanded: bool,
+    collapsed: bool,
 }
 
 impl Transfers {
@@ -255,7 +276,7 @@ impl Transfers {
                 self.start_next(client)
             }
             Message::ToggleExpanded => {
-                self.expanded = !self.expanded;
+                self.collapsed = !self.collapsed;
                 Task::none()
             }
             Message::ClearCompleted => {
@@ -299,35 +320,64 @@ impl Transfers {
 
     /// The floating progress panel.
     pub fn view(&self) -> Element<'_, Message> {
-        let busy = self.is_busy();
         let has_done = self
             .items
             .iter()
             .any(|item| item.state == TransferState::Done);
-        let header = row![
-            text(summarize(&self.items)).width(Length::Fill),
-            button(text("Clear completed").size(NAME_SIZE))
+        let fold = if self.collapsed {
+            Icon::ExpandLess
+        } else {
+            Icon::ExpandMore
+        };
+        let close = (!self.is_busy()).then(|| {
+            button(Icon::Close.view(ICON_SIZE, Tint::Muted))
+                .padding(ICON_BUTTON_PADDING)
                 .style(theme::tool)
-                .on_press_maybe(has_done.then_some(Message::ClearCompleted)),
-            button(text(if self.expanded { "▾" } else { "▴" }))
-                .style(theme::tool)
-                .on_press(Message::ToggleExpanded),
-            button(Icon::Close.view(ICON_SIZE, Tint::Text))
-                .style(theme::tool)
-                .on_press_maybe((!busy).then_some(Message::Close)),
-        ]
-        .spacing(SPACING)
-        .align_y(Alignment::Center);
-        let overall = progress_bar(0.0..=1.0, overall_progress(&self.items))
-            .girth(BAR_HEIGHT)
-            .style(theme::progress);
-        let mut panel = column![header, overall].spacing(SPACING);
-        if self.expanded {
-            let list = column(self.items.iter().map(item_view)).spacing(SPACING);
-            panel = panel.push(scrollable(list).height(LIST_HEIGHT));
-        }
-        container(panel)
-            .padding(PANEL_PADDING)
+                .on_press(Message::Close)
+        });
+        let header = container(
+            row![
+                text(summarize(&self.items))
+                    .font(theme::MEDIUM)
+                    .width(Length::Fill),
+                button(text("Clear completed").size(SMALL_SIZE).font(theme::MEDIUM))
+                    .padding(CLEAR_PADDING)
+                    .style(theme::tool)
+                    .on_press_maybe(has_done.then_some(Message::ClearCompleted)),
+                button(fold.view(ICON_SIZE, Tint::Muted))
+                    .padding(ICON_BUTTON_PADDING)
+                    .style(theme::tool)
+                    .on_press(Message::ToggleExpanded),
+            ]
+            .push(close)
+            .spacing(HEADER_GAP)
+            .align_y(Alignment::Center),
+        )
+        .padding(HEADER_PADDING);
+        let body: Element<'_, Message> = if self.collapsed {
+            container(
+                progress_bar(0.0..=1.0, overall_progress(&self.items))
+                    .girth(BAR_HEIGHT)
+                    .style(theme::progress),
+            )
+            .padding(OVERALL_PADDING)
+            .into()
+        } else {
+            let rows = self.items.iter().flat_map(|item| {
+                [
+                    container(space())
+                        .width(Length::Fill)
+                        .height(DIVIDER)
+                        .style(theme::divider)
+                        .into(),
+                    item_view(item),
+                ]
+            });
+            container(scrollable(column(rows).width(Length::Fill)).width(Length::Fill))
+                .max_height(LIST_HEIGHT)
+                .into()
+        };
+        container(column![header, body])
             .width(PANEL_WIDTH)
             .style(theme::panel)
             .into()
@@ -335,36 +385,71 @@ impl Transfers {
 }
 
 fn item_view(item: &Transfer) -> Element<'_, Message> {
-    let icon = match item.direction {
-        Direction::Upload => Icon::Upload,
-        Direction::Download => Icon::Download,
+    let (icon, tint) = match item.state {
+        TransferState::Failed(_) => (Icon::Error, Tint::Danger),
+        _ => (file_icon(&item.name), Tint::Text),
     };
-    let status = match &item.state {
-        TransferState::Queued => "Waiting".to_owned(),
-        TransferState::Active => "In progress".to_owned(),
-        TransferState::Done => "Done".to_owned(),
-        TransferState::Failed(message) => format!("Failed: {message}"),
+    let status: Option<Element<'_, Message>> = match item.state {
+        TransferState::Queued => Some(
+            text("Waiting")
+                .size(STATE_SIZE)
+                .style(theme::muted_text)
+                .into(),
+        ),
+        TransferState::Active => Some(
+            text(format!("{:.0}%", item.fraction() * 100.0))
+                .size(STATE_SIZE)
+                .style(theme::muted_text)
+                .into(),
+        ),
+        TransferState::Done => Some(
+            text("Done")
+                .size(STATE_SIZE)
+                .style(theme::success_text)
+                .into(),
+        ),
+        TransferState::Failed(_) => None,
     };
-    let status: Element<'_, Message> = match item.state {
-        TransferState::Failed(_) => container(text(status).size(NAME_SIZE))
-            .style(theme::error)
-            .into(),
-        _ => text(status).size(NAME_SIZE).into(),
-    };
-    column![
+    let mut lines = column![
         row![
-            icon.view(ICON_SIZE, Tint::Muted),
-            text(item.name.as_str()).size(NAME_SIZE).width(Length::Fill),
+            icon.view(ICON_SIZE, tint),
+            ellipsized(item.name.as_str(), NAME_SIZE, Alignment::Start).width(Length::Fill),
         ]
-        .spacing(SPACING)
-        .align_y(Alignment::Center),
-        progress_bar(0.0..=1.0, item.fraction())
-            .girth(BAR_HEIGHT)
-            .style(theme::progress),
-        status,
+        .push(status)
+        .spacing(LINE_GAP)
+        .align_y(Alignment::Center)
     ]
-    .spacing(SPACING / 2.0)
-    .into()
+    .spacing(ITEM_GAP);
+    match &item.state {
+        TransferState::Active => {
+            lines = lines.push(
+                progress_bar(0.0..=1.0, item.fraction())
+                    .girth(BAR_HEIGHT)
+                    .style(theme::progress),
+            );
+        }
+        TransferState::Failed(message) => {
+            lines = lines.push(
+                text(format!("Failed: {message}"))
+                    .size(STATE_SIZE)
+                    .style(theme::danger_text),
+            );
+        }
+        TransferState::Queued | TransferState::Done => {}
+    }
+    container(lines).padding(ITEM_PADDING).into()
+}
+
+/// The icon of a file known only by its name.
+fn file_icon(name: &str) -> Icon {
+    let extension = Path::new(name)
+        .extension()
+        .map(|extension| extension.to_string_lossy().to_lowercase());
+    match extension.as_deref() {
+        Some(extension) if IMAGE_EXTENSIONS.contains(&extension) => Icon::Image,
+        Some(extension) if DOCUMENT_EXTENSIONS.contains(&extension) => Icon::Document,
+        _ => Icon::Other,
+    }
 }
 
 fn summarize(items: &[Transfer]) -> String {
@@ -772,6 +857,46 @@ mod tests {
     fn a_replacing_download_is_kept() {
         let file = DownloadFile::replacing(&file_node(), PathBuf::from("/tmp/a.txt"));
         assert_eq!(file.then, Then::Keep);
+    }
+
+    #[test]
+    fn a_file_icon_goes_by_the_extension() {
+        assert_eq!(file_icon("IMG_1.JPG"), Icon::Image);
+        assert_eq!(file_icon("notes.txt"), Icon::Document);
+        assert_eq!(file_icon("budget.ods"), Icon::Other);
+        assert_eq!(file_icon("README"), Icon::Other);
+    }
+
+    #[test]
+    fn each_row_says_how_its_transfer_goes() {
+        let transfers = Transfers {
+            items: vec![
+                transfer(TransferState::Active, 64, 100),
+                transfer(TransferState::Queued, 0, 100),
+                transfer(TransferState::Done, 100, 100),
+                transfer(TransferState::Failed("too large".to_owned()), 0, 100),
+            ],
+            ..Transfers::default()
+        };
+        let mut ui = iced_test::simulator(transfers.view());
+
+        assert!(ui.find("64%").is_ok());
+        assert!(ui.find("Waiting").is_ok());
+        assert!(ui.find("Done").is_ok());
+        assert!(ui.find("Failed: too large").is_ok());
+    }
+
+    #[test]
+    fn a_collapsed_panel_only_has_the_summary() {
+        let transfers = Transfers {
+            items: vec![transfer(TransferState::Active, 64, 100)],
+            collapsed: true,
+            ..Transfers::default()
+        };
+        let mut ui = iced_test::simulator(transfers.view());
+
+        assert!(ui.find("Uploading 1 of 1").is_ok());
+        assert!(ui.find("64%").is_err());
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use iced::{
     Alignment, Element, Length, Point, Rectangle, Size, Vector,
     alignment::Horizontal,
-    widget::{button, container, float, pin, row, text},
+    widget::{button, container, float, pin, row, space, text},
 };
 
 use protocol::{Node, NodeId, NodeKind};
@@ -18,7 +18,8 @@ use crate::{
     theme,
 };
 
-pub(super) const ITEM_HEIGHT: f32 = 36.0;
+pub(super) const ITEM_HEIGHT: f32 = 34.0;
+const MIN_CONTENT_WIDTH: f32 = 224.0;
 const MENU_PADDING: f32 = 4.0;
 const SEPARATOR_PADDING: [f32; 2] = [4.0, 0.0];
 const EDGE_MARGIN: f32 = 8.0;
@@ -43,13 +44,16 @@ pub fn web_entry(selected: &[&Node]) -> Option<Entry> {
     }
 }
 
-/// The context menu for `selected`, with the web entry after Open, followed by the sync `entries`.
+/// The context menu for `selected`: the actions with the web entry after Open, the sync `entries`,
+/// and last, set apart, moving to the bin.
 pub fn view<'a>(
     selected: &[&Node],
     lost_and_found: NodeId,
     entries: Vec<Entry>,
 ) -> Element<'a, Message> {
-    let mut items: Vec<_> = actions(selected, lost_and_found)
+    let mut actions = actions(selected, lost_and_found);
+    let last = actions.pop();
+    let mut items: Vec<_> = actions
         .into_iter()
         .map(|(action, enabled)| menu_item(action, enabled))
         .collect();
@@ -57,13 +61,22 @@ pub fn view<'a>(
     if let Some(web) = web_entry(selected) {
         items.insert(1, entry(web));
     }
-    panel(items.into_iter().chain(entries.into_iter().map(entry)))
+    items.extend(entries.into_iter().map(entry));
+    if let Some((action, enabled)) = last {
+        items.push(separator());
+        items.push(menu_item(action, enabled));
+    }
+    panel(items)
+}
+
+fn separator<'a>() -> Element<'a, Message> {
+    container(divider()).padding(SEPARATOR_PADDING).into()
 }
 
 fn entry<'a>(entry: Entry) -> Element<'a, Message> {
     menu_row(
         entry.icon,
-        Tint::Text,
+        Tint::Muted,
         entry.label,
         "",
         theme::tool,
@@ -75,7 +88,7 @@ fn entry<'a>(entry: Entry) -> Element<'a, Message> {
 pub fn account<'a>() -> Element<'a, Message> {
     panel([menu_row(
         Icon::SignOut,
-        Tint::Text,
+        Tint::Muted,
         "Sign out",
         "",
         theme::tool,
@@ -90,13 +103,13 @@ pub fn device<'a>(id: Uuid, can_sign_out: bool) -> Element<'a, Message> {
     panel([
         menu_row(
             Icon::Rename,
-            Tint::Text,
+            Tint::Muted,
             "Rename",
             "",
             theme::tool,
             Some(rename),
         ),
-        container(divider()).padding(SEPARATOR_PADDING).into(),
+        separator(),
         menu_row(
             Icon::SignOut,
             if can_sign_out {
@@ -133,7 +146,8 @@ pub fn folders(folders: &[Node]) -> Element<'_, Message> {
 }
 
 fn panel<'a>(items: impl IntoIterator<Item = Element<'a, Message>>) -> Element<'a, Message> {
-    container(fit_column(items))
+    let floor = space().width(MIN_CONTENT_WIDTH).height(0.0);
+    container(fit_column(items.into_iter().chain([floor.into()])))
         .padding(MENU_PADDING)
         .style(theme::menu)
         .into()
@@ -221,6 +235,23 @@ mod tests {
         assert!(web_entry(&[&file]).is_none());
         assert!(web_entry(&[&folder, &folder]).is_none());
         assert!(web_entry(&[]).is_none());
+    }
+
+    #[test]
+    fn moving_to_the_bin_comes_last_in_the_menu() {
+        let folder = node(NodeKind::Folder);
+        let sync = Entry {
+            icon: Icon::Sync,
+            label: "Sync to local folder…",
+            message: Message::CloseMenu,
+        };
+        let mut ui = iced_test::simulator(view(&[&folder], NodeId(Uuid::from_u128(9)), vec![sync]));
+
+        assert!(ui.find("Move…").is_ok());
+        assert!(ui.find("Move to bin").is_ok());
+        let sync = ui.find("Sync to local folder…").unwrap();
+        let bin = ui.find("Move to bin").unwrap();
+        assert!(sync.bounds().y < bin.bounds().y);
     }
 
     #[test]

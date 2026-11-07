@@ -1,31 +1,57 @@
 use iced::{
     Alignment, Element, Length, Task,
-    widget::{button, column, container, operation, row, scrollable, space, text, text_input},
+    widget::{
+        Row, button, column, container, operation, row, scrollable, text, text::Wrapping,
+        text_input,
+    },
 };
 
 use api_client::{ApiError, Client};
 use client_core::{
     format::conflicts_title,
     labels::{HOME, LOST_AND_FOUND, describe, files},
-    listing::{Sort, already_in, sort_nodes},
+    listing::{Sort, already_in, collapsed_crumbs, sort_nodes},
 };
 use protocol::{Conflict, MoveResponse, Node, NodeId, NodeKind, OnConflict};
 
+use super::parts;
 use crate::{
+    ellipsis::{ellipsized, fit},
     icons::{ICON_SIZE, Icon, Tint},
     locale::short_date,
     theme,
 };
 
 const NAME_INPUT: &str = "dialog-name";
-const DIALOG_WIDTH: f32 = 420.0;
+const WORKING: &str = "Working…";
+const MOVE_WIDTH: f32 = 520.0;
+/// What the destination's name may take on the move button, which leaves room for Cancel.
+const MOVE_ACTION_WIDTH: f32 = 280.0;
+const MOVE_HEAD_GAP: f32 = 4.0;
 const CONFLICTS_WIDTH: f32 = 560.0;
 const CONFLICTS_HEIGHT: f32 = 280.0;
-const META_SIZE: f32 = 13.0;
-const DIALOG_PADDING: f32 = 20.0;
-const PICKER_HEIGHT: f32 = 240.0;
-const SPACING: f32 = 12.0;
-const TITLE_SIZE: f32 = 20.0;
+const CONFLICT_PADDING: [f32; 2] = [10.0, 12.0];
+const META_SIZE: f32 = 12.0;
+const BOX_PADDING: f32 = 1.0;
+const PICKER_HEIGHT: f32 = 248.0;
+const PICKER_PADDING: f32 = 4.0;
+const PICKER_SCROLLBAR_GAP: f32 = 4.0;
+const PICKER_CRUMBS_PADDING: iced::Padding = iced::Padding {
+    top: 0.0,
+    right: 10.0,
+    bottom: 0.0,
+    left: 10.0,
+};
+const PICKER_NOTE_PADDING: [f32; 2] = [9.0, 10.0];
+const PICKER_ENTRY_PADDING: [f32; 2] = [0.0, 10.0];
+const PICKER_ENTRY_HEIGHT: f32 = 40.0;
+const PICKER_ENTRY_GAP: f32 = 10.0;
+const PICKER_CHEVRON: f32 = 16.0;
+const CRUMB_GAP: f32 = 2.0;
+const CRUMB_PADDING: [f32; 2] = [2.0, 2.0];
+const WARNING_DISC: f32 = 40.0;
+const WARNING_GAP: f32 = 14.0;
+const WARNING_LINE_GAP: f32 = 6.0;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -34,6 +60,8 @@ pub enum Message {
     Cancel,
     Enter(Node),
     Up,
+    /// Goes back to the folder at this depth of the trail, Home being the first.
+    Crumb(usize),
     Folders(Option<NodeId>, Result<Vec<Node>, ApiError>),
     Finished(Result<(), ApiError>),
     /// The outcome of a move or restore that may have been held back by clashing files.
@@ -56,6 +84,8 @@ pub enum Outcome {
 enum Kind {
     NewFolder {
         name: String,
+        /// The name of the folder it goes in.
+        parent: String,
     },
     Rename {
         node: Node,
@@ -127,10 +157,11 @@ impl Dialog {
         }
     }
 
-    /// Asks for the name of a new folder.
-    pub fn new_folder() -> (Self, Task<Message>) {
+    /// Asks for the name of a new folder inside the folder named `parent`.
+    pub fn new_folder(parent: &str) -> (Self, Task<Message>) {
         let dialog = Self::with(Kind::NewFolder {
             name: String::new(),
+            parent: parent.to_owned(),
         });
         (dialog, operation::focus(NAME_INPUT))
     }
@@ -183,7 +214,7 @@ impl Dialog {
         match message {
             Message::NameChanged(value) => {
                 match &mut self.kind {
-                    Kind::NewFolder { name } | Kind::Rename { name, .. } => *name = value,
+                    Kind::NewFolder { name, .. } | Kind::Rename { name, .. } => *name = value,
                     Kind::Move { .. }
                     | Kind::Delete { .. }
                     | Kind::EmptyTrash { .. }
@@ -218,6 +249,7 @@ impl Dialog {
             Message::Up => self.navigate(client, |trail| {
                 trail.pop();
             }),
+            Message::Crumb(depth) => self.navigate(client, |trail| trail.truncate(depth)),
             Message::Folders(target, result) => {
                 if let Kind::Move {
                     nodes,
@@ -303,7 +335,7 @@ impl Dialog {
     fn submit(&mut self, client: &Client, folder: Option<NodeId>) -> Outcome {
         let client = client.clone();
         let operation: Option<Task<Message>> = match &self.kind {
-            Kind::NewFolder { name } => {
+            Kind::NewFolder { name, .. } => {
                 let name = name.trim().to_owned();
                 (!name.is_empty()).then(|| {
                     perform(async move { client.create_folder(folder, &name).await.map(drop) })
@@ -345,61 +377,109 @@ impl Dialog {
 
     /// The dialog panel, without the backdrop.
     pub fn view(&self) -> Element<'_, Message> {
-        let (title, body, action) = match &self.kind {
-            Kind::NewFolder { name } => ("New folder".to_owned(), self.name_input(name), "Create"),
+        let (width, mut lines, action) = match &self.kind {
+            Kind::NewFolder { name, parent } => (
+                parts::DIALOG_WIDTH,
+                column![
+                    parts::dialog_title("New folder"),
+                    self.name_field(name, Some(format!("In {parent}"))),
+                ],
+                self.primary(None, "Create"),
+            ),
             Kind::Rename { node, name } => (
-                format!("Rename “{}”", node.name),
-                self.name_input(name),
-                "Rename",
+                parts::DIALOG_WIDTH,
+                column![
+                    parts::dialog_title(format!("Rename “{}”", node.name)),
+                    self.name_field(name, None),
+                ],
+                self.primary(None, "Rename"),
             ),
             Kind::Move {
                 nodes,
                 trail,
                 folders,
-            } => (
-                titled("Move", nodes),
-                picker(trail, folders.as_deref()),
-                "Move here",
-            ),
+            } => {
+                let destination = trail.last().map_or(HOME, |folder| folder.name.as_str());
+                let action = fit(
+                    &format!("Move to {destination}"),
+                    theme::TEXT_SIZE,
+                    MOVE_ACTION_WIDTH,
+                );
+                let mut head =
+                    column![parts::dialog_title(titled("Move", nodes))].spacing(MOVE_HEAD_GAP);
+                if let [_, _, ..] = nodes.as_slice() {
+                    let names: Vec<&str> = nodes.iter().map(|node| node.name.as_str()).collect();
+                    head = head.push(
+                        container(
+                            ellipsized(names.join(", "), META_SIZE, Alignment::Start)
+                                .width(Length::Fill),
+                        )
+                        .style(theme::muted),
+                    );
+                }
+                (
+                    MOVE_WIDTH,
+                    column![head, picker(trail, folders.as_deref())],
+                    self.primary(Some(Icon::Move), action),
+                )
+            }
             Kind::Delete { nodes } => (
-                format!("{} to recycle bin?", titled("Move", nodes)),
-                text("Files inside folders are moved too. You can restore them from the recycle bin.")
-                    .into(),
-                "Move to bin",
+                parts::DIALOG_WIDTH,
+                column![warning(
+                    format!("{} to recycle bin?", titled("Move", nodes)),
+                    "Files inside folders are moved too. You can restore them from the recycle \
+                     bin."
+                        .to_owned(),
+                )],
+                self.danger("Move to bin"),
             ),
             Kind::EmptyTrash { count } => (
-                "Empty recycle bin".to_owned(),
-                text(format!(
-                    "Permanently delete {}? This cannot be undone.",
-                    files(*count)
-                ))
-                .into(),
-                "Empty recycle bin",
+                parts::DIALOG_WIDTH,
+                column![warning(
+                    "Empty recycle bin".to_owned(),
+                    format!(
+                        "Permanently delete {}? This cannot be undone.",
+                        files(*count)
+                    ),
+                )],
+                self.danger("Empty recycle bin"),
             ),
             Kind::Conflicts {
                 title, conflicts, ..
             } => return self.conflicts_view(title, conflicts),
         };
-        let confirm_style = match self.kind {
-            Kind::EmptyTrash { .. } => theme::danger,
-            _ => theme::primary,
-        };
-        let submit = button(text(if self.saving { "Working…" } else { action }))
-            .style(confirm_style)
-            .on_press_maybe((!self.saving && !self.in_place()).then_some(Message::Submit));
-        let cancel = button("Cancel")
-            .style(theme::secondary)
-            .on_press(Message::Cancel);
-        let mut content = column![text(title).size(TITLE_SIZE), body].spacing(SPACING);
         if let Some(error) = &self.error {
-            content = content.push(container(text(error.as_str())).style(theme::error));
+            lines = lines.push(parts::alert_error(Icon::Error, error.as_str(), None));
         }
-        content = content.push(row![space::horizontal(), cancel, submit].spacing(SPACING));
-        container(content)
-            .padding(DIALOG_PADDING)
-            .width(DIALOG_WIDTH)
-            .style(theme::panel)
-            .into()
+        parts::dialog(
+            width,
+            lines,
+            [
+                parts::outlined(None, "Cancel", Some(Message::Cancel)),
+                action,
+            ],
+        )
+    }
+
+    /// The label of the button carrying out the dialog, and what pressing it sends.
+    fn action(&self, label: impl Into<String>) -> (String, Option<Message>) {
+        let label = if self.saving {
+            WORKING.to_owned()
+        } else {
+            label.into()
+        };
+        let enabled = !self.saving && !self.in_place();
+        (label, enabled.then_some(Message::Submit))
+    }
+
+    fn primary<'a>(&self, icon: Option<Icon>, label: impl Into<String>) -> Element<'a, Message> {
+        let (label, message) = self.action(label);
+        parts::primary(icon, label, message)
+    }
+
+    fn danger<'a>(&self, label: impl Into<String>) -> Element<'a, Message> {
+        let (label, message) = self.action(label);
+        parts::danger(label, message)
     }
 
     fn conflicts_view<'a>(
@@ -407,114 +487,226 @@ impl Dialog {
         title: &'a str,
         conflicts: &'a [Conflict],
     ) -> Element<'a, Message> {
-        let rows = conflicts.iter().map(|conflict| {
+        let rows = conflicts.iter().enumerate().flat_map(|(index, conflict)| {
             let existing = conflict.existing.as_ref().map_or_else(
                 || "Also selected".to_owned(),
                 |node| describe(node, short_date),
             );
-            column![
-                text(conflict.source.name.as_str()),
-                text(conflict.path.as_str()).size(META_SIZE),
-                text(format!(
-                    "Incoming: {}",
-                    describe(&conflict.source, short_date)
-                ))
-                .size(META_SIZE),
-                text(format!("Existing: {existing}")).size(META_SIZE),
-            ]
-            .into()
+            let row = container(
+                column![
+                    text(conflict.source.name.as_str()),
+                    text(conflict.path.as_str())
+                        .size(META_SIZE)
+                        .style(theme::muted_text),
+                    text(format!(
+                        "Incoming: {}",
+                        describe(&conflict.source, short_date)
+                    ))
+                    .size(META_SIZE)
+                    .style(theme::muted_text),
+                    text(format!("Existing: {existing}"))
+                        .size(META_SIZE)
+                        .style(theme::muted_text),
+                ]
+                .width(Length::Fill),
+            )
+            .padding(CONFLICT_PADDING)
+            .into();
+            (index > 0)
+                .then(parts::divider)
+                .into_iter()
+                .chain(std::iter::once(row))
         });
-        let list = scrollable(column(rows).spacing(SPACING).width(Length::Fill))
-            .height(CONFLICTS_HEIGHT)
-            .width(Length::Fill);
+        let list = container(
+            container(scrollable(column(rows).width(Length::Fill)).width(Length::Fill))
+                .max_height(CONFLICTS_HEIGHT),
+        )
+        .padding(BOX_PADDING)
+        .width(Length::Fill)
+        .style(theme::card);
         let choose = |mode| (!self.saving).then_some(Message::Resolve(mode));
-        let cancel = button("Cancel")
-            .style(theme::secondary)
-            .on_press(Message::Cancel);
-        let skip = button("Skip these files")
-            .style(theme::secondary)
-            .on_press_maybe(choose(OnConflict::Skip));
-        let over = button(text(if self.saving {
-            "Working…"
-        } else {
-            "Override"
-        }))
-        .style(theme::danger)
-        .on_press_maybe(choose(OnConflict::Override));
-        let mut content = column![
-            text(title).size(TITLE_SIZE),
-            text("Override replaces the current content and keeps it as a version.")
-                .size(META_SIZE),
+        let mut lines = column![
+            column![
+                parts::dialog_title(title),
+                text("Override replaces the current content and keeps it as a version.")
+                    .size(META_SIZE)
+                    .style(theme::muted_text),
+            ]
+            .spacing(MOVE_HEAD_GAP),
             list,
-        ]
-        .spacing(SPACING);
+        ];
         if let Some(error) = &self.error {
-            content = content.push(container(text(error.as_str())).style(theme::error));
+            lines = lines.push(parts::alert_error(Icon::Error, error.as_str(), None));
         }
-        content = content.push(row![space::horizontal(), cancel, skip, over].spacing(SPACING));
-        container(content)
-            .padding(DIALOG_PADDING)
-            .width(CONFLICTS_WIDTH)
-            .style(theme::panel)
-            .into()
+        parts::dialog(
+            CONFLICTS_WIDTH,
+            lines,
+            [
+                parts::outlined(None, "Cancel", Some(Message::Cancel)),
+                parts::outlined(None, "Skip these files", choose(OnConflict::Skip)),
+                parts::danger(
+                    if self.saving { WORKING } else { "Override" },
+                    choose(OnConflict::Override),
+                ),
+            ],
+        )
     }
 
-    fn name_input<'a>(&self, name: &'a str) -> Element<'a, Message> {
-        text_input("Name", name)
-            .style(theme::input)
-            .id(NAME_INPUT)
-            .on_input_maybe((!self.saving).then_some(Message::NameChanged))
-            .on_submit(Message::Submit)
-            .into()
+    fn name_field<'a>(&self, name: &'a str, hint: Option<String>) -> Element<'a, Message> {
+        parts::field(
+            "Name",
+            text_input("", name)
+                .style(theme::input)
+                .id(NAME_INPUT)
+                .padding(parts::FIELD_PADDING)
+                .on_input_maybe((!self.saving).then_some(Message::NameChanged))
+                .on_submit(Message::Submit),
+            hint,
+        )
     }
 }
 
+/// The danger icon next to what is about to happen.
+fn warning<'a>(title: String, body: String) -> Element<'a, Message> {
+    row![
+        container(Icon::Delete.view(ICON_SIZE, Tint::Danger))
+            .center(WARNING_DISC)
+            .style(theme::danger_disc),
+        column![
+            parts::dialog_title(title),
+            text(body).style(theme::muted_text),
+        ]
+        .spacing(WARNING_LINE_GAP)
+        .width(Length::Fill),
+    ]
+    .spacing(WARNING_GAP)
+    .into()
+}
+
+/// The box to pick a destination in: where it is, the way up and the folders inside.
 fn picker<'a>(trail: &'a [Node], folders: Option<&'a [Node]>) -> Element<'a, Message> {
-    let destination = if trail.is_empty() {
-        "To Home".to_owned()
-    } else {
-        let names: Vec<&str> = trail.iter().map(|folder| folder.name.as_str()).collect();
-        format!("To /{}", names.join("/"))
-    };
-    let mut entries = column![].spacing(2);
-    if !trail.is_empty() {
-        entries = entries.push(picker_entry(Icon::Up, "Up", Message::Up));
+    let mut entries = column![];
+    if let Some(above) = trail.len().checked_sub(1) {
+        let parent = match above.checked_sub(1) {
+            Some(index) => trail[index].name.as_str(),
+            None => HOME,
+        };
+        entries = entries.push(picker_entry(
+            Icon::Up,
+            Tint::Muted,
+            format!("Up to {parent}"),
+            false,
+            Message::Up,
+        ));
     }
     entries = match folders {
-        None => entries.push(text("Loading…")),
-        Some([]) => entries.push(text("No subfolders")),
+        None => entries.push(picker_note("Loading…")),
+        Some([]) => entries.push(picker_note("No subfolders")),
         Some(folders) => entries.extend(folders.iter().map(|folder| {
             picker_entry(
                 Icon::Folder,
-                folder.name.as_str(),
+                Tint::Accent,
+                folder.name.clone(),
+                true,
                 Message::Enter(folder.clone()),
             )
         })),
     };
-    column![
-        text(destination),
-        scrollable(entries)
-            .height(PICKER_HEIGHT)
-            .width(Length::Fill),
-    ]
-    .spacing(SPACING)
+    let list = container(
+        scrollable(entries.width(Length::Fill))
+            .height(Length::Fill)
+            .width(Length::Fill)
+            .spacing(PICKER_SCROLLBAR_GAP),
+    )
+    .padding(PICKER_PADDING)
+    .height(PICKER_HEIGHT);
+    container(column![
+        parts::header_bar(crumbs(trail), PICKER_CRUMBS_PADDING),
+        list
+    ])
+    .padding(BOX_PADDING)
+    .width(Length::Fill)
+    .style(theme::card)
     .into()
 }
 
-fn picker_entry<'a>(icon: Icon, label: &'a str, message: Message) -> Element<'a, Message> {
-    let tint = match icon {
-        Icon::Folder => Tint::Accent,
-        _ => Tint::Text,
+/// Home and the folders down to where the picker is; each one above it leads back there.
+fn crumbs(trail: &[Node]) -> Row<'_, Message> {
+    let hidden = collapsed_crumbs(trail.len()).unwrap_or_default();
+    let last = trail.len().checked_sub(1);
+    let home = match last {
+        Some(_) => crumb(HOME, 0),
+        None => current_crumb(HOME),
     };
-    button(
-        row![icon.view(ICON_SIZE, tint), text(label)]
-            .spacing(SPACING)
-            .align_y(Alignment::Center),
-    )
-    .width(Length::Fill)
-    .style(theme::tool)
-    .on_press(message)
-    .into()
+    let mut crumbs = row![home].spacing(CRUMB_GAP);
+    for (index, folder) in trail.iter().enumerate() {
+        if hidden.contains(&index) {
+            if index == hidden.start {
+                crumbs = crumbs.push(crumb_text("›")).push(crumb_text("…"));
+            }
+            continue;
+        }
+        let name = folder.name.as_str();
+        crumbs = crumbs.push(crumb_text("›")).push(if Some(index) == last {
+            current_crumb(name)
+        } else {
+            crumb(name, index + 1)
+        });
+    }
+    crumbs
+}
+
+fn crumb(name: &str, depth: usize) -> Element<'_, Message> {
+    button(text(name).size(META_SIZE).wrapping(Wrapping::None))
+        .padding(CRUMB_PADDING)
+        .style(theme::crumb)
+        .on_press(Message::Crumb(depth))
+        .into()
+}
+
+fn current_crumb(name: &str) -> Element<'_, Message> {
+    text(name)
+        .size(META_SIZE)
+        .font(theme::SEMIBOLD)
+        .style(theme::strong_text)
+        .wrapping(Wrapping::None)
+        .into()
+}
+
+fn crumb_text(label: &str) -> Element<'_, Message> {
+    text(label).size(META_SIZE).style(theme::muted_text).into()
+}
+
+fn picker_note<'a>(note: &'a str) -> Element<'a, Message> {
+    container(text(note).style(theme::muted_text))
+        .padding(PICKER_NOTE_PADDING)
+        .into()
+}
+
+fn picker_entry<'a>(
+    icon: Icon,
+    tint: Tint,
+    label: String,
+    goes_in: bool,
+    message: Message,
+) -> Element<'a, Message> {
+    let mut line = row![
+        icon.view(ICON_SIZE, tint),
+        ellipsized(label, parts::ROW_SIZE, Alignment::Start).width(Length::Fill),
+    ]
+    .spacing(PICKER_ENTRY_GAP)
+    .height(Length::Fill)
+    .align_y(Alignment::Center);
+    if goes_in {
+        line = line.push(Icon::Chevron.view(PICKER_CHEVRON, Tint::Muted));
+    }
+    button(line)
+        .padding(PICKER_ENTRY_PADDING)
+        .width(Length::Fill)
+        .height(PICKER_ENTRY_HEIGHT)
+        .style(theme::tool)
+        .on_press(message)
+        .into()
 }
 
 fn titled(verb: &str, nodes: &[Node]) -> String {
@@ -746,6 +938,46 @@ mod tests {
         );
 
         assert!(matches!(outcome, Outcome::Restored(_)));
+    }
+
+    #[test]
+    fn a_crumb_goes_back_to_its_folder() {
+        let mut dialog = Dialog::with(Kind::Move {
+            nodes: vec![node("a.txt", 1)],
+            trail: vec![node("Documents", 2), node("Invoices", 3)],
+            folders: Some(Vec::new()),
+        });
+
+        let _ = dialog.update(&client(), None, Message::Crumb(1));
+
+        let Kind::Move { trail, folders, .. } = &dialog.kind else {
+            panic!("expected the move dialog");
+        };
+        assert_eq!(trail.len(), 1);
+        assert_eq!(trail[0].name, "Documents");
+        assert!(folders.is_none());
+    }
+
+    #[test]
+    fn the_move_button_names_the_destination_and_the_way_up_names_the_parent() {
+        let dialog = Dialog::with(Kind::Move {
+            nodes: vec![node("a.txt", 1), node("b.txt", 4)],
+            trail: vec![node("Documents", 2), node("Invoices", 3)],
+            folders: Some(Vec::new()),
+        });
+        let mut ui = iced_test::simulator(dialog.view());
+
+        assert!(ui.find("Move 2 items").is_ok());
+        assert!(ui.find("Move to Invoices").is_ok());
+        assert!(ui.find("Up to Documents").is_ok());
+    }
+
+    #[test]
+    fn a_new_folder_says_where_it_goes() {
+        let (dialog, _task) = Dialog::new_folder("Documents");
+        let mut ui = iced_test::simulator(dialog.view());
+
+        assert!(ui.find("In Documents").is_ok());
     }
 
     #[test]

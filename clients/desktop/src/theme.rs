@@ -16,7 +16,8 @@ const RADIUS_SM: f32 = 6.0;
 const RADIUS_MD: f32 = 10.0;
 /// Dialogs and floating panels.
 const RADIUS_LG: f32 = 16.0;
-const DISC_RADIUS: f32 = 20.0;
+const DISC_RADIUS: f32 = 28.0;
+const RADIUS_BIG_LOGO: f32 = 14.0;
 const RADIUS_KBD: f32 = 4.0;
 const RADIUS_LOGO: f32 = 8.0;
 const RADIUS_BAR: f32 = 3.0;
@@ -577,6 +578,15 @@ pub fn logo(theme: &Theme) -> container::Style {
     container::Style {
         background: Some(tokens(theme).accent.into()),
         border: Border::default().rounded(RADIUS_LOGO),
+        ..container::Style::default()
+    }
+}
+
+/// The app's mark on the sign-in card.
+pub fn big_logo(theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(tokens(theme).accent.into()),
+        border: Border::default().rounded(RADIUS_BIG_LOGO),
         ..container::Style::default()
     }
 }

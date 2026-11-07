@@ -117,19 +117,15 @@ impl Icon {
 }
 
 fn tint_color(theme: &Theme, tint: Tint) -> Color {
-    let palette = theme.extended_palette();
+    let t = theme::tokens(theme);
     match tint {
-        Tint::Text => palette.background.base.text,
-        Tint::Muted => palette.background.strongest.color,
-        Tint::Accent => palette.primary.base.color,
-        Tint::Success => palette.success.base.color,
-        Tint::Danger => palette.danger.base.color,
+        Tint::Text => t.text,
+        Tint::Muted => t.muted,
+        Tint::Accent => t.accent,
+        Tint::Success => t.success,
+        Tint::Danger => t.danger,
         // The svg tint drops alpha, so blend with the background into an opaque colour.
-        Tint::Disabled => mix(
-            palette.background.base.color,
-            palette.background.base.text,
-            theme::DISABLED_ALPHA,
-        ),
+        Tint::Disabled => mix(t.surface, t.text, theme::DISABLED_ALPHA),
     }
 }
 

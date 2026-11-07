@@ -14,7 +14,7 @@ use crate::{
 const SPACING: f32 = 4.0;
 const LABEL_SPACING: f32 = 6.0;
 const BUTTON_PADDING: f32 = 10.0;
-const CHAR_WIDTH: f32 = 8.5;
+const CHAR_WIDTH: f32 = 7.5;
 const MIN_GAP: f32 = 24.0;
 const TIP_PADDING: f32 = 6.0;
 const TIP_SIZE: f32 = 12.0;
@@ -317,11 +317,11 @@ pub(super) fn tip<'a>(
         lines = lines.push(text(label).size(TIP_SIZE));
     }
     if !shortcut.is_empty() {
-        lines = lines.push(text(shortcut).size(TIP_SIZE).style(text::secondary));
+        lines = lines.push(text(shortcut).size(TIP_SIZE).style(theme::muted_text));
     }
     tooltip(
         content,
-        container(lines).padding(TIP_PADDING).style(theme::panel),
+        container(lines).padding(TIP_PADDING).style(theme::menu),
         tooltip::Position::Bottom,
     )
     .into()

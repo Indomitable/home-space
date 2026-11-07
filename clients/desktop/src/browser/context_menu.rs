@@ -91,7 +91,7 @@ pub fn folders(folders: &[Node]) -> Element<'_, Message> {
 fn panel<'a>(items: impl IntoIterator<Item = Element<'a, Message>>) -> Element<'a, Message> {
     container(fit_column(items))
         .padding(MENU_PADDING)
-        .style(theme::panel)
+        .style(theme::menu)
         .into()
 }
 

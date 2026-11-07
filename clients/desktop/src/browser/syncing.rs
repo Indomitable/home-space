@@ -280,9 +280,11 @@ pub fn confirm(confirm: &Confirm) -> Element<'_, BrowserMessage> {
     let buttons = row![
         space::horizontal(),
         button(text("Cancel"))
-            .style(button::secondary)
+            .style(theme::secondary)
             .on_press(BrowserMessage::Sync(Message::Confirm(false))),
-        button(text("Sync")).on_press(BrowserMessage::Sync(Message::Confirm(true))),
+        button(text("Sync"))
+            .style(theme::primary)
+            .on_press(BrowserMessage::Sync(Message::Confirm(true))),
     ]
     .spacing(SPACING);
     let panel = column![

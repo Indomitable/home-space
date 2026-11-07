@@ -158,7 +158,7 @@ pub fn problem_row<'a>(path: &'a Path, fault: &'a Fault) -> Element<'a, Message>
         Icon::SyncProblem.view(ICON_SIZE, Tint::Danger),
         container(text(fault_hint(fault)).size(TIP_SIZE))
             .padding(TIP_PADDING)
-            .style(theme::panel),
+            .style(theme::menu),
         tooltip::Position::Right,
     );
     let name = column![
@@ -244,7 +244,8 @@ fn progress(item: &Item) -> Element<'_, Message> {
     column![
         progress_bar(0.0..=item.size as f32, item.done as f32)
             .length(Length::Fill)
-            .girth(PROGRESS_GIRTH),
+            .girth(PROGRESS_GIRTH)
+            .style(theme::progress),
         text(format!("{} of {}", size(item.done), size(item.size))).size(PATH_SIZE),
     ]
     .spacing(SPACING)

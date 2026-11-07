@@ -302,13 +302,16 @@ fn rename_cells(renaming: &Renaming) -> iced::widget::Row<'_, Message> {
     row![
         Icon::Devices.view(ICON_SIZE, Tint::Muted),
         text_input("Device name", &renaming.name)
+            .style(theme::input)
             .id(NAME_INPUT)
             .on_input_maybe((!renaming.saving).then_some(Message::NameChanged))
             .on_submit(Message::Save)
             .width(Length::Fill),
-        button(text("Save")).on_press_maybe(can_save.then_some(Message::Save)),
+        button(text("Save"))
+            .style(theme::primary)
+            .on_press_maybe(can_save.then_some(Message::Save)),
         button(text("Cancel"))
-            .style(button::secondary)
+            .style(theme::secondary)
             .on_press(Message::Cancel),
     ]
 }
@@ -318,10 +321,10 @@ fn confirm_cells(device: &Device) -> iced::widget::Row<'_, Message> {
         Icon::SignOut.view(ICON_SIZE, Tint::Danger),
         text(sign_out_question(device)).width(Length::Fill),
         button(text("Cancel"))
-            .style(button::secondary)
+            .style(theme::secondary)
             .on_press(Message::Cancel),
         button(text(SIGN_OUT))
-            .style(button::danger)
+            .style(theme::danger)
             .on_press(Message::ConfirmSignOut),
     ]
 }

@@ -28,7 +28,7 @@ const USERNAME_INDENT: f32 = 10.0;
 const SEARCH_WIDTH: f32 = 280.0;
 const BUTTON_PADDING: f32 = 10.0;
 const LABEL_SPACING: f32 = 6.0;
-const CHAR_WIDTH: f32 = 8.5;
+const CHAR_WIDTH: f32 = 7.5;
 /// Room kept for the sync indicator, whose label changes with the sync state.
 const INDICATOR_WIDTH: f32 = 180.0;
 const SIGN_OUT: &str = "Sign out";
@@ -275,6 +275,7 @@ impl State {
 
     fn search_box(&self) -> Element<'_, Message> {
         let input = text_input(SEARCH_PLACEHOLDER, self.search.query())
+            .style(theme::input)
             .on_input(|query| Message::Search(search::Message::Changed(query)))
             // Half the page at most, so the username and Sign out keep their room.
             .width(SEARCH_WIDTH.min((self.window.width - PAGE_PADDING * 2.0) / 2.0));

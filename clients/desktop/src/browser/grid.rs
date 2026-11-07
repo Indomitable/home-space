@@ -5,9 +5,9 @@ use client_core::{
     listing::{Sort, SortKey},
 };
 use iced::{
-    Alignment, Element, Length, Padding,
+    Alignment, Element, Length,
     alignment::Horizontal,
-    widget::{button, center, column, container, row, scrollable, space, stack, text},
+    widget::{button, column, container, row, scrollable, space, stack, text},
 };
 use protocol::{Node, NodeId, NodeKind};
 
@@ -15,6 +15,11 @@ use super::{
     Message,
     anchor::Anchor,
     context_menu::Placement,
+    parts::{
+        CHECK_LIST_PADDING, COLUMN_GAP, DATE_WIDTH, HEADER_SIZE, MENU_WIDTH, ROW_HEIGHT, ROW_SIZE,
+        SECOND_LINE_SIZE, SIZE_WIDTH, divider, empty, header_bar, menu_button as row_menu,
+        muted_cell,
+    },
     selection::{Coverage, Selection},
     syncing::{badge_icon, display_path},
 };
@@ -27,36 +32,10 @@ use crate::{
 };
 
 pub(super) const CHECK_WIDTH: f32 = 36.0;
-pub(super) const SIZE_WIDTH: f32 = 110.0;
-pub(super) const DATE_WIDTH: f32 = 170.0;
-pub(super) const CELL_SPACING: f32 = 12.0;
-pub(super) const ROW_PADDING: Padding = Padding {
-    top: 6.0,
-    right: 12.0,
-    bottom: 6.0,
-    left: 8.0,
-};
-pub(super) const SCROLLBAR_GUTTER: f32 = 14.0;
-pub(super) const ROW_GAP: f32 = 2.0;
-pub(super) const HEADER_SIZE: f32 = 12.0;
-pub(super) const ROW_SIZE: f32 = 14.0;
-pub(super) const EMPTY_PADDING: f32 = 32.0;
-const COLUMN_GAP: f32 = 8.0;
-const LIST_PADDING: Padding = Padding {
-    top: 0.0,
-    right: 8.0,
-    bottom: 0.0,
-    left: 12.0,
-};
-const HEADER_HEIGHT: f32 = 40.0;
-const ROW_HEIGHT: f32 = 48.0;
-const DIVIDER: f32 = 1.0;
-const MENU_WIDTH: f32 = 44.0;
-const MENU_BUTTON: f32 = 32.0;
 const SORT_ARROW: f32 = 14.0;
 const SORT_ARROW_GAP: f32 = 4.0;
 const NAME_GAP: f32 = 8.0;
-const SECOND_LINE_SIZE: f32 = 12.0;
+const WAITING_GAP: f32 = 6.0;
 const CHECKBOX: f32 = 16.0;
 const CHECK_MARK: f32 = 14.0;
 const DASH: (f32, f32) = (8.0, 2.0);
@@ -89,27 +68,8 @@ pub fn header<'a>(coverage: Coverage, sort: Sort) -> Element<'a, Message> {
             Alignment::End
         ),
         space().width(MENU_WIDTH),
-    ]
-    .spacing(COLUMN_GAP)
-    .align_y(Alignment::Center);
-    column![
-        container(cells)
-            .padding(LIST_PADDING)
-            .height(HEADER_HEIGHT)
-            .center_y(HEADER_HEIGHT)
-            .width(Length::Fill)
-            .style(theme::header),
-        divider()
-    ]
-    .into()
-}
-
-fn divider<'a>() -> Element<'a, Message> {
-    container(space())
-        .width(Length::Fill)
-        .height(DIVIDER)
-        .style(theme::divider)
-        .into()
+    ];
+    header_bar(cells, CHECK_LIST_PADDING)
 }
 
 /// A column title that sorts by `key` when pressed, with an arrow while it is active.
@@ -158,10 +118,7 @@ pub fn rows<'a>(
         .collect();
     waiting.sort_by_cached_key(|item| item.name.to_lowercase());
     if nodes.is_empty() && waiting.is_empty() {
-        container(text("Nothing here yet. Drop files anywhere to upload."))
-            .padding(EMPTY_PADDING)
-            .center_x(Length::Fill)
-            .into()
+        empty("Nothing here yet. Drop files anywhere to upload.")
     } else {
         let rows = nodes
             .iter()
@@ -232,8 +189,8 @@ fn node_row(
         .spacing(NAME_GAP)
         .align_y(Alignment::Center)
         .width(Length::Fill),
-        muted_cell(size, SIZE_WIDTH),
-        muted_cell(short_date(node.updated_at), DATE_WIDTH),
+        muted_cell(size, SIZE_WIDTH, Alignment::End),
+        muted_cell(short_date(node.updated_at), DATE_WIDTH, Alignment::End),
         menu_button(node.id),
     ]
     .spacing(COLUMN_GAP)
@@ -242,19 +199,12 @@ fn node_row(
     let row_button = button(cells)
         .width(Length::Fill)
         .height(ROW_HEIGHT)
-        .padding(LIST_PADDING)
+        .padding(CHECK_LIST_PADDING)
         .style(theme::row(selected))
         .on_press(Message::Click(node.id));
     let id = node.id;
     Anchor::new(row_button)
         .on_right_press(move |cursor| Message::ContextMenu(id, Placement::cursor(cursor)))
-        .into()
-}
-
-/// A right-aligned cell in the secondary text colour.
-fn muted_cell<'a>(content: String, width: f32) -> Element<'a, Message> {
-    container(ellipsized(content, ROW_SIZE, Alignment::End).width(width))
-        .style(theme::muted)
         .into()
 }
 
@@ -275,7 +225,7 @@ fn pending_row(item: &Item) -> Element<'_, Message> {
         Icon::Update.view(ICON_SIZE, Tint::Muted),
         text("pending sync").size(ROW_SIZE)
     ]
-    .spacing(CELL_SPACING / 2.0)
+    .spacing(WAITING_GAP)
     .align_y(Alignment::Center);
     let cells = row![
         space().width(CHECK_WIDTH),
@@ -295,24 +245,16 @@ fn pending_row(item: &Item) -> Element<'_, Message> {
     container(cells)
         .width(Length::Fill)
         .height(ROW_HEIGHT)
-        .padding(LIST_PADDING)
+        .padding(CHECK_LIST_PADDING)
         .style(theme::disabled)
         .into()
 }
 
 /// The three dots that open the context menu for the row, like right-clicking it.
 fn menu_button<'a>(id: NodeId) -> Element<'a, Message> {
-    let button = button(center(Icon::More.view(ICON_SIZE, Tint::Muted)))
-        .padding(0)
-        .width(MENU_BUTTON)
-        .height(MENU_BUTTON)
-        .style(theme::tool)
-        // Never sent: the anchor takes the press, and only needs the button to look enabled.
-        .on_press(Message::CloseMenu);
-    let anchor = Anchor::new(button).on_press(move |bounds| {
+    row_menu(Message::CloseMenu, move |bounds| {
         Message::ContextMenu(id, Placement::hanging(bounds, Horizontal::Right))
-    });
-    container(anchor).width(MENU_WIDTH).into()
+    })
 }
 
 /// The name, with `second` underneath when there is something to add.

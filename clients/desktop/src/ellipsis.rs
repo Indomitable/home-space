@@ -30,7 +30,7 @@ pub fn ellipsized<'a, Message: 'a>(
 }
 
 /// The longest prefix of `content` that, followed by an ellipsis, fits in `max_width`.
-fn fit(content: &str, size: f32, max_width: f32) -> String {
+pub fn fit(content: &str, size: f32, max_width: f32) -> String {
     if text_width(content, size) <= max_width {
         return content.to_owned();
     }

@@ -9,6 +9,7 @@ mod folder;
 mod grid;
 mod input;
 mod layout;
+mod parts;
 mod search;
 mod selection;
 mod sidebar;
@@ -24,6 +25,7 @@ use iced::{Size, Subscription, Task, event, keyboard::Modifiers, widget::operati
 use api_client::{ApiError, Client};
 use client_core::listing::SortKey;
 use protocol::{Me, Node, NodeId, NodeKind, paths};
+use uuid::Uuid;
 
 use self::{
     context_menu::Placement,
@@ -69,6 +71,7 @@ pub enum Message {
     OpenTrash,
     Trash(trash::Message),
     OpenSyncQueue,
+    OpenSyncSettings,
     OpenDevices,
     Devices(devices::Message),
     Transfer(transfers::Message),
@@ -100,6 +103,7 @@ enum Menu {
     Actions(Placement),
     Crumbs(Placement),
     Account(Placement),
+    Device(Uuid, Placement),
 }
 
 /// What the browser shows below the header, other than search results.
@@ -109,6 +113,8 @@ enum Page {
     Trash(Box<trash::State>),
     /// What the sync has left to do.
     SyncQueue,
+    /// What syncs where.
+    SyncSettings,
     /// The user's devices.
     Devices(Box<devices::State>),
 }
@@ -265,9 +271,17 @@ impl State {
             Message::Details(message) => self.details_update(message),
             Message::OpenTrash => self.open_trash(),
             Message::Trash(message) => self.trash_update(message),
-            Message::OpenSyncQueue => self.open_sync_queue(),
+            Message::OpenSyncQueue => self.open_sync_page(Page::SyncQueue),
+            Message::OpenSyncSettings => self.open_sync_page(Page::SyncSettings),
             Message::OpenDevices => self.open_devices(),
-            Message::Devices(message) => self.devices_update(message),
+            Message::Devices(devices::Message::Menu(id, placement)) => {
+                self.menu = Some(Menu::Device(id, placement));
+                Task::none()
+            }
+            Message::Devices(message) => {
+                self.menu = None;
+                self.devices_update(message)
+            }
             Message::Transfer(message) => {
                 let reload = matches!(message, transfers::Message::BatchDone(Direction::Upload));
                 let task = self
@@ -410,14 +424,13 @@ impl State {
         task.map(Message::Trash)
     }
 
-    fn open_sync_queue(&mut self) -> Task<Message> {
+    fn open_sync_page(&mut self, page: Page) -> Task<Message> {
         self.search.clear();
         self.folder.error = None;
         self.details = None;
         self.menu = None;
         self.folder.selection.clear();
-        self.syncing.settings = false;
-        self.page = Page::SyncQueue;
+        self.page = page;
         Task::none()
     }
 
@@ -463,7 +476,7 @@ impl State {
         match &mut self.page {
             Page::Trash(trash) => trash.load(&self.client).map(Message::Trash),
             Page::Devices(devices) => devices.load(&self.client).map(Message::Devices),
-            Page::Folder | Page::SyncQueue => self.folder.reload(&self.client),
+            Page::Folder | Page::SyncQueue | Page::SyncSettings => self.folder.reload(&self.client),
         }
     }
 
@@ -615,8 +628,14 @@ impl State {
                 _ => Task::none(),
             }
         } else if shortcut == Shortcut::Search {
-            self.menu = None;
-            operation::focus(layout::SEARCH_INPUT)
+            // The search box is on the files.
+            let files = if matches!(self.page, Page::Folder) {
+                self.menu = None;
+                Task::none()
+            } else {
+                self.open_folder(self.folder.id)
+            };
+            Task::batch([files, operation::focus(layout::SEARCH_INPUT)])
         } else if self.menu.take().is_some() && shortcut == Shortcut::Escape {
             Task::none()
         } else if self.search.is_active() {
@@ -645,7 +664,7 @@ impl State {
                 }
                 _ => Task::none(),
             }
-        } else if matches!(self.page, Page::SyncQueue) {
+        } else if matches!(self.page, Page::SyncQueue | Page::SyncSettings) {
             match shortcut {
                 Shortcut::Escape | Shortcut::Back | Shortcut::Parent => {
                     self.open_folder(self.folder.id)

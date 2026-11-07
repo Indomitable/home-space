@@ -34,6 +34,7 @@ pub const TEXT_SIZE: f32 = 14.0;
 pub const DISABLED_ALPHA: f32 = 0.4;
 pub const FADED_ALPHA: f32 = 0.55;
 const CHECKBOX_BORDER: f32 = 1.5;
+const ACTIVE_BORDER: f32 = 2.0;
 const RADIUS_CHECKBOX: f32 = 4.0;
 /// Keeps a box's top corners inside the card's rounded border.
 const RADIUS_INNER: f32 = RADIUS_MD - 1.0;
@@ -58,6 +59,18 @@ const fn ui_font(weight: Weight) -> Font {
     }
 }
 
+#[cfg(target_os = "macos")]
+const MONO_FONT: &str = "Menlo";
+#[cfg(target_os = "windows")]
+const MONO_FONT: &str = "Consolas";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const MONO_FONT: &str = "Noto Sans Mono";
+
+/// Paths on disk.
+pub const MONO: Font = Font {
+    family: Family::Name(MONO_FONT),
+    ..ui_font(Weight::Normal)
+};
 /// Body text.
 pub const FONT: Font = ui_font(Weight::Normal);
 /// Labels, buttons and sidebar items.
@@ -447,18 +460,29 @@ pub fn nav(active: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
     }
 }
 
-/// The sync status in the sidebar, a button on a raised box.
-pub fn status_card(theme: &Theme, status: button::Status) -> button::Style {
-    let t = tokens(theme);
-    let background = match status {
-        button::Status::Hovered | button::Status::Pressed => t.surface_hover,
-        button::Status::Active | button::Status::Disabled => t.surface,
-    };
-    button::Style {
-        background: Some(background.into()),
-        text_color: t.text,
-        border: outline(t.border, RADIUS_MD),
-        ..button::Style::default()
+/// The sync status in the sidebar, a button on a raised box, outlined while its page is shown.
+pub fn status_card(active: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |theme, status| {
+        let t = tokens(theme);
+        let background = match status {
+            button::Status::Hovered | button::Status::Pressed => t.surface_hover,
+            button::Status::Active | button::Status::Disabled => t.surface,
+        };
+        let (color, width) = if active {
+            (t.accent, ACTIVE_BORDER)
+        } else {
+            (t.border, 1.0)
+        };
+        button::Style {
+            background: Some(background.into()),
+            text_color: t.text,
+            border: Border {
+                color,
+                width,
+                radius: Radius::from(RADIUS_MD),
+            },
+            ..button::Style::default()
+        }
     }
 }
 
@@ -585,4 +609,66 @@ pub fn chip(theme: &Theme) -> container::Style {
         border: outline(t.border, f32::MAX),
         ..container::Style::default()
     }
+}
+
+/// The heading of a list's first group, following the box's corners.
+pub fn first_section(theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(tokens(theme).text),
+        ..header(theme)
+    }
+}
+
+/// A heading between the groups of a list.
+pub fn section(theme: &Theme) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        background: Some(t.surface_hover.into()),
+        ..container::Style::default()
+    }
+}
+
+/// A notice about what went wrong.
+pub fn alert_error(theme: &Theme) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        background: Some(t.danger_soft.into()),
+        text_color: Some(t.danger),
+        border: Border::default().rounded(RADIUS_SM),
+        ..container::Style::default()
+    }
+}
+
+/// A notice about how something went.
+pub fn alert_info(theme: &Theme) -> container::Style {
+    let t = tokens(theme);
+    container::Style {
+        background: Some(t.accent_soft.into()),
+        text_color: Some(t.text),
+        border: Border::default().rounded(RADIUS_SM),
+        ..container::Style::default()
+    }
+}
+
+/// A short state, accent-tinted while it is on.
+pub fn pill(on: bool) -> impl Fn(&Theme) -> container::Style {
+    move |theme| {
+        let t = tokens(theme);
+        let (background, color) = if on {
+            (t.accent_soft, t.accent)
+        } else {
+            (t.surface_hover, t.muted)
+        };
+        container::Style {
+            background: Some(background.into()),
+            text_color: Some(color),
+            border: Border::default().rounded(f32::MAX),
+            ..container::Style::default()
+        }
+    }
+}
+
+/// No colours of its own, where a function has to pick between styles.
+pub fn plain(_theme: &Theme) -> container::Style {
+    container::Style::default()
 }

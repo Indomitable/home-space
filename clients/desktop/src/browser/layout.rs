@@ -12,7 +12,7 @@ use protocol::Node;
 
 use super::{
     Menu, Message, Page, State, anchor::Anchor, context_menu, context_menu::Placement, dialogs,
-    grid, search, sidebar, sync_queue, syncing, toolbar, toolbar::SyncChip,
+    grid, parts, search, sidebar, sync_queue, syncing, toolbar, toolbar::SyncChip,
 };
 use crate::{
     icons::{ICON_SIZE, Icon, Tint},
@@ -23,8 +23,10 @@ const MAIN_PADDING: [f32; 2] = [16.0, 24.0];
 const OVERLAY_PADDING: f32 = 16.0;
 const SPACING: f32 = 12.0;
 const GRID_SPACING: f32 = 4.0;
-const CARD_PADDING: f32 = 8.0;
-const LIST_CARD_PADDING: f32 = 1.0;
+const BACK_PADDING: f32 = 6.0;
+const BACK_GAP: f32 = 8.0;
+/// Below this content width a row of the sync settings puts its buttons under its text.
+const SETTINGS_STACK_BELOW: f32 = 760.0;
 const TOP_HEIGHT: f32 = 40.0;
 const HEADING_SIZE: f32 = 18.0;
 const SEARCH_WIDTH: f32 = 300.0;
@@ -48,6 +50,7 @@ pub(super) const SEARCH_INPUT: &str = "search";
 const DROP_PADDING: f32 = 32.0;
 const TRASH: &str = "Recycle bin";
 const SYNC_QUEUE: &str = "Sync queue";
+const SYNC_SETTINGS: &str = "Sync settings";
 const DEVICES: &str = "Devices";
 const CRUMB_SEPARATOR: &str = "›";
 const CRUMB_OVERFLOW: &str = "…";
@@ -76,12 +79,6 @@ impl State {
         if let Some(menu) = self.menu {
             layers.extend(self.menu_layers(menu, &selected));
         }
-        if self.syncing.settings {
-            layers.push(modal(
-                syncing::settings(self.syncing.status(), self.syncing.notice.as_deref()),
-                Message::Sync(syncing::Message::Settings(false)),
-            ));
-        }
         if let Some(confirm) = &self.syncing.confirm {
             layers.push(modal(
                 syncing::confirm(confirm),
@@ -105,41 +102,61 @@ impl State {
         self.window.width - sidebar::width(self.window.width) - MAIN_PADDING[1] * 2.0
     }
 
-    /// The top line and whatever the browser shows below it: search results, the recycle bin or
-    /// the folder.
+    /// The top line and whatever the browser shows below it: search results, a page or the
+    /// folder.
     fn page<'a>(&'a self, selected: &[&'a Node]) -> Element<'a, Message> {
         if self.search.is_active() {
-            let title = heading(format!("Results for “{}”", self.search.query().trim()));
-            return column![self.top(title), card(self.search.view())]
+            let back = button(Icon::Back.view(ICON_SIZE, Tint::Muted))
+                .padding(BACK_PADDING)
+                .style(theme::tool)
+                .on_press(Message::Search(search::Message::Clear));
+            let title = row![
+                back,
+                heading(format!("Results for “{}”", self.search.query().trim()))
+            ]
+            .spacing(BACK_GAP)
+            .align_y(Alignment::Center);
+            return column![top(title, self.search_box()), self.search.view()]
                 .spacing(SPACING)
                 .into();
         }
-        let (title, content): (_, Element<'a, Message>) = match &self.page {
-            Page::Trash(trash) => (TRASH, trash.view().map(Message::Trash)),
-            Page::SyncQueue => (SYNC_QUEUE, sync_queue::view(self.syncing.status())),
-            Page::Devices(devices) => (DEVICES, devices.view().map(Message::Devices)),
-            Page::Folder => return self.folder_page(selected),
-        };
-        column![self.top(heading(title)), card(content)]
+        let status = self.syncing.status();
+        let (title, action, content): (_, Element<'a, Message>, Element<'a, Message>) =
+            match &self.page {
+                Page::Trash(trash) => (
+                    TRASH,
+                    trash.action().map(Message::Trash),
+                    trash.view().map(Message::Trash),
+                ),
+                Page::SyncQueue => (
+                    SYNC_QUEUE,
+                    sync_queue::action(status),
+                    sync_queue::view(status),
+                ),
+                Page::SyncSettings => (
+                    SYNC_SETTINGS,
+                    syncing::settings_action(status),
+                    syncing::settings(
+                        status,
+                        self.syncing.notice.as_deref(),
+                        self.content_width() < SETTINGS_STACK_BELOW,
+                    ),
+                ),
+                Page::Devices(devices) => (
+                    DEVICES,
+                    devices.action().map(Message::Devices),
+                    devices.view().map(Message::Devices),
+                ),
+                Page::Folder => return self.folder_page(selected),
+            };
+        column![top(heading(title), action), content]
             .spacing(SPACING)
             .into()
     }
 
-    /// `title` on the left, the search box on the right.
-    fn top<'a>(&'a self, title: Element<'a, Message>) -> Element<'a, Message> {
-        row![
-            container(title).width(Length::Fill).clip(true),
-            self.search_box()
-        ]
-        .spacing(SPACING)
-        .height(TOP_HEIGHT)
-        .align_y(Alignment::Center)
-        .into()
-    }
-
     fn folder_page<'a>(&'a self, selected: &[&'a Node]) -> Element<'a, Message> {
         let mut page = column![
-            self.top(self.breadcrumbs()),
+            top(self.breadcrumbs(), self.search_box()),
             toolbar::view(
                 selected,
                 self.me.lost_and_found_id,
@@ -151,7 +168,7 @@ impl State {
         ]
         .spacing(SPACING);
         if let Some(error) = &self.folder.error {
-            page = page.push(container(text(error.as_str())).style(theme::error));
+            page = page.push(parts::alert_error(Icon::Error, error.as_str(), None));
         }
         let grid = column![
             grid::header(
@@ -168,7 +185,7 @@ impl State {
         match &self.details {
             Some(details) => page.push(
                 row![
-                    list_card(grid.into()),
+                    parts::list_box(grid),
                     details.view(
                         self.syncing
                             .status()
@@ -178,7 +195,7 @@ impl State {
                 ]
                 .spacing(SPACING),
             ),
-            None => page.push(list_card(grid.into())),
+            None => page.push(parts::list_box(grid)),
         }
         .into()
     }
@@ -199,6 +216,13 @@ impl State {
                 context_menu::folders(self.folder.hidden_crumbs()),
             ),
             Menu::Account(placement) => (placement, context_menu::account()),
+            Menu::Device(id, placement) => {
+                let can_sign_out = match &self.page {
+                    Page::Devices(devices) => devices.can_sign_out(id),
+                    _ => false,
+                };
+                (placement, context_menu::device(id, can_sign_out))
+            }
         };
         [
             mouse_area(space().width(Length::Fill).height(Length::Fill))
@@ -310,23 +334,15 @@ fn modal<'a>(content: Element<'a, Message>, on_dismiss: Message) -> Element<'a, 
     opaque(mouse_area(center(opaque(content)).style(theme::backdrop)).on_press(on_dismiss))
 }
 
-/// `content` in the box that rests on the window.
-fn card(content: Element<'_, Message>) -> Element<'_, Message> {
-    container(content)
-        .padding(CARD_PADDING)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .style(theme::card)
-        .into()
-}
-
-/// `content` in the box, reaching its edges inside the border.
-fn list_card(content: Element<'_, Message>) -> Element<'_, Message> {
-    container(content)
-        .padding(LIST_CARD_PADDING)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .style(theme::card)
+/// `title` on the left, what the page offers on the right.
+fn top<'a>(
+    title: impl Into<Element<'a, Message>>,
+    action: Element<'a, Message>,
+) -> Element<'a, Message> {
+    row![container(title).width(Length::Fill).clip(true), action]
+        .spacing(SPACING)
+        .height(TOP_HEIGHT)
+        .align_y(Alignment::Center)
         .into()
 }
 

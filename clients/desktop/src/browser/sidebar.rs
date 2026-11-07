@@ -119,7 +119,11 @@ impl State {
         ]
         .spacing(NAV_SPACING);
         let foot = column![
-            syncing::status_card(self.syncing.status(), compact),
+            syncing::status_card(
+                self.syncing.status(),
+                compact,
+                matches!(self.page, Page::SyncSettings)
+            ),
             account(self.me.username.as_str(), compact)
         ]
         .spacing(FOOT_SPACING);

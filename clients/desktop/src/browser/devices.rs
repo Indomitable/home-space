@@ -1,16 +1,23 @@
 use iced::{
-    Alignment, Element, Length, Padding, Task,
-    widget::{button, column, container, operation, row, scrollable, text, text_input},
+    Alignment, Element, Length, Task,
+    alignment::Horizontal,
+    widget::{button, column, container, operation, row, scrollable, space, text, text_input},
 };
 use uuid::Uuid;
 
 use api_client::{ApiError, Client};
 use client_core::labels::{THIS_DEVICE, device_state, platform, sign_out_question};
-use protocol::Device;
+use protocol::{
+    Device, PLATFORM_ANDROID, PLATFORM_IOS, PLATFORM_LINUX, PLATFORM_MACOS, PLATFORM_WEB,
+    PLATFORM_WINDOWS,
+};
 
-use super::grid::{
-    CELL_SPACING, DATE_WIDTH, EMPTY_PADDING, HEADER_SIZE, ROW_GAP, ROW_PADDING, ROW_SIZE,
-    SCROLLBAR_GUTTER,
+use super::{
+    context_menu::Placement,
+    parts::{
+        COLUMN_GAP, DATE_WIDTH, LIST_PADDING, MENU_WIDTH, ROW_SIZE, SECOND_LINE_SIZE, alert_error,
+        divider, empty, ghost, header_bar, list_box, menu_button, muted_cell, title,
+    },
 };
 use crate::{
     ellipsis::ellipsized,
@@ -19,12 +26,17 @@ use crate::{
     theme,
 };
 
-const SPACING: f32 = 4.0;
-const LABEL_SPACING: f32 = 6.0;
-const NOTE_SIZE: f32 = 13.0;
+const SPACING: f32 = 12.0;
+const NAME_GAP: f32 = 12.0;
+const DEVICE_ROW: f32 = 60.0;
 const NAME_PORTION: u16 = 3;
 const STATE_PORTION: u16 = 2;
-const ACTIONS_WIDTH: f32 = 220.0;
+const PILL_HEIGHT: f32 = 24.0;
+const PILL_SIZE: f32 = 12.0;
+const PILL_PADDING: [f32; 2] = [0.0, 8.0];
+const PILL_GAP: f32 = 6.0;
+/// Between the state and what the device left unfinished, in [`device_state`].
+const STATE_SEPARATOR: &str = " · ";
 const NAME_INPUT: &str = "device-name";
 const SIGN_OUT: &str = "Sign out";
 
@@ -32,6 +44,8 @@ const SIGN_OUT: &str = "Sign out";
 pub enum Message {
     Loaded(Result<Vec<Device>, ApiError>),
     Refresh,
+    /// Opens the menu of a device, which the browser shows.
+    Menu(Uuid, Placement),
     /// Starts renaming a device.
     Rename(Uuid),
     NameChanged(String),
@@ -98,6 +112,8 @@ impl State {
                 Task::none()
             }
             Message::Refresh => self.load(client),
+            // The browser takes this one.
+            Message::Menu(..) => Task::none(),
             Message::Rename(id) => {
                 let Some(name) = self.device(id).map(|device| device.name.clone()) else {
                     return Task::none();
@@ -185,44 +201,45 @@ impl State {
         self.load(client)
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
-        let refresh = tool(Icon::Refresh, "Refresh", Some(Message::Refresh), false);
-        let status = text(if self.loading { "Loading…" } else { "" });
-        let bar = row![refresh, status]
-            .spacing(SPACING)
-            .align_y(Alignment::Center);
-        let mut page = column![bar].spacing(SPACING * 3.0);
-        if let Some(error) = &self.error {
-            page = page.push(container(text(error.as_str())).style(theme::error));
-        }
-        page.push(
-            column![header(), self.rows()]
-                .spacing(SPACING)
-                .height(Length::Fill),
-        )
+    /// Whether `id` can be signed out from here. The current device signs out with the account
+    /// menu; one that is signed out and left nothing behind has nothing to end.
+    pub fn can_sign_out(&self, id: Uuid) -> bool {
+        self.device(id)
+            .is_some_and(|device| !device.current && (device.signed_in || device.uploads > 0))
+    }
+
+    /// What the page's top line offers.
+    pub fn action(&self) -> Element<'_, Message> {
+        row![
+            text(if self.loading { "Loading…" } else { "" }).style(theme::muted_text),
+            ghost(Some(Icon::Refresh), "Refresh", Some(Message::Refresh))
+        ]
+        .spacing(SPACING)
+        .align_y(Alignment::Center)
         .into()
+    }
+
+    pub fn view(&self) -> Element<'_, Message> {
+        let mut page = column![].spacing(SPACING);
+        if let Some(error) = &self.error {
+            page = page.push(alert_error(Icon::Error, error.as_str(), None));
+        }
+        page.push(list_box(column![header(), self.rows()])).into()
     }
 
     fn rows(&self) -> Element<'_, Message> {
         if self.devices.is_empty() {
-            let note = if self.loading {
+            return empty(if self.loading {
                 ""
             } else {
                 "No devices have signed in yet."
-            };
-            return container(text(note))
-                .padding(EMPTY_PADDING)
-                .center_x(Length::Fill)
-                .into();
+            });
         }
-        let rows = self.devices.iter().map(|device| self.device_row(device));
-        scrollable(
-            column(rows)
-                .spacing(ROW_GAP)
-                .padding(Padding::default().right(SCROLLBAR_GUTTER)),
-        )
-        .height(Length::Fill)
-        .into()
+        let rows = self
+            .devices
+            .iter()
+            .flat_map(|device| [self.device_row(device), divider()]);
+        scrollable(column(rows)).height(Length::Fill).into()
     }
 
     fn device_row<'a>(&'a self, device: &'a Device) -> Element<'a, Message> {
@@ -231,25 +248,38 @@ impl State {
             (_, Some(id)) if id == device.id => confirm_cells(device),
             _ => device_cells(device),
         };
-        container(cells.spacing(CELL_SPACING).align_y(Alignment::Center))
-            .padding(ROW_PADDING)
+        container(cells.spacing(COLUMN_GAP).align_y(Alignment::Center))
+            .padding(LIST_PADDING)
+            .center_y(DEVICE_ROW)
+            .width(Length::Fill)
             .into()
     }
 }
 
 fn header<'a>() -> Element<'a, Message> {
-    let title = |label: &'static str| text(label).size(HEADER_SIZE);
-    let cells = row![
-        title("Name").width(Length::FillPortion(NAME_PORTION)),
-        title("Last seen").width(DATE_WIDTH),
-        title("State").width(Length::FillPortion(STATE_PORTION)),
-        title("").width(ACTIONS_WIDTH),
-    ]
-    .spacing(CELL_SPACING)
-    .align_y(Alignment::Center);
-    container(container(cells).padding(ROW_PADDING).style(theme::header))
-        .padding(Padding::default().right(SCROLLBAR_GUTTER))
-        .into()
+    header_bar(
+        row![
+            title("Name", Length::FillPortion(NAME_PORTION), Alignment::Start),
+            title(
+                "State",
+                Length::FillPortion(STATE_PORTION),
+                Alignment::Start
+            ),
+            title("Last seen", DATE_WIDTH, Alignment::Start),
+            space().width(MENU_WIDTH),
+        ],
+        LIST_PADDING,
+    )
+}
+
+/// The icon of a device of `platform`.
+fn platform_icon(platform: &str) -> Icon {
+    match platform {
+        PLATFORM_LINUX | PLATFORM_MACOS | PLATFORM_WINDOWS => Icon::Laptop,
+        PLATFORM_WEB => Icon::Language,
+        PLATFORM_ANDROID | PLATFORM_IOS => Icon::Smartphone,
+        _ => Icon::Devices,
+    }
 }
 
 fn device_cells(device: &Device) -> iced::widget::Row<'_, Message> {
@@ -258,49 +288,62 @@ fn device_cells(device: &Device) -> iced::widget::Row<'_, Message> {
     } else {
         platform(&device.platform).to_owned()
     };
+    let active = device.online || device.signed_in;
+    let (tint, name_style): (Tint, fn(&iced::Theme) -> container::Style) = if active {
+        (Tint::Text, theme::plain)
+    } else {
+        (Tint::Muted, theme::muted)
+    };
     let name = row![
-        Icon::Devices.view(ICON_SIZE, Tint::Muted),
+        platform_icon(&device.platform).view(ICON_SIZE, tint),
         column![
-            ellipsized(device.name.as_str(), ROW_SIZE, Alignment::Start),
-            container(text(kind).size(NOTE_SIZE)).style(theme::muted),
+            container(ellipsized(device.name.as_str(), ROW_SIZE, Alignment::Start))
+                .style(name_style),
+            container(text(kind).size(SECOND_LINE_SIZE)).style(theme::muted),
         ]
         .width(Length::Fill)
     ]
-    .spacing(CELL_SPACING / 1.5)
+    .spacing(NAME_GAP)
     .align_y(Alignment::Center)
     .width(Length::FillPortion(NAME_PORTION));
-    // The current device signs out with the header's Sign out; one that is signed out
-    // and left nothing behind has nothing to end.
-    let can_sign_out = !device.current && (device.signed_in || device.uploads > 0);
-    let actions = row![
-        tool(
-            Icon::Rename,
-            "Rename",
-            Some(Message::Rename(device.id)),
-            false
-        ),
-        tool(
-            Icon::SignOut,
-            SIGN_OUT,
-            can_sign_out.then_some(Message::SignOut(device.id)),
-            true
-        ),
-    ]
-    .spacing(SPACING)
-    .width(ACTIONS_WIDTH);
+    let id = device.id;
     row![
         name,
-        ellipsized(short_date(device.last_seen_at), ROW_SIZE, Alignment::Start).width(DATE_WIDTH),
-        ellipsized(device_state(device), ROW_SIZE, Alignment::Start)
-            .width(Length::FillPortion(STATE_PORTION)),
-        actions,
+        state_cell(device, active),
+        muted_cell(
+            short_date(device.last_seen_at),
+            DATE_WIDTH,
+            Alignment::Start
+        ),
+        menu_button(Message::Cancel, move |bounds| {
+            Message::Menu(id, Placement::hanging(bounds, Horizontal::Right))
+        }),
     ]
+}
+
+/// The state in a pill, with what the device left unfinished next to it.
+fn state_cell<'a>(device: &Device, active: bool) -> Element<'a, Message> {
+    let label = device_state(device);
+    let (state, note) = match label.split_once(STATE_SEPARATOR) {
+        Some((state, note)) => (state.to_owned(), Some(note.to_owned())),
+        None => (label, None),
+    };
+    let pill = container(text(state).size(PILL_SIZE).font(theme::SEMIBOLD))
+        .padding(PILL_PADDING)
+        .center_y(PILL_HEIGHT)
+        .style(theme::pill(active));
+    row![pill]
+        .push(note.map(|note| text(note).size(SECOND_LINE_SIZE).style(theme::muted_text)))
+        .spacing(PILL_GAP)
+        .align_y(Alignment::Center)
+        .width(Length::FillPortion(STATE_PORTION))
+        .into()
 }
 
 fn rename_cells(renaming: &Renaming) -> iced::widget::Row<'_, Message> {
     let can_save = !renaming.saving && !renaming.name.trim().is_empty();
     row![
-        Icon::Devices.view(ICON_SIZE, Tint::Muted),
+        Icon::Rename.view(ICON_SIZE, Tint::Muted),
         text_input("Device name", &renaming.name)
             .style(theme::input)
             .id(NAME_INPUT)
@@ -329,33 +372,10 @@ fn confirm_cells(device: &Device) -> iced::widget::Row<'_, Message> {
     ]
 }
 
-fn tool(icon: Icon, label: &str, message: Option<Message>, danger: bool) -> Element<'_, Message> {
-    let (style, tint): (fn(&iced::Theme, button::Status) -> button::Style, Tint) = if danger {
-        (theme::danger_tool, Tint::Danger)
-    } else {
-        (theme::tool, Tint::Text)
-    };
-    let tint = if message.is_some() {
-        tint
-    } else {
-        Tint::Disabled
-    };
-    button(
-        row![icon.view(ICON_SIZE, tint), text(label)]
-            .spacing(LABEL_SPACING)
-            .align_y(Alignment::Center),
-    )
-    .style(style)
-    .on_press_maybe(message)
-    .into()
-}
-
 #[cfg(test)]
 mod tests {
     use iced_test::simulator;
     use time::OffsetDateTime;
-
-    use protocol::{PLATFORM_LINUX, PLATFORM_WEB};
 
     use super::*;
 
@@ -401,20 +421,37 @@ mod tests {
         assert!(ui.find("Laptop").is_ok());
         assert!(ui.find("Linux · This device").is_ok());
         assert!(ui.find("Web browser").is_ok());
-        assert!(ui.find("Signed in · 2 unfinished uploads").is_ok());
+        assert!(ui.find("Signed in").is_ok());
+        assert!(ui.find("2 unfinished uploads").is_ok());
     }
 
     #[test]
     fn this_device_cannot_be_signed_out_from_the_list() {
+        let state = loaded();
+
+        assert!(!state.can_sign_out(Uuid::from_u128(LAPTOP)));
+        assert!(state.can_sign_out(Uuid::from_u128(BROWSER)));
+    }
+
+    #[test]
+    fn a_signed_out_device_with_nothing_left_has_nothing_to_end() {
         let state = State {
-            devices: vec![device(LAPTOP, "Laptop", PLATFORM_LINUX, true)],
+            devices: vec![Device {
+                signed_in: false,
+                ..device(BROWSER, "Firefox", PLATFORM_WEB, false)
+            }],
             ..State::default()
         };
-        let mut ui = simulator(state.view());
 
-        ui.click(SIGN_OUT).expect("the button is shown");
+        assert!(!state.can_sign_out(Uuid::from_u128(BROWSER)));
+    }
 
-        assert_eq!(ui.into_messages().count(), 0);
+    #[test]
+    fn each_platform_has_its_icon() {
+        assert_eq!(platform_icon(PLATFORM_LINUX), Icon::Laptop);
+        assert_eq!(platform_icon(PLATFORM_WEB), Icon::Language);
+        assert_eq!(platform_icon(PLATFORM_ANDROID), Icon::Smartphone);
+        assert_eq!(platform_icon("toaster"), Icon::Devices);
     }
 
     #[test]

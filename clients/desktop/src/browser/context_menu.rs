@@ -5,10 +5,12 @@ use iced::{
 };
 
 use protocol::{Node, NodeId, NodeKind};
+use uuid::Uuid;
 
 use super::{
-    Message,
+    Message, devices,
     fit_column::fit_column,
+    parts::divider,
     toolbar::{actions, menu_item, menu_row},
 };
 use crate::{
@@ -18,6 +20,7 @@ use crate::{
 
 pub(super) const ITEM_HEIGHT: f32 = 36.0;
 const MENU_PADDING: f32 = 4.0;
+const SEPARATOR_PADDING: [f32; 2] = [4.0, 0.0];
 const EDGE_MARGIN: f32 = 8.0;
 const LABEL_SPACING: f32 = 12.0;
 
@@ -78,6 +81,35 @@ pub fn account<'a>() -> Element<'a, Message> {
         theme::tool,
         Some(Message::SignOut),
     )])
+}
+
+/// The menu of a device: renaming it and signing it out, which `can_sign_out` allows.
+pub fn device<'a>(id: Uuid, can_sign_out: bool) -> Element<'a, Message> {
+    let rename = Message::Devices(devices::Message::Rename(id));
+    let sign_out = Message::Devices(devices::Message::SignOut(id));
+    panel([
+        menu_row(
+            Icon::Rename,
+            Tint::Text,
+            "Rename",
+            "",
+            theme::tool,
+            Some(rename),
+        ),
+        container(divider()).padding(SEPARATOR_PADDING).into(),
+        menu_row(
+            Icon::SignOut,
+            if can_sign_out {
+                Tint::Danger
+            } else {
+                Tint::Disabled
+            },
+            "Sign out",
+            "",
+            theme::danger_tool,
+            can_sign_out.then_some(sign_out),
+        ),
+    ])
 }
 
 /// A menu of `folders` that opens the chosen one.

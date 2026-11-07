@@ -1,5 +1,6 @@
 use protocol::{
-    Device, Node, PLATFORM_ANDROID, PLATFORM_LINUX, PLATFORM_MACOS, PLATFORM_WEB, PLATFORM_WINDOWS,
+    Device, Node, PLATFORM_ANDROID, PLATFORM_IOS, PLATFORM_LINUX, PLATFORM_MACOS, PLATFORM_WEB,
+    PLATFORM_WINDOWS,
 };
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -19,12 +20,13 @@ pub const THIS_DEVICE: &str = "This device";
 pub const ONLINE: &str = "Online";
 
 const LOCATION_SEPARATOR: &str = " / ";
-const PLATFORMS: [(&str, &str); 5] = [
+const PLATFORMS: [(&str, &str); 6] = [
     (PLATFORM_LINUX, "Linux"),
     (PLATFORM_MACOS, "macOS"),
     (PLATFORM_WINDOWS, "Windows"),
     (PLATFORM_WEB, "Web browser"),
     (PLATFORM_ANDROID, "Android"),
+    (PLATFORM_IOS, "iOS"),
 ];
 
 /// What a device runs, e.g. `macOS`; a platform this client does not know is shown as is.

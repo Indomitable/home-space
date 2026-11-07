@@ -13,6 +13,7 @@ const OTHER_FILE_NAME: &str = "notes.txt";
 const FOLDER_ID: u128 = 1;
 const FILE_ID: u128 = 2;
 const OTHER_FILE_ID: u128 = 3;
+const SEARCH_PLACEHOLDER_TEXT: &str = "Search files and folders";
 
 fn id(raw: u128) -> NodeId {
     NodeId(Uuid::from_u128(raw))
@@ -147,6 +148,63 @@ fn the_chip_says_where_the_folder_syncs() {
     let _ = state.update(Message::Sync(syncing::Message::Engine(update)));
 
     assert!(simulator(state.view()).find("Syncs to /sync").is_ok());
+}
+
+#[test]
+fn the_sync_settings_are_a_page_that_escape_leaves() {
+    let mut state = state_with_listing();
+    let _ = state.update(Message::OpenSyncSettings);
+    assert!(matches!(state.page, Page::SyncSettings));
+    assert!(simulator(state.view()).find("Local folder").is_ok());
+
+    let _ = state.update(Message::Shortcut(Shortcut::Escape));
+
+    assert!(matches!(state.page, Page::Folder));
+}
+
+#[test]
+fn the_status_card_opens_the_sync_settings() {
+    let state = state_with_listing();
+    let mut ui = simulator(state.view());
+
+    ui.click("Sync").expect("the card is shown");
+
+    assert!(
+        ui.into_messages()
+            .any(|message| matches!(message, Message::OpenSyncSettings))
+    );
+}
+
+#[test]
+fn the_search_shortcut_returns_to_the_files_where_the_box_is() {
+    let mut state = state_with_listing();
+    let _ = state.update(Message::OpenSyncQueue);
+    assert!(
+        simulator(state.view())
+            .find(SEARCH_PLACEHOLDER_TEXT)
+            .is_err()
+    );
+
+    let _ = state.update(Message::Shortcut(Shortcut::Search));
+
+    assert!(matches!(state.page, Page::Folder));
+}
+
+#[test]
+fn a_device_menu_opens_from_its_row_and_closes_when_it_is_used() {
+    let mut state = state_with_listing();
+    let _ = state.update(Message::OpenDevices);
+    let device = Uuid::from_u128(7);
+
+    let _ = state.update(Message::Devices(devices::Message::Menu(
+        device,
+        Placement::cursor(Point::ORIGIN),
+    )));
+    assert!(matches!(state.menu, Some(Menu::Device(id, _)) if id == device));
+    assert!(simulator(state.view()).find("Rename").is_ok());
+
+    let _ = state.update(Message::Devices(devices::Message::Rename(device)));
+    assert!(state.menu.is_none());
 }
 
 #[test]
@@ -487,7 +545,9 @@ fn results_of_the_current_query_are_shown() {
     )));
     let mut ui = simulator(state.view());
 
-    assert!(ui.find(FILE_NAME).is_ok());
+    assert!(ui.find("1 result").is_ok());
+    assert!(ui.find("rep").is_ok());
+    assert!(ui.find("ort.pdf").is_ok());
 }
 
 #[test]
